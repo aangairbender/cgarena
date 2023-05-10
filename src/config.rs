@@ -1,14 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Config {
-    pub arena: ArenaConfig,
     pub game: GameConfig,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ArenaConfig {
-    pub port: u16,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -18,4 +12,16 @@ pub struct GameConfig {
     pub max_players: i32,
     pub symmetric: bool,
     pub referee: String,
+}
+
+impl Default for GameConfig {
+    fn default() -> Self {
+        Self {
+            title: "CG game".to_string(),
+            min_players: 2,
+            max_players: 2,
+            symmetric: true,
+            referee: "".to_string(),
+        }
+    }
 }

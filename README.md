@@ -16,9 +16,6 @@ This is a local arena for CodinGame challenges.
    This will create `config.toml` file.
 3. Modify `config.toml` file according to the challenge rules, e.g.:
     ```
-    [arena]
-    port = 8080
-
     [game]
     title = "Spring Challenge 2022"
     min_players = 2
@@ -28,8 +25,11 @@ This is a local arena for CodinGame challenges.
     # The command to start the referee process. The referee must respect cg-brutaltester protocol
     referee = "java -jar cg-referee-ghost-in-cell.jar"
     ``` 
-4. Run the following:
+4. Run the following and keep it running in the background:
    ```
    ./cg-local-arena run
    ```
-5. Go to `localhost:8080` to see the UI
+5. In another terminal use CLI commands to work with the tool:
+   ```
+   ./cg-local-arena --help
+   ```

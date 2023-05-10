@@ -12,3 +12,6 @@ dotenvy = "0.15"
 polodb_core = "4.3.0"
 toml = "0.7.3"
 clap = { version = "4.2.7", features = ["derive"] }
+skillratings = { version = "0.24.0", features = ["serde"] }
+tabled = "0.12.0"
+colored = "2.0.0"
