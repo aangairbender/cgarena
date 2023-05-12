@@ -1,16 +1,17 @@
-use std::{fs::{File, OpenOptions, self}, io::{Write, ErrorKind}, path::Path};
+use std::{fs::{File, self}, io::Write, path::Path};
 
 use clap::{Parser, Subcommand};
-use colored::{Colorize, control};
+use colored::Colorize;
 use config::Config;
 use models::{Bot, Match, Language};
-use polodb_core::bson::doc;
-use tabled::Table;
-use uuid::Uuid;
+use tabled::{Table, Tabled};
+
+use crate::config::CONFIG_FILE;
 
 pub mod models;
 pub mod db;
 pub mod config;
+pub mod services;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -47,7 +48,7 @@ enum BotCommands {
         #[arg(short, long)]
         file: String,
         #[arg(short, long, value_enum)]
-        language: Option<Language>,
+        language: Option<String>,
     },
     Remove {
         name: String,
@@ -81,50 +82,132 @@ enum MatchCommands {
     },
 }
 
+#[cfg(windows)]
+fn init_colored() {
+    colored::control::set_virtual_terminal(true).unwrap();
+}
+
+#[cfg(not(windows))]
+fn init_colored() {}
+
+#[derive(Tabled)]
+struct BotView<'a> {
+    name: &'a str,
+    language_name: &'a str,
+    matches: u32,
+    rating: f64,
+}
+
+impl<'a> From<&'a Bot> for BotView<'a> {
+    fn from(bot: &'a Bot) -> Self {
+        Self {
+            name: &bot.name,
+            language_name: &bot.language_name,
+            matches: bot.completed_matches,
+            rating: bot.rating(),
+        }
+    }
+}
+
 fn main() {
-    control::set_virtual_terminal(true).unwrap();
+    init_colored();
     let cli = Cli::parse();
-    let mut db = db::DB::open();
 
     match cli.command {
         Commands::New { name } => cmd_new(&name),
         Commands::Run => todo!(),
         Commands::Bot { command } => match command {
             BotCommands::Add { name, description, file, language } => {
-                let extension = Path::new(&file).extension();
-                let language = language.or_else(|| extension
-                                                        .and_then(|e| e.to_str())
-                                                        .and_then(Language::from_file_extension)).unwrap();
-                let bots_dir = std::env::current_dir().unwrap().join("bots");
-                if !bots_dir.exists() {
-                    panic!("You should run this command inside the arena folder. Use --help for more info.")
-                }
-                let source_code_file = format!("{}.{}", &name, &language.to_file_extension());
-                let target_file = bots_dir.join(source_code_file.clone());
-                fs::copy(file, target_file).unwrap();
-
-                let bot = Bot::new(name, description.unwrap_or_default(), source_code_file, language);
-                let bot_name = bot.name.clone();
-                db.insert_bot(bot);
-                println!("     {} bot '{}' written in '{:?}'", "Added".bright_green(), bot_name, language);
+                cmd_bot_add(name, description, file, language);
             },
             BotCommands::Remove { name } => {
-                db.delete_bot(&name);
-
-                let bots_dir = std::env::current_dir().unwrap().join("bots");
-                // todo delete bot source code
-                println!("     {} bot '{}'", "Removed".bright_red(), name);
+                cmd_bot_remove(name);
             },
             BotCommands::List => {
-                let mut bots = db.fetch_bots();
-                bots.sort_by(|a, b| a.estimated_rating().partial_cmp(&b.estimated_rating()).unwrap().reverse());
-                println!("{}", Table::new(bots));
+                cmd_bot_list();
             },
         },
         Commands::Match { command } => match command {
             MatchCommands::Add { p1, p2, p3, p4, p5, p6, p7, p8, seed, force_single } => todo!(),
         }
     }
+}
+
+fn cmd_bot_list() {
+    let config = Config::open();
+    let mut db = db::DB::open();
+    let mut bots = db.fetch_bots();
+    bots.sort_by(|a, b| a.rating().partial_cmp(&b.rating()).unwrap().reverse());
+    let table = Table::new(bots.iter().map(|b| BotView::from(b)));
+    println!("{}", table);
+}
+
+fn cmd_bot_remove(name: String) {
+    let config = Config::open();
+    let mut db = db::DB::open();
+    db.delete_bot(&name);
+
+    let bot_dir = std::env::current_dir().unwrap()
+        .join("bots")
+        .join(&name);
+    fs::remove_dir_all(bot_dir)
+        .expect("can't remove bot dir");
+    println!("     {} bot '{}'", "Removed".bright_red(), name);
+}
+
+fn cmd_bot_add(name: String, description: Option<String>, file: String, language: Option<String>) {
+    let config = Config::open();
+    let mut db = db::DB::open();
+    let languages = vec![
+        Language {
+            name: "cpp".to_string(),
+            file_extension: "cpp".to_string(),
+            health_check_cmd: vec!["g++".to_string(), "--version".to_string()],
+            build_cmd: Some(vec!["g++".to_string(), "-O0".to_string(), "-g".to_string(), "-o bot".to_string(), "{SOURCE_FILE}".to_string()]),
+            run_cmd: vec!["./bot".to_string()],
+        }
+    ];
+    for lang in &languages {
+        if !services::exec::health_check(lang) {
+            panic!("Language {} didn't pass health check", &lang.name);
+        }
+    }
+    let language_by_extension = |e| languages.iter().find(|lang| lang.file_extension == e);
+    let language_by_name = |e| languages.iter().find(|lang| lang.name == e);
+
+    let file_path = Path::new(&file);
+    if !file_path.exists() {
+        panic!("Provided source code file does not exist");
+    }
+    let file_language = file_path.extension()
+        .and_then(|e| e.to_str())
+        .and_then(language_by_extension);
+    let language = language.and_then(language_by_name).or(file_language)
+        .expect("Language should be supported");
+    let bot_dir = std::env::current_dir().unwrap()
+        .join("bots")
+        .join(&name);
+    fs::create_dir(&bot_dir)
+        .expect("Should create a directory for a new bot");
+    let source_code_file = bot_dir
+        .join(format!("source.{}", &language.file_extension));
+    fs::copy(file, &source_code_file)
+        .expect("Should copy source code to the dedicated folder");
+
+    services::exec::build_source_code(&name, source_code_file.to_str().unwrap(), language)
+        .unwrap_or_else(|e| {
+            fs::remove_dir_all(bot_dir)
+                .expect("can't remove bot dir");
+            println!("code should be without compile errors, but there are some:");
+            println!("{}", e);
+            panic!();
+        });
+
+
+    let bot = Bot::new(name, description.unwrap_or_default(), language.name.clone());
+    let bot_name = bot.name.clone();
+    db.insert_bot(bot);
+    println!("     {} bot '{}' written in '{:?}'", "Added".bright_green(), bot_name, language.name);
 }
 
 fn cmd_new(name: &str) {
@@ -134,11 +217,12 @@ fn cmd_new(name: &str) {
 
     fs::create_dir(&path).unwrap();
 
-    let config = Config::default();
+    let mut config = Config::default();
+    config.game.title = name.to_string();
     let toml_content = toml::to_string(&config)
         .expect("Default config should be serializable");
 
-    let filename = path.join("config.toml");
+    let filename = path.join(CONFIG_FILE);
     let mut file = File::create(filename).unwrap();
 
     file.write_all(toml_content.as_bytes()).unwrap();
