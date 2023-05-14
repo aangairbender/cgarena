@@ -1,7 +1,7 @@
 mod bot;
-mod r#match;
 mod language;
+mod r#match;
 
 pub use self::bot::Bot;
-pub use self::r#match::Match;
 pub use self::language::Language;
+pub use self::r#match::Match;

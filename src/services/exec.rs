@@ -2,11 +2,16 @@ use std::process::{Command, Stdio};
 
 use crate::models::Language;
 
-const SOURCE_FILE_TEMPLATE: &'static str = "{SOURCE_FILE}";
+const SOURCE_FILE_TEMPLATE: &str = "{SOURCE_FILE}";
 
-pub fn build_source_code(bot_name: &str, filename: &str, language: &Language) -> Result<(), String> {
+pub fn build_source_code(
+    bot_name: &str,
+    filename: &str,
+    language: &Language,
+) -> Result<(), String> {
     if let Some(build_cmd) = language.build_cmd.as_ref() {
-        let tokens = build_cmd.iter()
+        let tokens = build_cmd
+            .iter()
             .map(|t| t.replace(SOURCE_FILE_TEMPLATE, filename))
             .collect::<Vec<String>>();
         let build_output = Command::new(&tokens[0])
