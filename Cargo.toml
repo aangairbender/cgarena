@@ -14,3 +14,4 @@ clap = { version = "4.2.7", features = ["derive"] }
 skillratings = { version = "0.24.0", features = ["serde"] }
 tabled = "0.12.0"
 colored = "2.0.0"
+fs2 = "0.4.3"

@@ -1,6 +1,7 @@
 use std::{fs, io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
+use fs2::FileExt;
 
 pub struct JsonDB<T> {
     db_file: PathBuf,
@@ -31,9 +32,12 @@ impl<T: Serialize + for<'a> Deserialize<'a>> JsonDB<T> {
     where
         F: FnOnce(&mut Vec<T>),
     {
+        let file = fs::File::open(&self.db_file)?;
+        file.lock_exclusive()?;
         let mut data = self.load()?;
         f(&mut data);
         self.save(data)?;
+        file.unlock()?;
         Ok(())
     }
 }

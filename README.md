@@ -1,14 +1,14 @@
-# CG Local Arena
+# CG Arena
 
 This is a local arena for CodinGame challenges.
 
 ## How to use
 
-1. To create a new arena for a game use `cg-local-arena new`:
+1. To create a new arena for a game use `cgarena new`:
    ```shell
-   cg-local-arena new spring-challenge-2022
+   cgarena new spring-challenge-2022
    ```
-   Let's check out what CG Local Arena has generated for us:
+   Let's check out what CG Arena has generated for us:
    ```shell
    cd spring-challenge-2022
    tree .
@@ -27,7 +27,7 @@ This is a local arena for CodinGame challenges.
    symmetric = true
    referee = ""
    ```
-   This is called arena config, and it contains all of the config that CG Local Arena needs to function.
+   This is called arena config, and it contains all of the config that CG Arena needs to function.
 2. Modify `config.toml` file according to the challenge rules, e.g.:
     ```toml
     [game]
@@ -41,16 +41,28 @@ This is a local arena for CodinGame challenges.
     ``` 
 3. Run the following and keep it running in the background:
    ```shell
-   cg-local-arena run
+   cgarena run
    ```
 4. In another terminal use CLI commands to work with the tool:
    ```shell
-   cg-local-arena --help
+   cgarena help
    ```
 
 ### Adding a bot
 
 To add the bot run the following:
 ```shell
-cg-local-arena bot add "test-bot" -f test.cpp
+cgarena bot add "test-bot" -f test.cpp
+```
+
+### Adding a worker
+
+Start the worker on another pc in local network:
+```shell
+cgarena-worker -t 4
+```
+
+To add the worker run the following:
+```shell
+cgarena worker add "local-laptop" -h <host> -p <port>
 ```

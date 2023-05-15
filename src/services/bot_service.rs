@@ -20,7 +20,7 @@ impl<'a> BotService<'a> {
         source_file: String,
         language_name: Option<String>,
     ) -> Result<Bot, Error> {
-        let language = self.detect_language(&source_file, language_name.map(|s| s.as_str()))    
+        let language = self.detect_language(&source_file, language_name.as_deref())    
             .ok_or(Error::UnsupportedLanguage)?;
 
         let bot_dir = std::env::current_dir()
@@ -77,7 +77,8 @@ impl<'a> BotService<'a> {
     }
 }
 
-enum Error {
+#[derive(Debug)]
+pub enum Error {
     SourceNotFound,
     UnsupportedLanguage,
     BuildError,
