@@ -55,7 +55,7 @@ To add the bot run the following:
 cgarena bot add "test-bot" -f test.cpp
 ```
 
-### Adding a worker
+### Adding a standalone worker
 
 Start the worker on another pc in local network:
 ```shell
@@ -66,3 +66,5 @@ To add the worker run the following:
 ```shell
 cgarena worker add "local-laptop" -h <host> -p <port>
 ```
+
+You should manually install all the languages to each worker. CG Arena will perform a health check on each worker for each language defined in config.
