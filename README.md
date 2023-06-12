@@ -2,6 +2,12 @@
 
 This is a local arena for CodinGame challenges.
 
+## Features
+
+- Add bots
+- Run matches
+- Check the rating
+
 ## How to use
 
 1. To create a new arena for a game use `cgarena new`:

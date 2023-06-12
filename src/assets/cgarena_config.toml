@@ -1,0 +1,9 @@
+[game]
+min_players = 2
+max_players = 2
+# Whether the map is symmetric for all the players. If set to false extra mirror matches would be played.
+symmetric = true
+# The command to start the referee process. The referee must respect cg-brutaltester protocol
+referee = "java -jar cg-referee-ghost-in-cell.jar"
+
+[[languages]]

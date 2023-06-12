@@ -27,7 +27,7 @@ impl CliService {
             Commands::Run => todo!(),
             Commands::Bot { command } => {
                 match Self::arena_state() {
-                    ArenaState::Unitialized => panic!("You should run this command from the arena folder. Try creating one first with 'cg-local-arena new' command"),
+                    ArenaState::Unitialized => panic!("You should run this command from the arena folder. Try creating one first with 'cgarena new' command"),
                     ArenaState::Initialized { arena_root, config } => self.cmd_bot(command, &arena_root, &config),
                 }
             },

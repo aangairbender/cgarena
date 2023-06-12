@@ -12,7 +12,6 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize)]
 pub struct GameConfig {
-    pub title: String,
     pub min_players: i32,
     pub max_players: i32,
     pub symmetric: bool,
@@ -22,7 +21,6 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            title: "CG game".to_string(),
             min_players: 2,
             max_players: 2,
             symmetric: true,
