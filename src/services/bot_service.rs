@@ -1,21 +1,36 @@
-use std::{fs, path::Path};
+use std::{fs, path::{Path, PathBuf}, rc::Rc, io};
+
+use thiserror::Error;
 
 use crate::{config::Config, models::{Bot, Language}};
 
 use super::db::DB;
 
-pub struct BotService<'a> {
-    config: &'a Config,
-    db: &'a DB,
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("This language is not supported")]
+    UnsupportedLanguage,
+    #[error("Bot with the same name already exists")]
+    AlreadyExists,
+    #[error("Bot with such name cannot be found")]
+    NotFound,
+    #[error(transparent)]
+    IO(#[from] io::Error)
 }
 
-impl<'a> BotService<'a> {
-    pub fn new(config: &'a Config, db: &'a DB) -> Self {
-        Self { config, db }
+pub struct BotService {
+    bots_dir: PathBuf,
+    config: Rc<Config>,
+    db: Rc<DB>,
+}
+
+impl BotService {
+    pub fn new(bots_dir: PathBuf, config: Rc<Config>, db: Rc<DB>) -> Self {
+        Self { bots_dir, config, db }
     }
 
     pub fn add_bot(
-        &'a self,
+        &self,
         name: String,
         source_file: String,
         language_name: Option<String>,
@@ -23,37 +38,44 @@ impl<'a> BotService<'a> {
         let language = self.detect_language(&source_file, language_name.as_deref())    
             .ok_or(Error::UnsupportedLanguage)?;
 
-        let bot_dir = std::env::current_dir()
-            .unwrap()
-            .join("bots")
-            .join(&name);
-        fs::create_dir(&bot_dir)
-            .expect("Should create a directory for a new bot");
-        let source_code_file = bot_dir.join(format!("source.{}", &language.file_extension));
-        fs::copy(source_file, &source_code_file)
-            .expect("Should copy source code to the dedicated folder");
+        if self.already_exists(&name) {
+            return Err(Error::AlreadyExists);
+        }
+        let source_code_file = self.bots_dir.join(format!("{}.{}", &name, &language.file_extension));
+        fs::copy(source_file, &source_code_file)?;
 
-        super::exec::build_source_code(&name, source_code_file.to_str().unwrap(), language)
-            .unwrap_or_else(|e| {
-                fs::remove_dir_all(bot_dir).expect("can't remove bot dir");
-                eprintln!("code should be without compile errors, but there are some:");
-                eprintln!("{}", e);
-                panic!();
-            });
+        // super::exec::build_source_code(&name, source_code_file.to_str().unwrap(), language)
+        //     .unwrap_or_else(|e| {
+        //         fs::remove_dir_all(bot_dir).expect("can't remove bot dir");
+        //         eprintln!("code should be without compile errors, but there are some:");
+        //         eprintln!("{}", e);
+        //         panic!();
+        //     });
 
-        let bot = Bot::new(name, language.name.clone());
+        let bot = Bot::new(name, language.name.clone(), source_code_file);
         self.db.insert_bot(bot.clone());
         Ok(bot)
     }
 
-    pub fn remove_bot(&'a self, name: &str) {
-        self.db.delete_bot(name);
-
-        let bot_dir = std::env::current_dir().unwrap().join("bots").join(name);
-        fs::remove_dir_all(bot_dir).expect("can't remove bot dir");
+    fn already_exists(&self, name: &str) -> bool {
+        self.bots_dir.read_dir().map(|iter|
+            iter.filter_map(|v| v.ok())
+                .any(|f| f.file_name().eq_ignore_ascii_case(name))
+        );
     }
 
-    pub fn list_bots(&'a self) -> impl Iterator<Item = Bot> {
+    pub fn remove_bot(&self, name: &str) -> Result<(), Error> {
+        if let Some(bot) = self.db.fetch_bots().into_iter().find(|b| b.name == name) {
+            self.db.delete_bot(name);
+
+            fs::remove_file(bot.source_file)?;
+            Ok(())
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    pub fn list_bots(self) -> impl Iterator<Item = Bot> {
         self.db.fetch_bots().into_iter()
     }
 
@@ -75,11 +97,4 @@ impl<'a> BotService<'a> {
             .and_then(language_by_name)
             .or(file_language)
     }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    SourceNotFound,
-    UnsupportedLanguage,
-    BuildError,
 }
