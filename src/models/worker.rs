@@ -1,9 +1,13 @@
 use async_trait::async_trait;
+use uuid::Uuid;
 
 use super::{Language, Match};
 
 pub struct Worker {
+    pub id: Uuid,
     pub name: String,
+    pub host: String,
+    pub port: u16,
 }
 
 #[async_trait]

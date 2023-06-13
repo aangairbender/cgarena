@@ -1,18 +1,17 @@
+use std::rc::Rc;
+
 use colored::Colorize;
 use tabled::Tabled;
 
 use crate::models::Bot;
 use crate::services::bot_service::BotService;
 
-pub struct BotSubCommandHandler<'a, 'b> {
-    bot_service: &'a BotService<'b>,
+pub struct BotSubCommandHandler {
+    bot_service: Rc<BotService>,
 }
 
-impl<'a, 'b> BotSubCommandHandler<'a, 'b>
-where
-    'a: 'b,
-{
-    pub fn new(bot_service: &'a BotService<'b>) -> Self {
+impl BotSubCommandHandler {
+    pub fn new(bot_service: Rc<BotService>) -> Self {
         Self { bot_service }
     }
 

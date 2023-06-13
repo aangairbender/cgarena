@@ -9,12 +9,12 @@ pub struct Match {
     pub status: Status,
     pub seed: i32,
     pub bot_ids: Vec<Uuid>,
-    pub bot_scores: HashMap<Uuid, f32>,
+    pub rotation_offset: u8,
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum Status {
     Pending,
-    Running,
-    Completed,
+    Assigned { worker_id: Uuid },
+    Completed { bot_scores: HashMap<Uuid, f32> },
 }

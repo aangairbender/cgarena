@@ -1,11 +1,11 @@
 mod bot_subcommand_handler;
 
-use std::path::{Path, PathBuf};
+use std::{path::{Path, PathBuf}, rc::Rc};
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 
-use crate::{config::{Config, self}, services::tool};
+use crate::config::{Config, self};
 
 use self::bot_subcommand_handler::BotSubCommandHandler;
 
@@ -28,7 +28,7 @@ impl CliService {
             Commands::Bot { command } => {
                 match Self::arena_state() {
                     ArenaState::Unitialized => panic!("You should run this command from the arena folder. Try creating one first with 'cgarena new' command"),
-                    ArenaState::Initialized { arena_root, config } => self.cmd_bot(command, &arena_root, &config),
+                    ArenaState::Initialized { arena_root, config } => todo!()//self.cmd_bot(command, &arena_root, &config),
                 }
             },
             // Commands::Match { command } => match command {
@@ -46,26 +46,26 @@ impl CliService {
         } else { ArenaState::Unitialized }
     }
 
-    fn cmd_bot(&mut self, command: BotCommands, arena_root: &Path, config: &Config) {
-        let db = DB::open(arena_root);
-        let bot_service = BotService::new(config, &db);
-        let handler = BotSubCommandHandler::new(&bot_service);
-        match command {
-            BotCommands::Add {
-                name,
-                file,
-                language,
-            } => {
-                handler.cmd_bot_add(name, file, language);
-            }
-            BotCommands::Remove { name } => {
-                handler.cmd_bot_remove(name);
-            }
-            BotCommands::List => {
-                handler.cmd_list();
-            }
-        }
-    }
+    // fn cmd_bot(&mut self, command: BotCommands, arena_root: &Path, config: &Config) {
+    //     let db = DB::open(arena_root);
+    //     let bot_service = BotService::new(config, &db);
+    //     let handler = BotSubCommandHandler::new(Rc::new(bot_service));
+    //     match command {
+    //         BotCommands::Add {
+    //             name,
+    //             file,
+    //             language,
+    //         } => {
+    //             handler.cmd_bot_add(name, file, language);
+    //         }
+    //         BotCommands::Remove { name } => {
+    //             handler.cmd_bot_remove(name);
+    //         }
+    //         BotCommands::List => {
+    //             handler.cmd_list();
+    //         }
+    //     }
+    // }
 
     fn cmd_new(&mut self, name: &str) {
         tool::create_new_arena(name);
@@ -75,84 +75,4 @@ impl CliService {
             name
         );
     }
-}
-
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-#[command(propagate_version = true)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    // init the config file
-    New {
-        name: String,
-    },
-    // run the arena
-    Run,
-    Bot {
-        #[command(subcommand)]
-        command: BotCommands,
-    },
-    // Match {
-    //     #[command(subcommand)]
-    //     command: MatchCommands,
-    // },
-}
-
-#[derive(Subcommand)]
-enum BotCommands {
-    Add {
-        name: String,
-        #[arg(short, long)]
-        file: String,
-        #[arg(short, long, value_enum)]
-        language: Option<String>,
-    },
-    Remove {
-        name: String,
-    },
-    List,
-}
-
-// #[derive(Subcommand)]
-// enum MatchCommands {
-//     Add {
-//         #[arg(long)]
-//         p1: Option<String>,
-//         #[arg(long)]
-//         p2: Option<String>,
-//         #[arg(long)]
-//         p3: Option<String>,
-//         #[arg(long)]
-//         p4: Option<String>,
-//         #[arg(long)]
-//         p5: Option<String>,
-//         #[arg(long)]
-//         p6: Option<String>,
-//         #[arg(long)]
-//         p7: Option<String>,
-//         #[arg(long)]
-//         p8: Option<String>,
-//         #[arg(short, long)]
-//         seed: i32,
-//         #[arg(long)]
-//         force_single: Option<bool>,
-//     },
-// }
-
-#[cfg(windows)]
-fn init_colored() {
-    colored::control::set_virtual_terminal(true).unwrap();
-}
-
-#[cfg(not(windows))]
-fn init_colored() {}
-
-pub enum ArenaState {
-    Unitialized,
-    Initialized { arena_root: PathBuf, config: Config },
 }

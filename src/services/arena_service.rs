@@ -2,7 +2,7 @@ use std::{path::{Path, PathBuf}, fs, io, rc::Rc};
 
 use thiserror::Error;
 
-use crate::config::Config;
+use crate::arena_config::ArenaConfig;
 
 use super::{db::DB, bot_service::BotService};
 
@@ -37,17 +37,16 @@ impl ArenaService {
     }
 
     pub fn new(path: &Path) -> Result<Self, Error> {
+        let config = Rc::new(Self::load_config(path)?);
+        let db = Rc::new(DB::open(path));
+        let bot_service = BotService::new(Self::bots_dir_path(path), config.clone(), db);
+        Ok(Self { config, bot_service })
+    }
+
+    fn load_config(path: &Path) -> Result<Config, Error> {
         let config_file_path = Self::config_file_path(path);
         let config_content = fs::read_to_string(config_file_path)?;
-        match toml::from_str::<Config>(&config_content) {
-            Ok(config) => {
-                let config = Rc::new(config);
-                let db = DB::open(path);
-                let bot_service = BotService::new(Self::bots_dir_path(path), config.clone(), &db);
-                Ok(Self { config, bot_service })
-            },
-            Err(e) => Err(Error::InvalidConfig(e))
-        }
+        toml::from_str::<Config>(&config_content).map_err(Error::InvalidConfig)
     }
 
     fn config_file_path(path: &Path) -> PathBuf {
@@ -61,13 +60,19 @@ impl ArenaService {
 
 #[cfg(test)]
 mod test {
-    use crate::config::Config;
-
+    use tempdir::TempDir;
     use super::*;
 
     #[test]
-    fn default_config_can_be_deserialized() {
-        let config = toml::from_str::<Config>(DEFAULT_CONFIG_CONTENT);
-        assert!(config.is_ok());
+    fn new_arena_can_be_created() {
+        let tmp_dir = TempDir::new("cgarena").unwrap();
+        let path = tmp_dir.path().join("test");
+        let res = ArenaService::create_new_arena(&path);
+        assert!(res.is_ok(), "Arena creation failed {:?}", res.err());
+        assert!(path.join("cgarena_config.toml").exists());
+        assert!(path.join("bots").is_dir());
+
+        let arena = ArenaService::new(&path);
+        assert!(arena.is_ok(), "New arena load failed {:?}", arena.err());
     }
 }

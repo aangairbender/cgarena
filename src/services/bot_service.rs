@@ -2,7 +2,7 @@ use std::{fs, path::{Path, PathBuf}, rc::Rc, io};
 
 use thiserror::Error;
 
-use crate::{config::Config, models::{Bot, Language}};
+use crate::{arena_config::Config, models::{Bot, Language}};
 
 use super::db::DB;
 
@@ -38,7 +38,7 @@ impl BotService {
         let language = self.detect_language(&source_file, language_name.as_deref())    
             .ok_or(Error::UnsupportedLanguage)?;
 
-        if self.already_exists(&name) {
+        if self.already_exists(&name)? {
             return Err(Error::AlreadyExists);
         }
         let source_code_file = self.bots_dir.join(format!("{}.{}", &name, &language.file_extension));
@@ -57,11 +57,15 @@ impl BotService {
         Ok(bot)
     }
 
-    fn already_exists(&self, name: &str) -> bool {
-        self.bots_dir.read_dir().map(|iter|
-            iter.filter_map(|v| v.ok())
-                .any(|f| f.file_name().eq_ignore_ascii_case(name))
-        );
+    fn already_exists(&self, name: &str) -> Result<bool, io::Error> {
+        self.bots_dir.read_dir().and_then(|iter| {
+            for entry in iter {
+                if entry?.file_name().eq_ignore_ascii_case(name) {
+                    return Ok(true)
+                }
+            }
+            Ok(false)
+        })
     }
 
     pub fn remove_bot(&self, name: &str) -> Result<(), Error> {
@@ -75,7 +79,7 @@ impl BotService {
         }
     }
 
-    pub fn list_bots(self) -> impl Iterator<Item = Bot> {
+    pub fn list_bots(&self) -> impl Iterator<Item = Bot> {
         self.db.fetch_bots().into_iter()
     }
 

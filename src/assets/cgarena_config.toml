@@ -8,3 +8,13 @@ referee_file = "cg-referee-ghost-in-cell.jar"
 referee_cmd = "java -jar ${referee_file}"
 
 [[languages]]
+name = "C++"
+file_extension = "cpp"
+health_check_cmd = ["g++", "--version"]
+build_cmd = ["g++", "--std=c++17", "-Og", "-o bot", "${source_file}"]
+run_cmd = ["./bot"]
+
+[server]
+host = "127.0.0.1"
+port = 12345
+embedded_worker_threads = 1
