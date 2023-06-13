@@ -4,17 +4,25 @@ max_players = 2
 # Whether the map is symmetric for all the players. If set to false extra mirror matches would be played.
 symmetric = true
 # The command to start the referee process. The referee must output score for each player after the game ends.
-referee_file = "cg-referee-ghost-in-cell.jar"
-referee_cmd = "java -jar ${referee_file}"
 
-[[languages]]
-name = "C++"
-file_extension = "cpp"
-health_check_cmd = ["g++", "--version"]
-build_cmd = ["g++", "--std=c++17", "-Og", "-o bot", "${source_file}"]
-run_cmd = ["./bot"]
+[worker]
+referee_cmd = "java -jar cg-referee-spring-challenge-2023.jar"
 
 [server]
 host = "127.0.0.1"
 port = 12345
 embedded_worker_threads = 1
+
+[[languages]]
+name = "cpp"
+file_extension = "cpp"
+health_check_cmd = ["g++", "--version"]
+build_cmd = ["g++", "--std=c++17", "-Og", "-o bot", "${source_file}"]
+run_cmd = ["./bot"]
+
+[[languages]]
+name = "rust"
+file_extension = "rs"
+health_check_cmd = ["rustc", "--version"]
+build_cmd = ["cargo", "build", "${source_file}", "--release"]
+run_cmd = ["./target/release/bot"]

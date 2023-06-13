@@ -14,8 +14,6 @@ pub struct GameConfig {
     pub min_players: i32,
     pub max_players: i32,
     pub symmetric: bool,
-    pub referee_file: String,
-    pub referee_cmd: String,
 }
 
 #[derive(Serialize, Deserialize)]
