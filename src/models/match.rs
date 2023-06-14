@@ -9,7 +9,6 @@ pub struct Match {
     pub status: Status,
     pub seed: i32,
     pub bot_ids: Vec<Uuid>,
-    pub rotation_offset: u8,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-# CG Arena
+# CG Arena (readme is outdated)
 
 This is a local arena for CodinGame challenges.
 

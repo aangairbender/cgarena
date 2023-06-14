@@ -1,5 +1,5 @@
 [package]
-name = "cg-local-arena"
+name = "cg-arena"
 version = "0.1.0"
 edition = "2021"
 
@@ -22,3 +22,5 @@ thiserror = "1.0"
 sysinfo = "0.29.2"
 tempdir = "0.3.7"
 axum = "0.6.18"
+log = "0.4.19"
+simplelog = "0.12.1"

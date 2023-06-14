@@ -1,12 +1,11 @@
-use std::{path::{Path, PathBuf}, fs, io, rc::Rc};
+use std::{path::{Path, PathBuf}, fs, io, sync::Arc};
 
 use thiserror::Error;
 
-use crate::arena_config::ArenaConfig;
+use crate::server::{config::{Config, ServerConfig}, workers::EmbeddedWorker};
 
-use super::{db::DB, bot_service::BotService};
+static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/cgarena_config.toml"));
 
-static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/assets/cgarena_config.toml"));
 const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
 const BOTS_DIR_NAME: &str = "bots";
 
@@ -19,8 +18,8 @@ pub enum Error {
 }
 
 pub struct ArenaService {
-    config: Rc<Config>,
-    bot_service: BotService,
+    config: Config,
+    worker: EmbeddedWorker,
 }
 
 impl ArenaService {
@@ -37,16 +36,24 @@ impl ArenaService {
     }
 
     pub fn new(path: &Path) -> Result<Self, Error> {
-        let config = Rc::new(Self::load_config(path)?);
-        let db = Rc::new(DB::open(path));
-        let bot_service = BotService::new(Self::bots_dir_path(path), config.clone(), db);
-        Ok(Self { config, bot_service })
+        let config = Self::load_config(path)?;
+        let worker = EmbeddedWorker::new(config.server.embedded_worker_threads);
+        Ok(Self { config, worker })
+    }
+
+    pub fn server_config(&self) -> &ServerConfig {
+        &self.config.server
+    }
+
+    pub async fn add_bot(&mut self, name: String, source_code: String, language_name: String) {
+        
     }
 
     fn load_config(path: &Path) -> Result<Config, Error> {
         let config_file_path = Self::config_file_path(path);
         let config_content = fs::read_to_string(config_file_path)?;
-        toml::from_str::<Config>(&config_content).map_err(Error::InvalidConfig)
+        toml::from_str(&config_content)
+            .map_err(Error::InvalidConfig)
     }
 
     fn config_file_path(path: &Path) -> PathBuf {

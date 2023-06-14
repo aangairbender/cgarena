@@ -1,10 +1,8 @@
-use std::{error::Error, path::PathBuf, net::SocketAddr};
+use std::{error::Error, path::PathBuf};
 
-use axum::{Router, routing::{post, delete}, extract::Path};
-use cg_local_arena::server;
+use cg_arena::server::{ArenaService, start_arena_server};
 use clap::{Parser, Subcommand, command};
-use reqwest::StatusCode;
-use uuid::Uuid;
+use simplelog::{SimpleLogger, TermLogger, Config, CombinedLogger};
 
 
 #[derive(Parser)]
@@ -26,11 +24,11 @@ enum Commands {
         #[command(subcommand)]
         command: RunCommands,
     },
-    /// Manage the bots
-    Bot {
-        #[command(subcommand)]
-        command: BotCommands,
-    },
+    // Manage the bots
+    // Bot {
+    //     #[command(subcommand)]
+    //     command: BotCommands,
+    // },
     // Match {
     //     #[command(subcommand)]
     //     command: MatchCommands,
@@ -94,20 +92,24 @@ enum BotCommands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    init_colored();
+    TermLogger::init(
+        log::LevelFilter::Info,
+        simplelog::Config::default(),
+        simplelog::TerminalMode::Stderr,
+        simplelog::ColorChoice::Auto
+    ).unwrap();
+    // init_colored();
     let cli = Cli::parse();
 
     match cli.command {
         Commands::New { path } => {
-            todo!()
-            //let path = PathBuf::from(path);
-            //ArenaService::create_new_arena(&path)?;
+            let path = PathBuf::from(path);
+            ArenaService::create_new_arena(&path)?;
+            log::info!("New arena has been created");
+            Ok(())
         },
-        Commands::Run { command } => handle_run(command),
-        Commands::Bot { command } => {
-            let path = std::env::current_dir()?;
-            todo!("read config and init arena client");
-        },
+        Commands::Run { command } => handle_run(command).await,
+        // Commands::Bot { command } => handle_bot(command).await,
         // Commands::Match { command } => match command {
         //     MatchCommands::Add { p1, p2, p3, p4, p5, p6, p7, p8, seed, force_single } => todo!(),
         // }
@@ -115,10 +117,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn handle_run(command: RunCommands) -> Result<(), Box<dyn Error>> {
+    let path = std::env::current_dir()?;
     match command {
-        RunCommands::Server => server::start_arena_server(config),
+        RunCommands::Server => start_arena_server(&path).await,
         RunCommands::Worker { threads } => todo!(),
     }
+}
+
+async fn handle_bot(command: BotCommands) -> Result<(), Box<dyn Error>> {
+    let path = std::env::current_dir()?;
+    todo!("read config and init arena client");
 }
 
 #[cfg(windows)]

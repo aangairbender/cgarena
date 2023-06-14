@@ -1,11 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::Language;
-
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub game: GameConfig,
-    pub languages: Vec<Language>,
     pub server: ServerConfig,
 }
 
@@ -21,4 +18,7 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub embedded_worker_threads: u8,
+    pub worker_template_path: String,
+    pub referee_path: String,
+    pub referee_cmd: String,
 }
