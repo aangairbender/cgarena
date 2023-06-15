@@ -2,7 +2,7 @@ use std::{path::{Path, PathBuf}, fs, io, sync::Arc};
 
 use thiserror::Error;
 
-use crate::server::{config::{Config, ServerConfig}, workers::EmbeddedWorker};
+use crate::{server::{config::{Config, ServerConfig}, workers::EmbeddedWorker}, db::{memory_db::MemoryDB, DB}, models::Bot};
 
 static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/cgarena_config.toml"));
 
@@ -18,8 +18,10 @@ pub enum Error {
 }
 
 pub struct ArenaService {
+    path: PathBuf,
     config: Config,
     worker: EmbeddedWorker,
+    bots: MemoryDB<Bot>,
 }
 
 impl ArenaService {
@@ -38,15 +40,19 @@ impl ArenaService {
     pub fn new(path: &Path) -> Result<Self, Error> {
         let config = Self::load_config(path)?;
         let worker = EmbeddedWorker::new(config.server.embedded_worker_threads);
-        Ok(Self { config, worker })
+        Ok(Self { path: path.to_owned(), config, worker, bots: Default::default() })
     }
 
     pub fn server_config(&self) -> &ServerConfig {
         &self.config.server
     }
 
-    pub async fn add_bot(&mut self, name: String, source_code: String, language_name: String) {
-        
+    pub async fn add_bot(&self, name: String, source_code: String, language_name: String) {
+        let source_file_name = format!("{}.txt", name);
+        let source_file = Self::bots_dir_path(&self.path).join(source_file_name);
+        fs::write(source_file, source_code)?;
+        let bot = Bot::new(name, source_file, language_name);
+        self.bots.put(bot.id, bot);
     }
 
     fn load_config(path: &Path) -> Result<Config, Error> {
