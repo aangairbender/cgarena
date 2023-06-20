@@ -1,10 +1,9 @@
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
+
 
 #[derive(Serialize, Deserialize)]
-pub struct Language {
-    pub name: String,
-    pub file_extension: String,
-    pub health_check_cmd: Vec<String>,
-    pub build_cmd: Option<Vec<String>>,
-    pub run_cmd: Vec<String>,
+pub enum Language {
+    Cpp,
+    Rust,
+    Python
 }

@@ -5,23 +5,29 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use super::ArenaService;
+use crate::models::Language;
+
+use super::{ArenaService, services::arena};
 
 #[derive(Deserialize)]
 pub struct BotAddReq {
     name: String,
     source_code: String,
-    language_name: String,
+    language: Language,
 }
 
-#[axum_macros::debug_handler]
 pub async fn add(
     State(arena): State<Arc<ArenaService>>,
     Json(payload): Json<BotAddReq>,
 ) -> StatusCode {
-    let BotAddReq{ name, source_code, language_name } = payload;
-    arena.add_bot(name, source_code, language_name).await;
-    StatusCode::OK
+    let BotAddReq{ name, source_code, language } = payload;
+    match arena.add_bot(name, source_code, language).await {
+        Ok(_) => StatusCode::OK,
+        Err(e) => match e {
+            arena::Error::InvalidConfig(_) => StatusCode::BAD_REQUEST,
+            arena::Error::IO(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
 }
 
 pub async fn list() -> StatusCode {

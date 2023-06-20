@@ -1,1 +1,1 @@
-pub mod arena_service;
+pub mod arena;

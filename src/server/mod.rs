@@ -7,7 +7,7 @@ use std::{net::SocketAddr, path::Path, sync::Arc, error::Error};
 
 use axum::{Router, routing::{post, delete}};
 
-pub use services::arena_service::*;
+pub use services::arena::*;
 
 pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
     let arena_service = Arc::new(ArenaService::new(path)?);

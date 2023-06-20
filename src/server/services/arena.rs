@@ -2,7 +2,7 @@ use std::{path::{Path, PathBuf}, fs, io, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{server::{config::{Config, ServerConfig}, workers::EmbeddedWorker}, db::{memory_db::MemoryDB, DB}, models::Bot};
+use crate::{server::{config::{Config, ServerConfig}, workers::EmbeddedWorker}, db::{memory_db::MemoryDB, DB}, models::{Bot, Language}};
 
 static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/cgarena_config.toml"));
 
@@ -14,7 +14,7 @@ pub enum Error {
     #[error("Invalid config")]
     InvalidConfig(#[from] toml::de::Error),
     #[error(transparent)]
-    Other(#[from] io::Error)
+    IO(#[from] io::Error)
 }
 
 pub struct ArenaService {
@@ -47,12 +47,21 @@ impl ArenaService {
         &self.config.server
     }
 
-    pub async fn add_bot(&self, name: String, source_code: String, language_name: String) {
+    pub async fn add_bot(&self, name: String, source_code: String, language: Language) -> Result<(), Error> {
         let source_file_name = format!("{}.txt", name);
         let source_file = Self::bots_dir_path(&self.path).join(source_file_name);
-        fs::write(source_file, source_code)?;
-        let bot = Bot::new(name, source_file, language_name);
+        fs::write(&source_file, source_code)?;
+        let bot = Bot::new(name, source_file, language);
         self.bots.put(bot.id, bot);
+        Ok(())
+    }
+
+    pub async fn remove_bot(&self, name: String) -> Result<(), Error> {
+        let source_file_name = format!("{}.txt", name);
+        let source_file = Self::bots_dir_path(&self.path).join(source_file_name);
+        fs::remove_file(&source_file)?;
+        self.bots.delete(id);
+        Ok(())
     }
 
     fn load_config(path: &Path) -> Result<Config, Error> {
