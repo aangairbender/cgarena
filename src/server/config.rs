@@ -15,7 +15,6 @@ pub struct GameConfig {
 
 #[derive(Serialize, Deserialize)]
 pub struct ServerConfig {
-    pub host: String,
     pub port: u16,
     pub embedded_worker_threads: u8,
     pub worker_template_path: String,

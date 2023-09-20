@@ -5,7 +5,6 @@ max_players = 2
 symmetric = true
 
 [server]
-host = "127.0.0.1"
 port = 12345
 embedded_worker_threads = 1
 worker_template_path = "/worker_template"

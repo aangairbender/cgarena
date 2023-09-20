@@ -20,10 +20,14 @@ pub enum Error {
 pub struct ArenaService {
     path: PathBuf,
     config: Config,
-    worker: EmbeddedWorker,
+    worker: EmbeddedWorker, // TODO: replace with channel
     bots: MemoryDB<Bot>,
 }
 
+/// Service which manages bots.
+/// Can add and remove bots.
+/// Should not do any extra work, SRP!
+/// Bots are persisted and events are sent to other services
 impl ArenaService {
     pub fn create_new_arena(path: &Path) -> Result<(), io::Error> {
         fs::create_dir(path)?;
@@ -48,7 +52,7 @@ impl ArenaService {
     }
 
     pub async fn add_bot(&self, name: String, source_code: String, language: Language) -> Result<(), Error> {
-        let source_file_name = format!("{}.txt", name);
+        let source_file_name = format!("{}.{}", name, language.file_extension());
         let source_file = Self::bots_dir_path(&self.path).join(source_file_name);
         fs::write(&source_file, source_code)?;
         let bot = Bot::new(name, source_file, language);
@@ -57,7 +61,7 @@ impl ArenaService {
     }
 
     pub async fn remove_bot(&self, name: String) -> Result<(), Error> {
-        let source_file_name = format!("{}.txt", name);
+        let source_file_name = format!("{}.{}", name, language.file_extension());
         let source_file = Self::bots_dir_path(&self.path).join(source_file_name);
         fs::remove_file(&source_file)?;
         self.bots.delete(id);
