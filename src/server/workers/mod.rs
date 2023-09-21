@@ -4,8 +4,8 @@ mod worker_thread;
 pub use embedded::EmbeddedWorker;
 pub use worker_thread::WorkerThread;
 
-use std::collections::HashMap;
 use async_trait::async_trait;
+use std::collections::HashMap;
 
 use uuid::Uuid;
 

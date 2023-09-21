@@ -17,12 +17,8 @@ trait WorkerTrait {
     async fn queue_match(&self, m: &Match);
 }
 
-struct EmbeddedWorker {}
+// struct EmbeddedWorker {}
 
-struct StandaloneWorker {
-    
-}
+// struct StandaloneWorker {}
 
-impl StandaloneWorker {
-
-}
+// impl StandaloneWorker {}

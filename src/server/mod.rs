@@ -1,24 +1,48 @@
-mod bot;
-mod services;
 mod config;
-mod workers;
+mod controllers;
+mod services;
+// mod workers;
 
-use std::{net::SocketAddr, path::Path, sync::Arc, error::Error};
+use std::{error::Error, net::SocketAddr, path::Path, sync::Arc};
 
-use axum::{Router, routing::{post, delete}};
+use axum::{
+    routing::{delete, post},
+    Router,
+};
 
 pub use services::arena::*;
+use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite};
+
+use crate::server::{config::Config, services::bot_service::BotService};
+
+const DB_URL: &str = "sqlite://cgarena.db";
 
 pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
-    let arena_service = Arc::new(ArenaService::new(path)?);
-    let port = arena_service.server_config().port;
+    let config = Config::load(&path.join("cgarena_config.toml"))?;
+
+    if !Sqlite::database_exists(DB_URL).await.unwrap_or(false) {
+        Sqlite::create_database(DB_URL).await?;
+    }
+
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(DB_URL)
+        .await?;
+
+    let bot_service = Arc::new(BotService::new(path, pool.clone()));
 
     let app = Router::new()
-        .route("/bots", post(bot::add).get(bot::list))
-        .route("/bots/:id", delete(bot::remove).patch(bot::patch))
-        .with_state(arena_service);
+        .route(
+            "/bots",
+            post(controllers::bot::add).get(controllers::bot::list),
+        )
+        .route(
+            "/bots/:id",
+            delete(controllers::bot::remove).patch(controllers::bot::patch),
+        )
+        .with_state(bot_service);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     let server = axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .with_graceful_shutdown(shutdown_signal());

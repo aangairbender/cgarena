@@ -4,8 +4,7 @@ pub mod bot_service;
 // Server functionality is split into services, which communicate by means of events (messages).
 // Services:
 // * BotService - service which manages bots, allows adding and removing bots (and maybe renaming in the future).
-// * 
-
+// *
 
 // Flow when we add a bot
 // 1. User makes "add bot" request with API
@@ -15,7 +14,6 @@ pub mod bot_service;
 // -- async --
 // 5. Source code build process is started locally
 // 6. On success bot is marked as ready for matches
-
 
 // Flow when we start a batch of matches between bots
 // 1. User makes "run matches" request with API

@@ -1,5 +1,5 @@
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender, error::TryRecvError};
 use std::thread;
+use tokio::sync::mpsc::{self, error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
 use super::{Job, JobResult};
 
@@ -33,12 +33,14 @@ impl WorkerThread {
                 Ok(job_result) => res.push(job_result),
                 Err(TryRecvError::Empty) => {
                     break;
-                },
+                }
                 Err(TryRecvError::Disconnected) => {
-                    log::debug!("Cannot fetch results from the worker thread, respawning the worker thread");
+                    log::debug!(
+                        "Cannot fetch results from the worker thread, respawning the worker thread"
+                    );
                     self.respawn();
                     break;
-                },
+                }
             }
         }
         res
@@ -51,23 +53,21 @@ impl WorkerThread {
 }
 
 fn spawn_worker_thread(mut receiver: UnboundedReceiver<Job>, sender: UnboundedSender<JobResult>) {
-    thread::spawn(move || {
-        loop {
-            match receiver.try_recv() {
-                Ok(job) => {
-                    let res = process_job(job);
-                    if let Err(_) = sender.send(res) {
-                        log::debug!("JobResult receiver disconnected, terminating the worker thread");
-                        break;
-                    }
-                },
-                Err(TryRecvError::Empty) => {
-                    continue;
-                },
-                Err(TryRecvError::Disconnected) => {
-                    log::debug!("Job sender disconnected, terminating the worker thread");
+    thread::spawn(move || loop {
+        match receiver.try_recv() {
+            Ok(job) => {
+                let res = process_job(job);
+                if let Err(_) = sender.send(res) {
+                    log::debug!("JobResult receiver disconnected, terminating the worker thread");
                     break;
-                },
+                }
+            }
+            Err(TryRecvError::Empty) => {
+                continue;
+            }
+            Err(TryRecvError::Disconnected) => {
+                log::debug!("Job sender disconnected, terminating the worker thread");
+                break;
             }
         }
     });

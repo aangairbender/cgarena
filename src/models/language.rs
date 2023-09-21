@@ -1,11 +1,10 @@
-use serde::{Serialize, Deserialize};
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub enum Language {
     Cpp,
     Rust,
-    Python3
+    Python3,
 }
 
 impl Language {

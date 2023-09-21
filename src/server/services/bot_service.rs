@@ -1,41 +1,66 @@
-use std::{path::{PathBuf, Path}, io, fs};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-use thiserror::Error;
+use sqlx::{Pool, Sqlite};
 
-use crate::models::Language;
+use crate::models::{Bot, Language};
 
 pub struct BotService {
     bots_dir: PathBuf,
+    pool: Pool<Sqlite>,
 }
 
-#[derive(Error, Debug)]
-pub enum Error {
+#[derive(thiserror::Error, Debug)]
+pub enum AddBotError {
     #[error(transparent)]
-    IO(#[from] io::Error)
+    IO(#[from] std::io::Error),
+    #[error(transparent)]
+    DB(#[from] sqlx::Error),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum RemoveBotError {
+    #[error("Not found")]
+    NotFound,
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+    #[error(transparent)]
+    DB(#[from] sqlx::Error),
 }
 
 impl BotService {
-    pub fn new(bots_dir: &Path) -> Self {
-        Self { bots_dir: bots_dir.to_owned() }
+    pub fn new(bots_dir: &Path, pool: Pool<Sqlite>) -> Self {
+        Self {
+            bots_dir: bots_dir.to_owned(),
+            pool,
+        }
     }
 
-    pub async fn add_bot(&self, name: String, source_code: String, language: Language) -> Result<(), Error> {
+    pub async fn add_bot(
+        &self,
+        name: String,
+        source_code: String,
+        language: Language,
+    ) -> Result<(), AddBotError> {
         let source_filename = format!("{}.{}", name, language.file_extension());
-        let source_file = self.bots_dir.join(source_filename);
+        let source_file = self.bots_dir.join(&source_filename);
         fs::write(&source_file, source_code)?;
-        let bot = Bot::new(name, source_file, language);
-        self.bots.put(bot.id, bot);
+        let bot = Bot::new(name, source_filename, language);
+        bot.save(self.pool.clone()).await?;
         Ok(())
     }
 
-    pub async fn remove_bot(&self, name: String) -> Result<(), Error> {
-        // first need to get bot from db
-        // then delete file (using language)
-        // then delete from db
-        let source_file_name = format!("{}.{}", name, language.file_extension());
-        let source_file = Self::bots_dir_path(&self.path).join(source_file_name);
-        fs::remove_file(&source_file)?;
-        self.bots.delete(id);
-        Ok(())
+    pub async fn remove_bot(&self, id: uuid::Uuid) -> Result<(), RemoveBotError> {
+        if let Some(bot) = Bot::find_by_id(&id, self.pool.clone()).await? {
+            let source_file_name = format!("{}.{}", bot.name, bot.language.file_extension());
+            let source_file = self.bots_dir.join(source_file_name);
+            fs::remove_file(source_file)?;
+            bot.delete(self.pool.clone()).await?;
+            Ok(())
+        } else {
+            Err(RemoveBotError::NotFound)
+        }
     }
 }

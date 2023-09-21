@@ -1,8 +1,6 @@
 use super::RatingSystem;
 
-pub struct TrueSkill {
-
-}
+pub struct TrueSkill {}
 
 impl RatingSystem for TrueSkill {
     fn name() -> &'static str {
