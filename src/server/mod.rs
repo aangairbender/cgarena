@@ -6,12 +6,14 @@ mod services;
 use std::{error::Error, net::SocketAddr, path::Path, sync::Arc};
 
 use axum::{
-    routing::{delete, post},
+    routing::{delete, post, get_service},
     Router,
 };
 
+use reqwest::StatusCode;
 pub use services::arena::*;
 use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite};
+use tower_http::services::ServeFile;
 
 use crate::server::{config::Config, services::bot_service::BotService};
 
@@ -31,7 +33,7 @@ pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
 
     let bot_service = Arc::new(BotService::new(path, pool.clone()));
 
-    let app = Router::new()
+    let api_router = Router::new()
         .route(
             "/bots",
             post(controllers::bot::add).get(controllers::bot::list),
@@ -41,6 +43,12 @@ pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
             delete(controllers::bot::remove).patch(controllers::bot::patch),
         )
         .with_state(bot_service);
+
+    let app = Router::new()
+        .nest("/api", api_router)
+        .fallback(get_service(ServeFile::new("./web-ui/build/index.html")).handle_error(|_| async move {
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
+        }));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     let server = axum::Server::bind(&addr)

@@ -1,0 +1,13 @@
+[game]
+min_players = 2
+max_players = 2
+# Whether the map is symmetric for all the players. If set to false extra mirror matches would be played.
+symmetric = true
+
+[server]
+port = 12345
+embedded_worker_threads = 1
+worker_template_path = "/worker_template"
+referee_path = "/referee.jar"
+# The command to start the referee process. The referee must output score for each player after the game ends.
+referee_cmd = "java -jar referee.jar"

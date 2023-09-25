@@ -11,7 +11,11 @@ const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
 const BOTS_DIR_NAME: &str = "bots";
 
 pub fn create_new_arena(path: &Path) -> Result<(), io::Error> {
-    fs::create_dir(path)?;
+    match fs::create_dir(path) {
+        Ok(_) => (),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists  => (),
+        e => return e
+    }
 
     let config_file_path = path.join(CONFIG_FILE_NAME);
     std::fs::write(config_file_path, DEFAULT_CONFIG_CONTENT)?;
