@@ -22,6 +22,7 @@ pub async fn add(
     State(bot_service): State<Arc<BotService>>,
     Json(payload): Json<BotAddReq>,
 ) -> StatusCode {
+    log::info!("bot add request received");
     let BotAddReq {
         name,
         source_code,
@@ -29,12 +30,15 @@ pub async fn add(
     } = payload;
     match bot_service.add_bot(name, source_code, language).await {
         Ok(_) => StatusCode::OK,
-        Err(e) => match e {
-            crate::server::services::bot_service::AddBotError::IO(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            crate::server::services::bot_service::AddBotError::DB(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
+        Err(e) => {
+            log::error!("{}", e);
+            match e {
+                crate::server::services::bot_service::AddBotError::IO(_) => {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+                crate::server::services::bot_service::AddBotError::DB(_) => {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
             }
         },
     }

@@ -10,6 +10,7 @@ import Root from './routes/root';
 import Bots from './routes/bots';
 
 import 'bootstrap/dist/css/bootstrap.min.css';
+import AddBot from './routes/add_bot';
 
 const router = createBrowserRouter([
   {
@@ -23,6 +24,10 @@ const router = createBrowserRouter([
       {
         path: "/bots/:botId",
         element: <div>Not ready yet</div>,
+      },
+      {
+        path: "/bots/add",
+        element: <AddBot />,
       },
     ],
   },
