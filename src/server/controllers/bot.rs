@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::{
     extract::{Path, State},
     Json,
@@ -8,8 +6,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::models::Language;
-use crate::server::services::bot_service::BotService;
+use crate::server::{enums::Language, AppState};
 
 #[derive(Deserialize)]
 pub struct BotAddReq {
@@ -19,7 +16,7 @@ pub struct BotAddReq {
 }
 
 pub async fn add(
-    State(bot_service): State<Arc<BotService>>,
+    State(app_state): State<AppState>,
     Json(payload): Json<BotAddReq>,
 ) -> StatusCode {
     log::info!("bot add request received");
@@ -28,7 +25,7 @@ pub async fn add(
         source_code,
         language,
     } = payload;
-    match bot_service.add_bot(name, source_code, language).await {
+    match app_state.bot_service.add_bot(name, source_code, language).await {
         Ok(_) => StatusCode::OK,
         Err(e) => {
             log::error!("{}", e);
@@ -50,10 +47,10 @@ pub async fn list() -> StatusCode {
 
 #[axum_macros::debug_handler]
 pub async fn remove(
-    State(bot_service): State<Arc<BotService>>,
+    State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
-    match bot_service.remove_bot(id).await {
+    match app_state.bot_service.remove_bot(id).await {
         Ok(_) => StatusCode::OK,
         Err(e) => match e {
             crate::server::services::bot_service::RemoveBotError::NotFound => StatusCode::NOT_FOUND,

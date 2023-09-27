@@ -1,6 +1,8 @@
 mod config;
 mod controllers;
 mod services;
+mod entities;
+mod enums;
 // mod workers;
 
 use std::{error::Error, net::SocketAddr, path::Path, sync::Arc};
@@ -10,13 +12,19 @@ use axum::{
     Router,
 };
 
+use sea_orm::{Database, Statement, ConnectionTrait};
 pub use services::arena::*;
-use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite};
+use sqlx::{migrate::MigrateDatabase, Sqlite};
 use tower_http::cors::CorsLayer;
 
 use crate::server::{config::Config, services::bot_service::BotService};
 
 const DB_URL: &str = "sqlite://cgarena.db";
+
+#[derive(Clone)]
+pub struct AppState {
+    pub bot_service: Arc<BotService>,
+}
 
 pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
     let config = Config::load(&path.join("cgarena_config.toml"))?;
@@ -25,17 +33,15 @@ pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
         Sqlite::create_database(DB_URL).await?;
     }
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(DB_URL)
-        .await?;
+    let db = Database::connect(DB_URL).await?;
 
-    // TODO: move this somewhere
-    sqlx::query(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema.sql")))
-        .execute(&pool)
-        .await?;
+    db.execute(Statement::from_string(db.get_database_backend(), include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema.sql")))).await?;
 
-    let bot_service = Arc::new(BotService::new(&path.join("bots"), pool.clone()));
+    let bot_service = Arc::new(BotService::new(&path.join("bots"), db.clone()));
+
+    let app_state = AppState {
+        bot_service,
+    };
 
     let api_router = Router::new()
         .route(
@@ -46,7 +52,7 @@ pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
             "/bots/:id",
             delete(controllers::bot::remove).patch(controllers::bot::patch),
         )
-        .with_state(bot_service);
+        .with_state(app_state);
 
     let app = Router::new()
         .nest("/api", api_router)
