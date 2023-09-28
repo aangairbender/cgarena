@@ -1,18 +1,28 @@
 use axum::{
     extract::{Path, State},
-    Json,
+    Json, response::{Response, IntoResponse},
 };
 use reqwest::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::{enums::Language, AppState};
+use crate::server::{enums::Language, AppState, entities::bot};
 
 #[derive(Deserialize)]
 pub struct BotAddReq {
     name: String,
     source_code: String,
     language: Language,
+}
+
+#[derive(Serialize)]
+pub struct ListBotsResponse {
+    bots: Vec<bot::Model>,
+}
+
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    description: String,
 }
 
 pub async fn add(
@@ -41,8 +51,13 @@ pub async fn add(
     }
 }
 
-pub async fn list() -> StatusCode {
-    todo!()
+pub async fn list(
+    State(app_state): State<AppState>,
+) -> Response {
+    match app_state.bot_service.list_bots().await {
+        Ok(bots) => (StatusCode::OK, Json(ListBotsResponse { bots })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { description: e.to_string() })).into_response(),
+    }
 }
 
 #[axum_macros::debug_handler]

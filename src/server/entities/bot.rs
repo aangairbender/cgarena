@@ -1,8 +1,9 @@
 use sea_orm::entity::prelude::*;
+use serde::Serialize;
 
 use crate::server::enums::Language;
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize)]
 #[sea_orm(table_name = "bots")]
 pub struct Model {
     #[sea_orm(primary_key)]

@@ -30,6 +30,12 @@ pub enum RemoveBotError {
     DB(#[from] DbErr),
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ListBotsError {
+    #[error(transparent)]
+    DB(#[from] DbErr),
+}
+
 impl BotService {
     pub fn new(bots_dir: &Path, db: DatabaseConnection) -> Self {
         Self {
@@ -70,5 +76,10 @@ impl BotService {
         fs::remove_file(source_file)?;
         bot.delete(&self.db).await?;
         Ok(())
+    }
+
+    pub async fn list_bots(&self) -> Result<Vec<bot::Model>, ListBotsError> {
+        let bots = bot::Entity::find().all(&self.db).await?;
+        Ok(bots)
     }
 }
