@@ -1,8 +1,8 @@
 mod config;
 mod controllers;
-mod services;
 mod entities;
 mod enums;
+mod services;
 // mod workers;
 
 use std::{error::Error, net::SocketAddr, path::Path, sync::Arc};
@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 
-use sea_orm::{Database, Statement, ConnectionTrait};
+use sea_orm::{ConnectionTrait, Database, Statement};
 pub use services::arena::*;
 use sqlx::{migrate::MigrateDatabase, Sqlite};
 use tower_http::cors::CorsLayer;
@@ -35,13 +35,15 @@ pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
 
     let db = Database::connect(DB_URL).await?;
 
-    db.execute(Statement::from_string(db.get_database_backend(), include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema.sql")))).await?;
+    db.execute(Statement::from_string(
+        db.get_database_backend(),
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema.sql")),
+    ))
+    .await?;
 
     let bot_service = Arc::new(BotService::new(&path.join("bots"), db.clone()));
 
-    let app_state = AppState {
-        bot_service,
-    };
+    let app_state = AppState { bot_service };
 
     let api_router = Router::new()
         .route(
@@ -57,9 +59,9 @@ pub async fn start_arena_server(path: &Path) -> Result<(), Box<dyn Error>> {
     let app = Router::new()
         .nest("/api", api_router)
         .layer(CorsLayer::permissive());
-        // .fallback(get_service(ServeFile::new("./web-ui/build/index.html")).handle_error(|_| async move {
-        //     (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
-        // }));
+    // .fallback(get_service(ServeFile::new("./web-ui/build/index.html")).handle_error(|_| async move {
+    //     (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
+    // }));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     let server = axum::Server::bind(&addr)

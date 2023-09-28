@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sea_orm::{Set, EntityTrait, DatabaseConnection, DbErr, ModelTrait};
+use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter, Set};
 
 use crate::server::{entities::bot, enums::Language};
 
@@ -14,6 +14,8 @@ pub struct BotService {
 
 #[derive(thiserror::Error, Debug)]
 pub enum AddBotError {
+    #[error("Bot with the same name already exists")]
+    DuplicateName,
     #[error(transparent)]
     IO(#[from] std::io::Error),
     #[error(transparent)]
@@ -50,6 +52,15 @@ impl BotService {
         source_code: String,
         language: Language,
     ) -> Result<(), AddBotError> {
+        let duplicate = bot::Entity::find()
+            .filter(bot::Column::Name.eq(&name))
+            .one(&self.db)
+            .await?;
+
+        if duplicate.is_some() {
+            return Err(AddBotError::DuplicateName);
+        }
+
         let source_filename = format!("{}.{}", name, language.file_extension());
         let source_file = self.bots_dir.join(&source_filename);
         fs::write(&source_file, source_code)?;
@@ -61,9 +72,7 @@ impl BotService {
             language: Set(language),
         };
 
-        bot::Entity::insert(bot)
-            .exec(&self.db)
-            .await?;
+        bot::Entity::insert(bot).exec(&self.db).await?;
         Ok(())
     }
 
