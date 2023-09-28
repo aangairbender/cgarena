@@ -31,3 +31,8 @@ tower-http = { version = "0.4.4", features = ["fs", "cors"] }
 sea-orm = { version = "0.12.3", features = ["sqlx-sqlite", "runtime-tokio", "macros"] }
 sea-query = { version = "0.30.2", features = ["backend-sqlite"] }
 validator = { version = "0.16.1", features = ["derive"] }
+
+
+[dev-dependencies]
+tower = { version = "0.4.13", features = ["util"] }
+mime = "0.3"

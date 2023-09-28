@@ -72,7 +72,7 @@ impl BotService {
             language: Set(language),
         };
 
-        bot::Entity::insert(bot).exec(&self.db).await?;
+        bot::Entity::insert(bot).exec_without_returning(&self.db).await?;
         Ok(())
     }
 

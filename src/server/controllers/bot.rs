@@ -10,12 +10,12 @@ use validator::Validate;
 
 use crate::server::{entities::bot, enums::Language, services::bot_service::AddBotError, AppState};
 
-#[derive(Deserialize, Validate)]
+#[derive(Serialize, Deserialize, Validate)]
 pub struct BotAddReq {
     #[validate(length(min = 1, max = 32))]
-    name: String,
-    source_code: String,
-    language: Language,
+    pub name: String,
+    pub source_code: String,
+    pub language: Language,
 }
 
 #[derive(Serialize)]

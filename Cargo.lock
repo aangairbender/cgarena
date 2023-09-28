@@ -400,6 +400,7 @@ dependencies = [
  "dotenvy",
  "fs2",
  "log",
+ "mime",
  "reqwest",
  "sea-orm",
  "sea-query",
