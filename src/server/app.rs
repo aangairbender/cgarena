@@ -1,0 +1,31 @@
+use axum::Router;
+use sea_orm::DatabaseConnection;
+use std::path::Path;
+use std::sync::Arc;
+use tower_http::{cors::CorsLayer, trace};
+
+use super::{routes, services::bot_service::BotService, AppState};
+
+pub async fn create_app(arena_path: &Path, db: DatabaseConnection) -> Router {
+    tracing_subscriber::fmt::init();
+    let bot_service = Arc::new(BotService::new(&arena_path.join("bots"), db));
+
+    let app_state = AppState { bot_service };
+
+    let api_router = Router::new()
+        .merge(routes::bot::create_route())
+        .with_state(app_state);
+
+    // .fallback(get_service(ServeFile::new("./web-ui/build/index.html")).handle_error(|_| async move {
+    //     (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
+    // }));
+    Router::new()
+        .nest("/api", api_router)
+        .layer(
+            trace::TraceLayer::new_for_http()
+                .make_span_with(trace::DefaultMakeSpan::new().include_headers(true))
+                .on_request(trace::DefaultOnRequest::new().level(tracing::Level::INFO))
+                .on_response(trace::DefaultOnResponse::new().level(tracing::Level::INFO)),
+        )
+        .layer(CorsLayer::permissive())
+}

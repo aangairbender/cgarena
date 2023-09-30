@@ -1,35 +1,33 @@
+use axum::body::Body;
+use axum::extract::Path;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::{
-    extract::{Path, State},
-    response::{IntoResponse, Response},
-    Json,
+    extract::State,
+    response::Response,
+    routing::{delete, get, post},
+    Json, Router,
 };
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::server::{entities::bot, enums::Language, services::bot_service::AddBotError, AppState};
+use crate::server;
+use crate::server::entities::bot;
+use crate::server::enums::Language;
+use crate::server::{services::bot_service::AddBotError, AppState};
 
-#[derive(Serialize, Deserialize, Validate)]
-pub struct BotAddReq {
-    #[validate(length(min = 1, max = 32))]
-    pub name: String,
-    pub source_code: String,
-    pub language: Language,
+pub fn create_route() -> Router<server::AppState, Body> {
+    Router::new()
+        .route("/bots", post(create_bot))
+        .route("/bots", get(query_bots))
+        .route("/bots/:id", delete(remove_bot_by_id))
 }
 
-#[derive(Serialize)]
-pub struct ListBotsResponse {
-    bots: Vec<bot::Model>,
-}
-
-#[derive(Serialize)]
-pub struct ErrorResponse {
-    error_code: &'static str,
-    description: String,
-}
-
-pub async fn add(State(app_state): State<AppState>, Json(payload): Json<BotAddReq>) -> Response {
+pub async fn create_bot(
+    State(app_state): State<AppState>,
+    Json(payload): Json<BotAddReq>,
+) -> Response {
     log::info!("bot add request received");
     if let Err(e) = payload.validate() {
         return (
@@ -76,7 +74,7 @@ pub async fn add(State(app_state): State<AppState>, Json(payload): Json<BotAddRe
     }
 }
 
-pub async fn list(State(app_state): State<AppState>) -> Response {
+pub async fn query_bots(State(app_state): State<AppState>) -> Response {
     match app_state.bot_service.list_bots().await {
         Ok(bots) => (StatusCode::OK, Json(ListBotsResponse { bots })).into_response(),
         Err(e) => (
@@ -90,8 +88,10 @@ pub async fn list(State(app_state): State<AppState>) -> Response {
     }
 }
 
-#[axum_macros::debug_handler]
-pub async fn remove(State(app_state): State<AppState>, Path(id): Path<Uuid>) -> StatusCode {
+pub async fn remove_bot_by_id(
+    State(app_state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> StatusCode {
     match app_state.bot_service.remove_bot(id).await {
         Ok(_) => StatusCode::OK,
         Err(e) => match e {
@@ -106,6 +106,21 @@ pub async fn remove(State(app_state): State<AppState>, Path(id): Path<Uuid>) -> 
     }
 }
 
-pub async fn patch(Path(_id): Path<Uuid>) -> StatusCode {
-    todo!()
+#[derive(Serialize, Deserialize, Validate)]
+pub struct BotAddReq {
+    #[validate(length(min = 1, max = 32))]
+    pub name: String,
+    pub source_code: String,
+    pub language: Language,
+}
+
+#[derive(Serialize)]
+pub struct ListBotsResponse {
+    bots: Vec<bot::Model>,
+}
+
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    error_code: &'static str,
+    description: String,
 }

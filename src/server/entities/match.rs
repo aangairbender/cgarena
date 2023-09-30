@@ -17,7 +17,7 @@ pub enum Relation {
     #[sea_orm(
         belongs_to = "super::job::Entity",
         from = "Column::JobId",
-        to = "super::job::Column::Id",
+        to = "super::job::Column::Id"
     )]
     Job,
 }
