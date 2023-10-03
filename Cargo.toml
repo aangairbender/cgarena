@@ -33,8 +33,9 @@ sea-query = { version = "0.30.2", features = ["backend-sqlite"] }
 validator = { version = "0.16.1", features = ["derive"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.17"
+bytes = "1.5.0"
+mime = "0.3"
 
 
 [dev-dependencies]
 tower = { version = "0.4.13", features = ["util"] }
-mime = "0.3"

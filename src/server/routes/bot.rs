@@ -1,113 +1,87 @@
 use axum::body::Body;
 use axum::extract::Path;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::{
     extract::State,
-    response::Response,
     routing::{delete, get, post},
     Json, Router,
 };
+use sea_orm::{ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::server;
 use crate::server::entities::bot;
 use crate::server::enums::Language;
-use crate::server::{services::bot_service::AddBotError, AppState};
+use crate::server::errors::Error;
+use crate::server::utils::custom_response::{CustomResponse, CustomResponseResult};
+use crate::server::AppState;
 
-pub fn create_route() -> Router<server::AppState, Body> {
+pub fn create_route() -> Router<AppState, Body> {
     Router::new()
         .route("/bots", post(create_bot))
         .route("/bots", get(query_bots))
         .route("/bots/:id", delete(remove_bot_by_id))
 }
 
-pub async fn create_bot(
-    State(app_state): State<AppState>,
-    Json(payload): Json<BotAddReq>,
-) -> Response {
-    log::info!("bot add request received");
-    if let Err(e) = payload.validate() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error_code: "validation_failed",
-                description: e.to_string(),
-            }),
-        )
-            .into_response();
-    }
-    let BotAddReq {
-        name,
-        source_code,
-        language,
-    } = payload;
-    match app_state
-        .bot_service
-        .add_bot(name, source_code, language)
-        .await
-    {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(e) => {
-            log::error!("{}", e);
-            match e {
-                AddBotError::DuplicateName => (
-                    StatusCode::CONFLICT,
-                    Json(ErrorResponse {
-                        error_code: "duplicate_name",
-                        description: e.to_string(),
-                    }),
-                )
-                    .into_response(),
-                _ => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error_code: "internal_error",
-                        description: e.to_string(),
-                    }),
-                )
-                    .into_response(),
-            }
-        }
-    }
+fn bots_dir(arena_path: &std::path::Path) -> std::path::PathBuf {
+    arena_path.join("bots")
 }
 
-pub async fn query_bots(State(app_state): State<AppState>) -> Response {
-    match app_state.bot_service.list_bots().await {
-        Ok(bots) => (StatusCode::OK, Json(ListBotsResponse { bots })).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error_code: "internal_error",
-                description: e.to_string(),
-            }),
-        )
-            .into_response(),
+pub async fn create_bot(
+    State(app_state): State<AppState>,
+    Json(payload): Json<CreateBotRequest>,
+) -> CustomResponseResult<()> {
+    payload.validate()?;
+
+    let duplicate = bot::Entity::find()
+        .filter(bot::Column::Name.eq(&payload.name))
+        .one(&app_state.db)
+        .await?;
+
+    if duplicate.is_some() {
+        return Err(Error::AlreadyExists);
     }
+
+    let source_filename = format!("{}.{}", payload.name, payload.language.file_extension());
+    let source_file = bots_dir(&app_state.arena_path).join(&source_filename);
+    std::fs::write(&source_file, payload.source_code)?;
+
+    let bot = bot::ActiveModel {
+        id: Set(uuid::Uuid::new_v4()),
+        name: Set(payload.name),
+        source_filename: Set(source_filename),
+        language: Set(payload.language),
+    };
+
+    bot::Entity::insert(bot)
+        .exec_without_returning(&app_state.db)
+        .await?;
+    Ok(CustomResponse::default())
+}
+
+pub async fn query_bots(
+    State(app_state): State<AppState>,
+) -> CustomResponseResult<ListBotsResponse> {
+    let bots = bot::Entity::find().all(&app_state.db).await?;
+    Ok(CustomResponse::default().body(ListBotsResponse { bots }))
 }
 
 pub async fn remove_bot_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> StatusCode {
-    match app_state.bot_service.remove_bot(id).await {
-        Ok(_) => StatusCode::OK,
-        Err(e) => match e {
-            crate::server::services::bot_service::RemoveBotError::NotFound => StatusCode::NOT_FOUND,
-            crate::server::services::bot_service::RemoveBotError::IO(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            crate::server::services::bot_service::RemoveBotError::DB(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        },
-    }
+) -> CustomResponseResult<()> {
+    let Some(bot) = bot::Entity::find_by_id(id).one(&app_state.db).await? else {
+        return Err(Error::NotFound)
+    };
+    let source_file_name = format!("{}.{}", bot.name, bot.language.file_extension());
+    let source_file = bots_dir(&app_state.arena_path).join(source_file_name);
+    std::fs::remove_file(source_file)?;
+    bot.delete(&app_state.db).await?;
+    Ok(CustomResponse::default())
 }
 
 #[derive(Serialize, Deserialize, Validate)]
-pub struct BotAddReq {
+pub struct CreateBotRequest {
     #[validate(length(min = 1, max = 32))]
     pub name: String,
     pub source_code: String,

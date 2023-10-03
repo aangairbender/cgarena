@@ -1,5 +1,4 @@
 pub mod arena;
-pub mod bot_service;
 
 // Server functionality is split into services, which communicate by means of events (messages).
 // Services:

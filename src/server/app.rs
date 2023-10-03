@@ -1,16 +1,17 @@
 use axum::Router;
 use sea_orm::DatabaseConnection;
 use std::path::Path;
-use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace};
 
-use super::{routes, services::bot_service::BotService, AppState};
+use super::{routes, AppState};
 
 pub async fn create_app(arena_path: &Path, db: DatabaseConnection) -> Router {
     tracing_subscriber::fmt::init();
-    let bot_service = Arc::new(BotService::new(&arena_path.join("bots"), db));
 
-    let app_state = AppState { bot_service };
+    let app_state = AppState {
+        arena_path: arena_path.to_owned(),
+        db,
+    };
 
     let api_router = Router::new()
         .merge(routes::bot::create_route())

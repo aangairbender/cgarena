@@ -2,23 +2,31 @@ mod app;
 mod config;
 mod entities;
 mod enums;
+mod errors;
 mod routes;
 mod services;
+mod utils;
 // mod workers;
 
-use std::{error::Error, net::SocketAddr, path::Path, sync::Arc};
+use std::{
+    error::Error,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, Statement};
 pub use services::arena::*;
 use sqlx::{migrate::MigrateDatabase, Sqlite};
 
-use crate::server::{config::Config, services::bot_service::BotService};
+use crate::server::config::Config;
 
 const DB_URL: &str = "sqlite://cgarena.db";
 
 #[derive(Clone)]
 pub struct AppState {
-    pub bot_service: Arc<BotService>,
+    pub arena_path: PathBuf,
+    pub db: DatabaseConnection,
 }
 
 pub async fn start_arena_server(arena_path: &Path) -> Result<(), Box<dyn Error>> {
@@ -72,7 +80,7 @@ mod tests {
     use tempdir::TempDir;
     use tower::ServiceExt;
 
-    use crate::server::routes::bot::BotAddReq;
+    use crate::server::routes::bot::CreateBotRequest;
 
     use super::*;
 
@@ -85,7 +93,7 @@ mod tests {
         create_schema(&db).await.unwrap();
         let app = app::create_app(&path, db).await;
 
-        let body = BotAddReq {
+        let body = CreateBotRequest {
             name: "test".to_string(),
             source_code: "int main(){}".to_string(),
             language: enums::Language::Cpp,
