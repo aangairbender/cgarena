@@ -1,0 +1,14 @@
+[game]
+min_players = 2
+max_players = 2
+# Whether the map is symmetric for all the players. If set to false extra mirror matches would be played.
+symmetric = true
+
+[server]
+port = 12345
+
+[embedded_worker]
+threads = 1
+worker_template_path = "/worker_template"
+language_templates_path = "/languages"
+referee_path = "/referee"

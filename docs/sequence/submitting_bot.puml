@@ -1,0 +1,12 @@
+@startuml submitting-a-bot
+
+actor User
+participant "CGArena Server" as Server
+database DB
+participant "CGArena Worker" as Worker
+
+User -> Server ++ : Submits a bot
+Server -> DB : Persists the bot
+Server -> User -- : OK
+
+@enduml
