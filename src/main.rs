@@ -1,9 +1,6 @@
 mod arena;
 
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use clap::{command, Parser, Subcommand};
 use tracing::info;
@@ -39,7 +36,7 @@ enum RunCommands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), anyhow::Error> {
     tracing_subscriber::fmt().init();
     init_colored();
 
@@ -55,9 +52,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-async fn handle_run(command: RunCommands) -> Result<(), Box<dyn Error>> {
+async fn handle_run(command: RunCommands) -> Result<(), anyhow::Error> {
     match command {
-        RunCommands::Server { path } => api::start_arena_server(Path::new(&path)).await,
+        RunCommands::Server { path } => server::start_arena_server(Path::new(&path)).await,
         RunCommands::Worker { threads: _ } => todo!(),
     }
 }
