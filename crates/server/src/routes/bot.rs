@@ -8,6 +8,7 @@ use axum::{
 };
 use chrono::Utc;
 use entity::bot;
+use sea_orm::ActiveValue::NotSet;
 use sea_orm::{ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -46,6 +47,7 @@ async fn create_bot(
         source_code: Set(payload.source_code),
         language: Set(payload.language),
         created_at: Set(Utc::now()),
+        deleted: NotSet, // intentionally leaving it null 
     };
 
     bot::Entity::insert(bot)
