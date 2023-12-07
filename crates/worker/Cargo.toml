@@ -3,3 +3,13 @@ name = "worker"
 edition.workspace = true
 authors.workspace = true
 version.workspace = true
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+async-trait = "0.1.68"
+
+config = { path = "../config" }
+entity = { path = "../entity" }

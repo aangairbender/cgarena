@@ -1,12 +1,17 @@
+mod arena;
+
 use std::{path::Path, sync::Arc};
 
+use arena::Arena;
+use config::Config;
+use tokio::sync::mpsc;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::Database;
 use sqlx::{Sqlite, migrate::MigrateDatabase};
 
 
 pub async fn start_arena_server(arena_path: &Path) -> Result<(), anyhow::Error> {
-    let config = api::config::Config::load(&arena_path.join("cgarena_config.toml"))?;
+    let config = Arc::new(Config::load(&arena_path.join("cgarena_config.toml"))?);
 
     let db_path = arena_path.join("cgarena.db");
     let db_url = format!("sqlite://{}", db_path.display());
@@ -18,5 +23,13 @@ pub async fn start_arena_server(arena_path: &Path) -> Result<(), anyhow::Error> 
     let db = Database::connect(&db_url).await?;
     Migrator::up(&db, None).await?;
 
-    api::start_api_server(Arc::new(config), db).await
+    let (match_queue_tx, match_queue_rx) = mpsc::unbounded_channel::<i32>();
+
+    let match_organizer = Arena::new(config.clone(), db.clone(), match_queue_rx);
+
+    tokio::spawn(async move {
+        match_organizer.launch().await;
+    });
+
+    api::start_api_server(config, db, match_queue_tx).await
 }

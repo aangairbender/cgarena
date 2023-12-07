@@ -1,5 +1,3 @@
-mod arena;
-
 use std::path::{Path, PathBuf};
 
 use clap::{command, Parser, Subcommand};
@@ -44,7 +42,7 @@ async fn main() -> Result<(), anyhow::Error> {
     match cli.command {
         Commands::New { path } => {
             let path = PathBuf::from(path);
-            arena::create_new_arena(&path)?;
+            create_new_arena(&path)?;
             info!("New arena has been created");
             Ok(())
         }
@@ -66,3 +64,38 @@ fn init_colored() {
 
 #[cfg(not(windows))]
 fn init_colored() {}
+
+static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/cgarena_config.toml"
+));
+
+const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
+
+fn create_new_arena(path: &Path) -> Result<(), std::io::Error> {
+    match std::fs::create_dir(path) {
+        Ok(_) => (),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
+        e => return e,
+    }
+
+    let config_file_path = path.join(CONFIG_FILE_NAME);
+    std::fs::write(config_file_path, DEFAULT_CONFIG_CONTENT)?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use tempdir::TempDir;
+
+    #[test]
+    fn new_arena_can_be_created() {
+        let tmp_dir = TempDir::new("cgarena").unwrap();
+        let path = tmp_dir.path().join("test");
+        let res = create_new_arena(&path);
+        assert!(res.is_ok(), "Arena creation failed {:?}", res.err());
+        assert!(path.join("cgarena_config.toml").exists());
+    }
+}

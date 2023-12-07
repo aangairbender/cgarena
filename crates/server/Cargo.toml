@@ -6,6 +6,8 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 sea-orm = { version = "0.12.3", features = ["sqlx-sqlite", "runtime-tokio", "macros"] }
 sea-query = { version = "0.30.2", features = ["backend-sqlite"] }
@@ -13,3 +15,6 @@ sqlx = { version = "0.7.1", features = ["sqlite", "runtime-tokio", "macros", "ch
 
 api = { path = "../api" }
 migration = { path = "../migration" }
+entity = { path = "../entity" }
+worker = { path = "../worker" }
+config = { path = "../config" }

@@ -141,6 +141,7 @@ dependencies = [
  "axum-macros",
  "bytes",
  "chrono",
+ "config",
  "dotenvy",
  "entity",
  "fs2",
@@ -156,7 +157,6 @@ dependencies = [
  "tabled",
  "thiserror",
  "tokio",
- "toml",
  "tower",
  "tower-http",
  "tracing",
@@ -728,6 +728,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d16048cd947b08fa32c24458a22f5dc5e835264f689f4f5653210c69fd107363"
 dependencies = [
  "crossbeam-utils",
+]
+
+[[package]]
+name = "config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -2865,10 +2874,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "api",
+ "config",
+ "entity",
  "migration",
  "sea-orm",
  "sea-query",
  "sqlx",
+ "tokio",
+ "tracing",
+ "worker",
 ]
 
 [[package]]
@@ -4139,6 +4153,14 @@ dependencies = [
 [[package]]
 name = "worker"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "config",
+ "entity",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "wyz"

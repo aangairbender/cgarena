@@ -1,25 +1,15 @@
-//mod embedded;
-//mod worker_thread;
+mod worker;
+mod worker_thread;
 
-//pub use embedded::EmbeddedWorker;
-//pub use worker_thread::WorkerThread;
+use entity::{r#match, bot};
+pub use worker::Worker;
+use worker_thread::WorkerThread;
 
-//use async_trait::async_trait;
-use std::collections::HashMap;
-
+#[derive(Clone)]
 pub struct Job {
-    match_id: i32,
-    seed: i32,
-    bot_ids: Vec<i32>,
+    pub r#match: r#match::Model,
+    pub bots: Vec<bot::Model>,
 }
 pub struct JobResult {
-    match_id: i32,
-    scores: HashMap<i32, i32>,
-}
-
-//#[async_trait]
-pub trait Worker {
-    fn name(&self) -> &str;
-    fn queue(&mut self, job: Job);
-    fn fetch_results(&mut self) -> Vec<JobResult>;
+    pub scores: [i32; 8],
 }

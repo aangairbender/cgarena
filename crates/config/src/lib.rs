@@ -16,7 +16,7 @@ pub struct GameConfig {
     pub symmetric: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct WorkerConfig {
     pub threads: u8,
     pub workdir: String,

@@ -6,16 +6,17 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use entity::{participation, r#match};
+use config::Config;
+use entity::{participation, r#match::{self, MatchStatus}};
 use rand::Rng;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, EntityTrait, IntoActiveModel, Set, TransactionTrait,
+    ActiveModelTrait, ActiveValue::NotSet, EntityTrait, IntoActiveModel, Set, TransactionTrait, ModelTrait, prelude::DateTimeUtc,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use validator::{Validate, ValidationError};
+use validator::{Validate, ValidationError, ValidateArgs};
 
-use crate::{config::Config, errors::AppError, AppState};
+use crate::{errors::AppError, AppState};
 
 pub fn create_router() -> Router<AppState> {
     Router::new()
@@ -28,6 +29,8 @@ async fn create_match(
     State(app_state): State<AppState>,
     Json(payload): Json<CreateMatchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    payload.validate_args(&app_state.config)?;
+
     let seed = payload.seed.unwrap_or_else(|| rand::thread_rng().gen());
 
     let txn = app_state.db.begin().await.map_err(anyhow::Error::from)?;
@@ -58,6 +61,9 @@ async fn create_match(
     }
 
     txn.commit().await.map_err(anyhow::Error::from)?;
+
+    app_state.match_queue_tx.send(r#match.id)
+        .map_err(anyhow::Error::from)?;
 
     let response_body = json!({
         "match": r#match,
@@ -92,8 +98,22 @@ async fn get_match_by_id(
         return Err(AppError::NotFound);
     };
 
+    let participations = r#match.find_related(participation::Entity)
+        .all(&app_state.db)
+        .await
+        .map_err(anyhow::Error::from)?;
+
     let response_body = json!({
-        "match": r#match,
+        "match": MatchResponse {
+            id: r#match.id,
+            seed: r#match.seed,
+            status: r#match.status,
+            created_at: r#match.created_at,
+            tag: r#match.tag,
+            participants: participations.into_iter().map(|p| {
+                Participant { bot_id: p.bot_id, index: p.index, score: p.score }
+            }).collect()
+        },
     });
 
     Ok((StatusCode::OK, Json(response_body)))
@@ -116,4 +136,21 @@ fn validate_bot_ids(bot_ids: &Vec<i32>, config: &Config) -> Result<(), Validatio
         return Err(ValidationError::new("Too many bots, check your config"));
     }
     Ok(())
+}
+
+#[derive(Serialize)]
+struct MatchResponse {
+    id: i32,
+    seed: i32,
+    status: MatchStatus,
+    created_at: DateTimeUtc,
+    tag: Option<String>,
+    participants: Vec<Participant>,
+}
+
+#[derive(Serialize)]
+struct Participant {
+    bot_id: i32,
+    index: u8,
+    score: Option<i32>,
 }
