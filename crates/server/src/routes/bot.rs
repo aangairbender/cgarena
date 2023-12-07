@@ -1,6 +1,7 @@
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::routing::patch;
 use axum::{
     extract::State,
     routing::{delete, get, post},
@@ -9,7 +10,7 @@ use axum::{
 use chrono::Utc;
 use entity::bot;
 use sea_orm::ActiveValue::NotSet;
-use sea_orm::{ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set};
+use sea_orm::{ColumnTrait, EntityTrait, ModelTrait, QueryFilter, Set, ActiveModelTrait};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
@@ -22,6 +23,7 @@ pub fn create_route() -> Router<AppState> {
         .route("/bots", post(create_bot))
         .route("/bots", get(query_bots))
         .route("/bots/:id", get(get_bot_by_id))
+        .route("/bots/:id", patch(patch_bot_by_id))
         .route("/bots/:id", delete(remove_bot_by_id))
 }
 
@@ -80,6 +82,28 @@ async fn get_bot_by_id(
     }
 }
 
+async fn patch_bot_by_id(
+    State(app_state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<PatchBotRequest>,
+) -> Result<impl IntoResponse, Error> {
+    let bot = bot::Entity::find_by_id(id)
+        .one(&app_state.db)
+        .await
+        .map_err(anyhow::Error::from)?;
+
+    let Some(bot) = bot else {
+        return Err(Error::NotFound)
+    };
+
+    let mut bot: bot::ActiveModel = bot.into();
+    bot.name = Set(payload.name);
+    let bot = bot.update(&app_state.db)
+        .await
+        .map_err(anyhow::Error::from)?;
+    Ok((StatusCode::OK, Json(bot)))
+}
+
 async fn remove_bot_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -105,6 +129,12 @@ pub struct CreateBotRequest {
     pub source_code: String,
     #[validate(length(min = 1, max = 32))]
     pub language: String,
+}
+
+#[derive(Serialize, Deserialize, Validate)]
+pub struct PatchBotRequest {
+    #[validate(length(min = 1, max = 32))]
+    pub name: String,
 }
 
 #[derive(Serialize)]
