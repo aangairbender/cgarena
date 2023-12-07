@@ -1,8 +1,12 @@
 [package]
-name = "server"
+name = "api"
 edition.workspace = true
 authors.workspace = true
 version.workspace = true
+
+[lib]
+name = "api"
+path = "src/lib.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"]}
@@ -19,7 +23,6 @@ tokio = { version = "1.28.1", features = ["full"] }
 async-trait = "0.1.68"
 thiserror = "1.0"
 sysinfo = "0.29.2"
-tempdir = "0.3.7"
 axum = "0.7.2"
 log = "0.4.19"
 simplelog = "0.12.1"

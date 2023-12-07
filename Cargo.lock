@@ -132,6 +132,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
 
 [[package]]
+name = "api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "axum-macros",
+ "bytes",
+ "chrono",
+ "dotenvy",
+ "entity",
+ "fs2",
+ "log",
+ "migration",
+ "mime",
+ "rand 0.8.5",
+ "reqwest",
+ "sea-orm",
+ "sea-query",
+ "serde",
+ "serde_json",
+ "simplelog",
+ "skillratings",
+ "sqlx",
+ "sysinfo",
+ "tabled",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "validator",
+ "worker",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,9 +646,10 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 name = "cg-arena"
 version = "0.1.0"
 dependencies = [
+ "api",
  "clap",
  "colored",
- "server",
+ "tempdir",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2830,46 +2870,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "axum-macros",
- "bytes",
- "chrono",
- "dotenvy",
- "entity",
- "fs2",
- "log",
- "migration",
- "mime",
- "rand 0.8.5",
- "reqwest",
- "sea-orm",
- "sea-query",
- "serde",
- "serde_json",
- "simplelog",
- "skillratings",
- "sqlx",
- "sysinfo",
- "tabled",
- "tempdir",
- "thiserror",
- "tokio",
- "toml",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "validator",
- "worker",
 ]
 
 [[package]]

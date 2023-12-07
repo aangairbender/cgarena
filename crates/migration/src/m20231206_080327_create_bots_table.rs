@@ -10,14 +10,19 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(Alias::new("bots"))
-                    .if_not_exists()
                     .col(
                         ColumnDef::new(Alias::new("id"))
+                            .integer()
+                            .not_null()
+                            .primary_key()
+                            .auto_increment(),
+                    )
+                    .col(
+                        ColumnDef::new(Alias::new("name"))
                             .text()
                             .not_null()
-                            .primary_key(),
+                            .unique_key(),
                     )
-                    .col(ColumnDef::new(Alias::new("name")).text().not_null())
                     .col(ColumnDef::new(Alias::new("language")).text().not_null())
                     .col(ColumnDef::new(Alias::new("source_code")).text().not_null())
                     .col(

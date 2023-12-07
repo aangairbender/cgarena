@@ -24,7 +24,8 @@ version.workspace = true
 tracing-subscriber = "0.3"
 clap = { version = "4.2.7", features = ["derive"] }
 colored = "2.0.4"
+tempdir = "0.3.7"
 tokio.workspace = true
 tracing.workspace = true
 
-server = { path = "crates/server" }
+api = { path = "crates/api" }

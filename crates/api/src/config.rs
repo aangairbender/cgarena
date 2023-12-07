@@ -11,14 +11,15 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize)]
 pub struct GameConfig {
-    pub min_players: i32,
-    pub max_players: i32,
+    pub min_players: u32,
+    pub max_players: u32,
     pub symmetric: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct WorkerConfig {
     pub threads: u8,
+    pub workdir: String,
     pub language_templates_path: String,
     pub referee_path: String,
 }

@@ -10,9 +10,8 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(Alias::new("participations"))
-                    .if_not_exists()
-                    .col(ColumnDef::new(Alias::new("match_id")).text().not_null())
-                    .col(ColumnDef::new(Alias::new("bot_id")).string().not_null())
+                    .col(ColumnDef::new(Alias::new("match_id")).integer().not_null())
+                    .col(ColumnDef::new(Alias::new("bot_id")).integer().not_null())
                     .col(ColumnDef::new(Alias::new("index")).integer().not_null())
                     .col(ColumnDef::new(Alias::new("score")).integer())
                     .primary_key(

@@ -6,15 +6,16 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use entity::r#match;
+use entity::{participation, r#match};
 use rand::Rng;
-use sea_orm::{EntityTrait, Set};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::NotSet, EntityTrait, IntoActiveModel, Set, TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use uuid::Uuid;
-use validator::Validate;
+use validator::{Validate, ValidationError};
 
-use crate::{errors::AppError, AppState};
+use crate::{config::Config, errors::AppError, AppState};
 
 pub fn create_router() -> Router<AppState> {
     Router::new()
@@ -29,18 +30,34 @@ async fn create_match(
 ) -> Result<impl IntoResponse, AppError> {
     let seed = payload.seed.unwrap_or_else(|| rand::thread_rng().gen());
 
+    let txn = app_state.db.begin().await.map_err(anyhow::Error::from)?;
+
     let r#match = r#match::ActiveModel {
-        id: Set(Uuid::new_v4()),
+        id: NotSet,
         seed: Set(seed),
         status: Set(r#match::MatchStatus::Pending),
         created_at: Set(Utc::now()),
         tag: Set(payload.tag),
     };
 
-    let r#match = r#match::Entity::insert(r#match)
-        .exec_with_returning(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    let r#match = r#match.insert(&txn).await.map_err(anyhow::Error::from)?;
+
+    for (index, bot_id) in payload.bot_ids.into_iter().enumerate() {
+        let participation = participation::Model {
+            bot_id,
+            match_id: r#match.id,
+            index: index as u8,
+            score: None,
+        };
+
+        participation
+            .into_active_model()
+            .insert(&txn)
+            .await
+            .map_err(anyhow::Error::from)?;
+    }
+
+    txn.commit().await.map_err(anyhow::Error::from)?;
 
     let response_body = json!({
         "match": r#match,
@@ -64,7 +81,7 @@ async fn query_matches(State(app_state): State<AppState>) -> Result<impl IntoRes
 
 async fn get_match_by_id(
     State(app_state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let r#match = r#match::Entity::find_by_id(id)
         .one(&app_state.db)
@@ -87,4 +104,16 @@ pub struct CreateMatchRequest {
     pub seed: Option<i32>,
     #[validate(length(min = 1, max = 32))]
     pub tag: Option<String>,
+    #[validate(custom(function = "validate_bot_ids", arg = "&'v_a Config"))]
+    pub bot_ids: Vec<i32>,
+}
+
+fn validate_bot_ids(bot_ids: &Vec<i32>, config: &Config) -> Result<(), ValidationError> {
+    if (bot_ids.len() as u32) < config.game.min_players {
+        return Err(ValidationError::new("Not enough bots, check your config"));
+    }
+    if (bot_ids.len() as u32) > config.game.max_players {
+        return Err(ValidationError::new("Too many bots, check your config"));
+    }
+    Ok(())
 }

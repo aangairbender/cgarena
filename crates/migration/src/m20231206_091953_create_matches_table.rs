@@ -10,12 +10,12 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(Alias::new("matches"))
-                    .if_not_exists()
                     .col(
                         ColumnDef::new(Alias::new("id"))
-                            .text()
+                            .integer()
                             .not_null()
-                            .primary_key(),
+                            .primary_key()
+                            .auto_increment(),
                     )
                     .col(ColumnDef::new(Alias::new("seed")).integer().not_null())
                     .col(ColumnDef::new(Alias::new("status")).integer().not_null())

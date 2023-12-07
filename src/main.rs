@@ -1,10 +1,11 @@
+mod arena;
+
 use std::{
     error::Error,
     path::{Path, PathBuf},
 };
 
 use clap::{command, Parser, Subcommand};
-use server::{create_new_arena, start_arena_server};
 use tracing::info;
 
 #[derive(Parser)]
@@ -46,7 +47,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match cli.command {
         Commands::New { path } => {
             let path = PathBuf::from(path);
-            create_new_arena(&path)?;
+            arena::create_new_arena(&path)?;
             info!("New arena has been created");
             Ok(())
         }
@@ -56,7 +57,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn handle_run(command: RunCommands) -> Result<(), Box<dyn Error>> {
     match command {
-        RunCommands::Server { path } => start_arena_server(Path::new(&path)).await,
+        RunCommands::Server { path } => api::start_arena_server(Path::new(&path)).await,
         RunCommands::Worker { threads: _ } => todo!(),
     }
 }

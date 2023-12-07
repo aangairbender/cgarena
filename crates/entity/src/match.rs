@@ -5,7 +5,7 @@ use serde::Serialize;
 #[sea_orm(table_name = "matches")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: Uuid,
+    pub id: i32,
     pub seed: i32,
     pub status: MatchStatus,
     pub created_at: DateTimeUtc,

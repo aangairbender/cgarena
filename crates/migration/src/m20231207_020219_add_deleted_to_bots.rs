@@ -10,7 +10,7 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Alias::new("bots"))
-                    .add_column(ColumnDef::new(Alias::new("deleted")).boolean())
+                    .add_column(ColumnDef::new(Alias::new("deleted")).boolean().not_null())
                     .to_owned(),
             )
             .await

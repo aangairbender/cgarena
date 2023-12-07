@@ -9,6 +9,6 @@ port = 12345
 
 [embedded_worker]
 threads = 1
-worker_template_path = "/worker_template"
+workdir = "/workdir"
 language_templates_path = "/languages"
 referee_path = "/referee"

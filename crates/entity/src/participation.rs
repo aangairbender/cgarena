@@ -5,11 +5,11 @@ use serde::Serialize;
 #[sea_orm(table_name = "participations")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub match_id: Uuid,
+    pub match_id: i32,
     #[sea_orm(primary_key)]
-    pub bot_id: Uuid,
+    pub bot_id: i32,
     #[sea_orm(primary_key)]
-    pub index: i32,
+    pub index: u8,
     pub score: Option<i32>,
 }
 
