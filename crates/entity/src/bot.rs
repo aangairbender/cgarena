@@ -11,7 +11,7 @@ pub struct Model {
     pub source_code: String,
     pub language: String,
     pub created_at: DateTimeUtc,
-    pub deleted: bool,
+    pub deleted: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, EnumIter, DeriveRelation)]

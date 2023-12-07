@@ -12,7 +12,8 @@ pub async fn create_app(arena_path: &Path, db: DatabaseConnection) -> Router {
     };
 
     let api_router = Router::new()
-        .merge(routes::bot::create_route())
+        .merge(routes::bot::create_router())
+        .merge(routes::r#match::create_router())
         .with_state(app_state);
 
     // .fallback(get_service(ServeFile::new("./web-ui/build/index.html")).handle_error(|_| async move {

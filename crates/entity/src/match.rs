@@ -9,7 +9,7 @@ pub struct Model {
     pub seed: i32,
     pub status: MatchStatus,
     pub created_at: DateTimeUtc,
-    pub created_by: String,
+    pub tag: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, EnumIter, DeriveRelation)]

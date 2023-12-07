@@ -9,8 +9,8 @@ impl MigrationTrait for Migration {
         manager
             .alter_table(
                 Table::alter()
-                    .table(Alias::new("bots"))
-                    .add_column(ColumnDef::new(Alias::new("deleted")).boolean())
+                    .table(Alias::new("matches"))
+                    .add_column(ColumnDef::new(Alias::new("tag")).text())
                     .to_owned(),
             )
             .await
@@ -20,8 +20,8 @@ impl MigrationTrait for Migration {
         manager
             .alter_table(
                 Table::alter()
-                    .table(Alias::new("bots"))
-                    .drop_column(Alias::new("deleted"))
+                    .table(Alias::new("matches"))
+                    .drop_column(Alias::new("tag"))
                     .to_owned(),
             )
             .await

@@ -2848,6 +2848,7 @@ dependencies = [
  "log",
  "migration",
  "mime",
+ "rand 0.8.5",
  "reqwest",
  "sea-orm",
  "sea-query",

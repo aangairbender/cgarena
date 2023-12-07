@@ -5,7 +5,7 @@ use serde::Serialize;
 use validator::ValidationErrors;
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum AppError {
     #[error("Not found")]
     NotFound,
 
@@ -19,27 +19,27 @@ pub enum Error {
     Internal(#[from] anyhow::Error),
 }
 
-impl Error {
+impl AppError {
     fn get_status_code(&self) -> StatusCode {
         match self {
-            Error::NotFound => StatusCode::NOT_FOUND,
-            Error::ValidationFailed(_) => StatusCode::BAD_REQUEST,
-            Error::AlreadyExists => StatusCode::CONFLICT,
-            Error::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::NotFound => StatusCode::NOT_FOUND,
+            AppError::ValidationFailed(_) => StatusCode::BAD_REQUEST,
+            AppError::AlreadyExists => StatusCode::CONFLICT,
+            AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     fn get_error_code(&self) -> &'static str {
         match self {
-            Error::NotFound => "not_found",
-            Error::ValidationFailed(_) => "validation_failed",
-            Error::AlreadyExists => "already_exists",
-            Error::Internal(_) => "internal_error",
+            AppError::NotFound => "not_found",
+            AppError::ValidationFailed(_) => "validation_failed",
+            AppError::AlreadyExists => "already_exists",
+            AppError::Internal(_) => "internal_error",
         }
     }
 }
 
-impl IntoResponse for Error {
+impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let status_code = self.get_status_code();
         let error_code = self.get_error_code();

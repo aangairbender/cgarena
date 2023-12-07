@@ -10,7 +10,7 @@ pub struct Model {
     pub bot_id: Uuid,
     #[sea_orm(primary_key)]
     pub index: i32,
-    pub score: i32,
+    pub score: Option<i32>,
 }
 
 #[derive(Clone, Copy, Debug, EnumIter, DeriveRelation)]
