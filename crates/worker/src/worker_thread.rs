@@ -1,7 +1,14 @@
-use std::{thread, collections::{HashSet, HashMap}, time::Duration};
 use config::WorkerConfig;
-use tokio::sync::{mpsc::{self, error::TryRecvError, UnboundedReceiver, UnboundedSender}, oneshot};
-use tracing::{warn, debug};
+use std::{
+    collections::{HashMap, HashSet},
+    thread,
+    time::Duration,
+};
+use tokio::sync::{
+    mpsc::{self, error::TryRecvError, UnboundedReceiver, UnboundedSender},
+    oneshot,
+};
+use tracing::{debug, warn};
 
 use super::{Job, JobResult};
 
@@ -28,10 +35,12 @@ impl WorkerThread {
         match rx.await {
             Ok(res) => Ok(res),
             Err(e) => {
-                warn!("Cannot receieve result from the worker thread, respawning the worker thread");
+                warn!(
+                    "Cannot receieve result from the worker thread, respawning the worker thread"
+                );
                 self.respawn();
                 return Err(e.into());
-            },
+            }
         }
     }
 
@@ -41,7 +50,10 @@ impl WorkerThread {
     }
 }
 
-fn spawn_worker_thread(config: WorkerConfig, mut receiver: UnboundedReceiver<(Job, oneshot::Sender<JobResult>)>) {
+fn spawn_worker_thread(
+    config: WorkerConfig,
+    mut receiver: UnboundedReceiver<(Job, oneshot::Sender<JobResult>)>,
+) {
     thread::spawn(move || loop {
         match receiver.try_recv() {
             Ok((job, tx)) => {
@@ -64,7 +76,7 @@ fn spawn_worker_thread(config: WorkerConfig, mut receiver: UnboundedReceiver<(Jo
 
 fn process_job(config: &WorkerConfig, job: Job) -> JobResult {
     thread::sleep(Duration::from_secs(1));
-    let mut scores = [0; 8]; 
+    let mut scores = [0; 8];
     for (i, bot) in job.bots.iter().enumerate() {
         scores[i] = i as i32;
     }

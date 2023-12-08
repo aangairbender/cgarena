@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
+use sea_orm::DbErr;
 use serde::Serialize;
 use validator::ValidationErrors;
 
@@ -48,6 +49,12 @@ impl IntoResponse for ApiError {
             message: self.to_string(),
         };
         (status_code, Json(body)).into_response()
+    }
+}
+
+impl From<DbErr> for ApiError {
+    fn from(value: DbErr) -> Self {
+        ApiError::Internal(value.into())
     }
 }
 

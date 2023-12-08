@@ -7,7 +7,7 @@ use std::{net::SocketAddr, sync::Arc};
 use config::Config;
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,7 +26,7 @@ pub async fn start_api_server(
     let app_state = AppState {
         config,
         db,
-        match_queue_tx
+        match_queue_tx,
     };
 
     let app = app::create_app(app_state).await;

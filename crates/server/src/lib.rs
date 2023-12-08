@@ -4,11 +4,10 @@ use std::{path::Path, sync::Arc};
 
 use arena::Arena;
 use config::Config;
-use tokio::sync::mpsc;
 use migration::{Migrator, MigratorTrait};
 use sea_orm::Database;
-use sqlx::{Sqlite, migrate::MigrateDatabase};
-
+use sqlx::{migrate::MigrateDatabase, Sqlite};
+use tokio::sync::mpsc;
 
 pub async fn start_arena_server(arena_path: &Path) -> Result<(), anyhow::Error> {
     let config = Arc::new(Config::load(&arena_path.join("cgarena_config.toml"))?);

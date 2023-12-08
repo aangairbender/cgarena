@@ -1,10 +1,15 @@
 use anyhow::{bail, Ok};
 use config::Config;
-use entity::{r#match::{self, MatchStatus}, bot, participation};
-use sea_orm::{DatabaseConnection, EntityTrait, ModelTrait, IntoActiveModel, Set, ActiveModelTrait};
-use tokio::sync::mpsc;
-use worker::{Worker, Job};
+use entity::{
+    bot, participation,
+    r#match::{self, MatchStatus},
+};
+use sea_orm::{
+    ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, ModelTrait, Set,
+};
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use worker::{Job, Worker};
 
 pub struct Arena {
     config: Arc<Config>,
@@ -21,14 +26,15 @@ impl Arena {
         match_queue_rx: mpsc::UnboundedReceiver<i32>,
     ) -> Self {
         let workers = if let Some(w) = &config.embedded_worker {
-            vec![
-                Worker::new(w.clone())
-            ]
+            vec![Worker::new(w.clone())]
         } else {
             vec![]
         };
         Self {
-            config, db, match_queue_rx, workers,
+            config,
+            db,
+            match_queue_rx,
+            workers,
             last_selected_worker_index: 0,
         }
     }
@@ -42,15 +48,14 @@ impl Arena {
     }
 
     async fn organize_match(&mut self, match_id: i32) -> Result<(), anyhow::Error> {
-        let r#match = r#match::Entity::find_by_id(match_id)
-            .one(&self.db)
-            .await?;
+        let r#match = r#match::Entity::find_by_id(match_id).one(&self.db).await?;
 
         let Some(r#match) = r#match else {
             bail!("Organized match does not exist int db, skipping");
         };
 
-        let mut participations = r#match.find_related(entity::participation::Entity)
+        let mut participations = r#match
+            .find_related(entity::participation::Entity)
             .all(&self.db)
             .await?;
 
@@ -70,7 +75,10 @@ impl Arena {
             bots.push(bot);
         }
 
-        let job = Job { r#match: r#match.clone(), bots };
+        let job = Job {
+            r#match: r#match.clone(),
+            bots,
+        };
 
         let res = self.workers[best_worker_index].run(job).await?;
 

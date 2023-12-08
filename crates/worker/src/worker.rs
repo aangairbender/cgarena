@@ -11,8 +11,13 @@ pub struct Worker {
 impl Worker {
     pub fn new(config: WorkerConfig) -> Self {
         assert!(config.threads > 0, "Can't start worker with 0 threads");
-        let worker_threads = (0..config.threads).map(|_| WorkerThread::spawn(config.clone())).collect();
-        info!("Embedded worker with {} worker threads created", config.threads);
+        let worker_threads = (0..config.threads)
+            .map(|_| WorkerThread::spawn(config.clone()))
+            .collect();
+        info!(
+            "Embedded worker with {} worker threads created",
+            config.threads
+        );
         Self {
             worker_threads,
             jobs_queued_total: 0,

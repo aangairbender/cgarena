@@ -33,8 +33,7 @@ async fn ensure_name_is_unique(app_state: &AppState, name: &str) -> Result<(), A
     let duplicate = bot::Entity::find()
         .filter(bot::Column::Name.eq(name))
         .one(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+        .await?;
 
     if duplicate.is_some() {
         return Err(ApiError::AlreadyExists);
@@ -62,8 +61,7 @@ async fn create_bot(
 
     let bot = bot::Entity::insert(bot.into_active_model())
         .exec_with_returning(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+        .await?;
 
     let response_body = json!({
         "bot": &bot,
@@ -73,10 +71,7 @@ async fn create_bot(
 }
 
 async fn query_bots(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let bots = bot::Entity::find()
-        .all(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    let bots = bot::Entity::find().all(&app_state.db).await?;
 
     let response_body = json!({
         "bots": bots,
@@ -89,10 +84,7 @@ async fn get_bot_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let bot = bot::Entity::find_by_id(id)
-        .one(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    let bot = bot::Entity::find_by_id(id).one(&app_state.db).await?;
 
     let Some(bot) = bot else {
         return Err(ApiError::NotFound);
@@ -110,10 +102,7 @@ async fn patch_bot_by_id(
     Path(id): Path<i32>,
     Json(payload): Json<PatchBotRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let bot = bot::Entity::find_by_id(id)
-        .one(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    let bot = bot::Entity::find_by_id(id).one(&app_state.db).await?;
 
     let Some(bot) = bot else {
         return Err(ApiError::NotFound);
@@ -123,10 +112,7 @@ async fn patch_bot_by_id(
 
     let mut bot: bot::ActiveModel = bot.into();
     bot.name = Set(payload.name);
-    let bot = bot
-        .update(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    let bot = bot.update(&app_state.db).await?;
 
     let response_body = json!({
         "bot": bot,
@@ -139,16 +125,10 @@ async fn delete_bot_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let Some(bot) = bot::Entity::find_by_id(id)
-        .one(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?
-    else {
+    let Some(bot) = bot::Entity::find_by_id(id).one(&app_state.db).await? else {
         return Err(ApiError::NotFound);
     };
-    bot.delete(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    bot.delete(&app_state.db).await?;
     Ok(StatusCode::OK)
 }
 

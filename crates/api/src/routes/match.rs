@@ -7,14 +7,18 @@ use axum::{
 };
 use chrono::Utc;
 use config::Config;
-use entity::{participation, r#match::{self, MatchStatus}};
+use entity::{
+    participation,
+    r#match::{self, MatchStatus},
+};
 use rand::Rng;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, EntityTrait, IntoActiveModel, Set, TransactionTrait, ModelTrait, prelude::DateTimeUtc,
+    prelude::DateTimeUtc, ActiveModelTrait, ActiveValue::NotSet, EntityTrait, IntoActiveModel,
+    ModelTrait, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use validator::{Validate, ValidationError, ValidateArgs};
+use validator::{Validate, ValidateArgs, ValidationError};
 
 use crate::{errors::ApiError, AppState};
 
@@ -33,7 +37,7 @@ async fn create_match(
 
     let seed = payload.seed.unwrap_or_else(|| rand::thread_rng().gen());
 
-    let txn = app_state.db.begin().await.map_err(anyhow::Error::from)?;
+    let txn = app_state.db.begin().await?;
 
     let r#match = r#match::ActiveModel {
         id: NotSet,
@@ -43,7 +47,7 @@ async fn create_match(
         tag: Set(payload.tag),
     };
 
-    let r#match = r#match.insert(&txn).await.map_err(anyhow::Error::from)?;
+    let r#match = r#match.insert(&txn).await?;
 
     for (index, bot_id) in payload.bot_ids.into_iter().enumerate() {
         let participation = participation::Model {
@@ -53,16 +57,14 @@ async fn create_match(
             score: None,
         };
 
-        participation
-            .into_active_model()
-            .insert(&txn)
-            .await
-            .map_err(anyhow::Error::from)?;
+        participation.into_active_model().insert(&txn).await?;
     }
 
-    txn.commit().await.map_err(anyhow::Error::from)?;
+    txn.commit().await?;
 
-    app_state.match_queue_tx.send(r#match.id)
+    app_state
+        .match_queue_tx
+        .send(r#match.id)
         .map_err(anyhow::Error::from)?;
 
     let response_body = json!({
@@ -73,10 +75,7 @@ async fn create_match(
 }
 
 async fn query_matches(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let matches = r#match::Entity::find()
-        .all(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    let matches = r#match::Entity::find().all(&app_state.db).await?;
 
     let response_body = json!({
         "matches": matches,
@@ -89,19 +88,16 @@ async fn get_match_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let r#match = r#match::Entity::find_by_id(id)
-        .one(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+    let r#match = r#match::Entity::find_by_id(id).one(&app_state.db).await?;
 
     let Some(r#match) = r#match else {
         return Err(ApiError::NotFound);
     };
 
-    let participations = r#match.find_related(participation::Entity)
+    let participations = r#match
+        .find_related(participation::Entity)
         .all(&app_state.db)
-        .await
-        .map_err(anyhow::Error::from)?;
+        .await?;
 
     let response_body = json!({
         "match": MatchResponse {
