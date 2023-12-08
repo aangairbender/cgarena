@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use validator::Validate;
 
-use crate::errors::AppError;
+use crate::errors::ApiError;
 use crate::AppState;
 
 pub fn create_router() -> Router<AppState> {
@@ -29,7 +29,7 @@ pub fn create_router() -> Router<AppState> {
         .route("/bots/:id", delete(delete_bot_by_id))
 }
 
-async fn ensure_name_is_unique(app_state: &AppState, name: &str) -> Result<(), AppError> {
+async fn ensure_name_is_unique(app_state: &AppState, name: &str) -> Result<(), ApiError> {
     let duplicate = bot::Entity::find()
         .filter(bot::Column::Name.eq(name))
         .one(&app_state.db)
@@ -37,7 +37,7 @@ async fn ensure_name_is_unique(app_state: &AppState, name: &str) -> Result<(), A
         .map_err(anyhow::Error::from)?;
 
     if duplicate.is_some() {
-        return Err(AppError::AlreadyExists);
+        return Err(ApiError::AlreadyExists);
     }
 
     Ok(())
@@ -46,7 +46,7 @@ async fn ensure_name_is_unique(app_state: &AppState, name: &str) -> Result<(), A
 async fn create_bot(
     State(app_state): State<AppState>,
     Json(payload): Json<CreateBotRequest>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, ApiError> {
     payload.validate()?;
 
     ensure_name_is_unique(&app_state, &payload.name).await?;
@@ -72,7 +72,7 @@ async fn create_bot(
     Ok((StatusCode::CREATED, Json(response_body)))
 }
 
-async fn query_bots(State(app_state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+async fn query_bots(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let bots = bot::Entity::find()
         .all(&app_state.db)
         .await
@@ -88,14 +88,14 @@ async fn query_bots(State(app_state): State<AppState>) -> Result<impl IntoRespon
 async fn get_bot_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<i32>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, ApiError> {
     let bot = bot::Entity::find_by_id(id)
         .one(&app_state.db)
         .await
         .map_err(anyhow::Error::from)?;
 
     let Some(bot) = bot else {
-        return Err(AppError::NotFound);
+        return Err(ApiError::NotFound);
     };
 
     let response_body = json!({
@@ -109,14 +109,14 @@ async fn patch_bot_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<i32>,
     Json(payload): Json<PatchBotRequest>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, ApiError> {
     let bot = bot::Entity::find_by_id(id)
         .one(&app_state.db)
         .await
         .map_err(anyhow::Error::from)?;
 
     let Some(bot) = bot else {
-        return Err(AppError::NotFound);
+        return Err(ApiError::NotFound);
     };
 
     ensure_name_is_unique(&app_state, &payload.name).await?;
@@ -138,13 +138,13 @@ async fn patch_bot_by_id(
 async fn delete_bot_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<i32>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, ApiError> {
     let Some(bot) = bot::Entity::find_by_id(id)
         .one(&app_state.db)
         .await
         .map_err(anyhow::Error::from)?
     else {
-        return Err(AppError::NotFound);
+        return Err(ApiError::NotFound);
     };
     bot.delete(&app_state.db)
         .await

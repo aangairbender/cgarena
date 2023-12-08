@@ -5,7 +5,7 @@ use serde::Serialize;
 use validator::ValidationErrors;
 
 #[derive(thiserror::Error, Debug)]
-pub enum AppError {
+pub enum ApiError {
     #[error("Not found")]
     NotFound,
 
@@ -19,27 +19,27 @@ pub enum AppError {
     Internal(#[from] anyhow::Error),
 }
 
-impl AppError {
+impl ApiError {
     fn get_status_code(&self) -> StatusCode {
         match self {
-            AppError::NotFound => StatusCode::NOT_FOUND,
-            AppError::ValidationFailed(_) => StatusCode::BAD_REQUEST,
-            AppError::AlreadyExists => StatusCode::CONFLICT,
-            AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::NotFound => StatusCode::NOT_FOUND,
+            ApiError::ValidationFailed(_) => StatusCode::BAD_REQUEST,
+            ApiError::AlreadyExists => StatusCode::CONFLICT,
+            ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     fn get_error_code(&self) -> &'static str {
         match self {
-            AppError::NotFound => "not_found",
-            AppError::ValidationFailed(_) => "validation_failed",
-            AppError::AlreadyExists => "already_exists",
-            AppError::Internal(_) => "internal_error",
+            ApiError::NotFound => "not_found",
+            ApiError::ValidationFailed(_) => "validation_failed",
+            ApiError::AlreadyExists => "already_exists",
+            ApiError::Internal(_) => "internal_error",
         }
     }
 }
 
-impl IntoResponse for AppError {
+impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status_code = self.get_status_code();
         let error_code = self.get_error_code();

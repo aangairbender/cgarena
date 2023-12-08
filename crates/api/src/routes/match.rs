@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use validator::{Validate, ValidationError, ValidateArgs};
 
-use crate::{errors::AppError, AppState};
+use crate::{errors::ApiError, AppState};
 
 pub fn create_router() -> Router<AppState> {
     Router::new()
@@ -28,7 +28,7 @@ pub fn create_router() -> Router<AppState> {
 async fn create_match(
     State(app_state): State<AppState>,
     Json(payload): Json<CreateMatchRequest>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, ApiError> {
     payload.validate_args(&app_state.config)?;
 
     let seed = payload.seed.unwrap_or_else(|| rand::thread_rng().gen());
@@ -72,7 +72,7 @@ async fn create_match(
     Ok((StatusCode::CREATED, Json(response_body)))
 }
 
-async fn query_matches(State(app_state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+async fn query_matches(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let matches = r#match::Entity::find()
         .all(&app_state.db)
         .await
@@ -88,14 +88,14 @@ async fn query_matches(State(app_state): State<AppState>) -> Result<impl IntoRes
 async fn get_match_by_id(
     State(app_state): State<AppState>,
     Path(id): Path<i32>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, ApiError> {
     let r#match = r#match::Entity::find_by_id(id)
         .one(&app_state.db)
         .await
         .map_err(anyhow::Error::from)?;
 
     let Some(r#match) = r#match else {
-        return Err(AppError::NotFound);
+        return Err(ApiError::NotFound);
     };
 
     let participations = r#match.find_related(participation::Entity)
