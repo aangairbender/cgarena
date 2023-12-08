@@ -49,6 +49,7 @@ async fn create_match(
 
     let r#match = r#match.insert(&txn).await?;
 
+    let mut participations = Vec::with_capacity(payload.bot_ids.len());
     for (index, bot_id) in payload.bot_ids.into_iter().enumerate() {
         let participation = participation::Model {
             bot_id,
@@ -57,28 +58,28 @@ async fn create_match(
             score: None,
         };
 
-        participation.into_active_model().insert(&txn).await?;
+        participations.push(participation.into_active_model().insert(&txn).await?);
     }
 
     txn.commit().await?;
 
-    app_state
-        .match_queue_tx
-        .send(r#match.id)
-        .map_err(anyhow::Error::from)?;
+    app_state.match_queue_tx.send(r#match.id).map_err(anyhow::Error::from)?;
 
     let response_body = json!({
-        "match": r#match,
+        "match": MatchResponse::from((r#match, participations)),
     });
 
     Ok((StatusCode::CREATED, Json(response_body)))
 }
 
 async fn query_matches(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let matches = r#match::Entity::find().all(&app_state.db).await?;
+    let matches = r#match::Entity::find()
+        .find_with_related(participation::Entity)
+        .all(&app_state.db)
+        .await?;
 
     let response_body = json!({
-        "matches": matches,
+        "matches": matches.into_iter().map(MatchResponse::from).collect::<Vec<_>>(),
     });
 
     Ok((StatusCode::OK, Json(response_body)))
@@ -100,16 +101,7 @@ async fn get_match_by_id(
         .await?;
 
     let response_body = json!({
-        "match": MatchResponse {
-            id: r#match.id,
-            seed: r#match.seed,
-            status: r#match.status,
-            created_at: r#match.created_at,
-            tag: r#match.tag,
-            participants: participations.into_iter().map(|p| {
-                Participant { bot_id: p.bot_id, index: p.index, score: p.score }
-            }).collect()
-        },
+        "match": MatchResponse::from((r#match, participations)),
     });
 
     Ok((StatusCode::OK, Json(response_body)))
@@ -149,4 +141,23 @@ struct Participant {
     bot_id: i32,
     index: u8,
     score: Option<i32>,
+}
+
+impl From<(r#match::Model, Vec<participation::Model>)> for MatchResponse {
+    fn from((m, p): (r#match::Model, Vec<participation::Model>)) -> Self {
+        Self {
+            id: m.id,
+            seed: m.seed,
+            status: m.status,
+            created_at: m.created_at,
+            tag: m.tag,
+            participants: p.into_iter().map(|x| {
+                Participant {
+                    bot_id: x.bot_id,
+                    index: x.index,
+                    score: x.score
+                }
+            }).collect()
+        }
+    }
 }

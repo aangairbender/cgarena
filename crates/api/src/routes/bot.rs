@@ -11,7 +11,7 @@ use chrono::Utc;
 use entity::bot;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, ModelTrait, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, ModelTrait, QueryFilter, Set, ConnectionTrait, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -29,10 +29,10 @@ pub fn create_router() -> Router<AppState> {
         .route("/bots/:id", delete(delete_bot_by_id))
 }
 
-async fn ensure_name_is_unique(app_state: &AppState, name: &str) -> Result<(), ApiError> {
+async fn ensure_name_is_unique(c: &impl ConnectionTrait, name: &str) -> Result<(), ApiError> {
     let duplicate = bot::Entity::find()
         .filter(bot::Column::Name.eq(name))
-        .one(&app_state.db)
+        .one(c)
         .await?;
 
     if duplicate.is_some() {
@@ -48,7 +48,9 @@ async fn create_bot(
 ) -> Result<impl IntoResponse, ApiError> {
     payload.validate()?;
 
-    ensure_name_is_unique(&app_state, &payload.name).await?;
+    let txn = app_state.db.begin().await?;
+
+    ensure_name_is_unique(&txn, &payload.name).await?;
 
     let bot = bot::ActiveModel {
         id: NotSet,
@@ -60,8 +62,10 @@ async fn create_bot(
     };
 
     let bot = bot::Entity::insert(bot.into_active_model())
-        .exec_with_returning(&app_state.db)
+        .exec_with_returning(&txn)
         .await?;
+
+    txn.commit().await?;
 
     let response_body = json!({
         "bot": &bot,
@@ -102,17 +106,21 @@ async fn patch_bot_by_id(
     Path(id): Path<i32>,
     Json(payload): Json<PatchBotRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let bot = bot::Entity::find_by_id(id).one(&app_state.db).await?;
+    let txn = app_state.db.begin().await?;
+
+    let bot = bot::Entity::find_by_id(id).one(&txn).await?;
 
     let Some(bot) = bot else {
         return Err(ApiError::NotFound);
     };
 
-    ensure_name_is_unique(&app_state, &payload.name).await?;
+    ensure_name_is_unique(&txn, &payload.name).await?;
 
     let mut bot: bot::ActiveModel = bot.into();
     bot.name = Set(payload.name);
-    let bot = bot.update(&app_state.db).await?;
+    let bot = bot.update(&txn).await?;
+
+    txn.commit().await?;
 
     let response_body = json!({
         "bot": bot,
