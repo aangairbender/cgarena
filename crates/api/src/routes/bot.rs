@@ -11,7 +11,8 @@ use chrono::Utc;
 use entity::bot;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, ModelTrait, QueryFilter, Set, ConnectionTrait, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, ModelTrait,
+    QueryFilter, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;

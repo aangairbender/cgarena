@@ -63,7 +63,10 @@ async fn create_match(
 
     txn.commit().await?;
 
-    app_state.match_queue_tx.send(r#match.id).map_err(anyhow::Error::from)?;
+    app_state
+        .match_queue_tx
+        .send(r#match.id)
+        .map_err(anyhow::Error::from)?;
 
     let response_body = json!({
         "match": MatchResponse::from((r#match, participations)),
@@ -151,13 +154,14 @@ impl From<(r#match::Model, Vec<participation::Model>)> for MatchResponse {
             status: m.status,
             created_at: m.created_at,
             tag: m.tag,
-            participants: p.into_iter().map(|x| {
-                Participant {
+            participants: p
+                .into_iter()
+                .map(|x| Participant {
                     bot_id: x.bot_id,
                     index: x.index,
-                    score: x.score
-                }
-            }).collect()
+                    score: x.score,
+                })
+                .collect(),
         }
     }
 }
