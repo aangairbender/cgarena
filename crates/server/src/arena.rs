@@ -1,13 +1,13 @@
 use anyhow::{bail, Ok};
 use config::Config;
 use entity::{
-    bot, participation,
+    bot,
     r#match::{self, MatchStatus},
 };
 use sea_orm::{
     ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, ModelTrait, Set,
 };
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use tokio::sync::mpsc;
 use worker::{Job, Worker};
 
@@ -26,7 +26,7 @@ impl Arena {
         match_queue_rx: mpsc::UnboundedReceiver<i32>,
     ) -> Self {
         let workers = if let Some(w) = &config.embedded_worker {
-            vec![Worker::new(w.clone())]
+            vec![Worker::new(w.clone()).unwrap()]
         } else {
             vec![]
         };

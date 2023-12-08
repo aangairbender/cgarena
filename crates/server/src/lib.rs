@@ -24,10 +24,10 @@ pub async fn start_arena_server(arena_path: &Path) -> Result<(), anyhow::Error> 
 
     let (match_queue_tx, match_queue_rx) = mpsc::unbounded_channel::<i32>();
 
-    let match_organizer = Arena::new(config.clone(), db.clone(), match_queue_rx);
+    let arena = Arena::new(config.clone(), db.clone(), match_queue_rx);
 
     tokio::spawn(async move {
-        match_organizer.launch().await;
+        arena.launch().await;
     });
 
     api::start_api_server(config, db, match_queue_tx).await

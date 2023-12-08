@@ -1,6 +1,8 @@
 use config::WorkerConfig;
 use std::{
     collections::{HashMap, HashSet},
+    fs::ReadDir,
+    path::Path,
     thread,
     time::Duration,
 };
@@ -75,10 +77,5 @@ fn spawn_worker_thread(
 }
 
 fn process_job(config: &WorkerConfig, job: Job) -> JobResult {
-    thread::sleep(Duration::from_secs(1));
-    let mut scores = [0; 8];
-    for (i, bot) in job.bots.iter().enumerate() {
-        scores[i] = i as i32;
-    }
-    JobResult { scores }
+    JobResult { scores: [0; 8] }
 }
