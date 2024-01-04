@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use anyhow::bail;
 use clap::{command, Parser, Subcommand};
 use tracing::info;
+use serde_json::json;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)] // Read from `Cargo.toml`
@@ -20,6 +22,10 @@ enum Commands {
         #[command(subcommand)]
         command: RunCommands,
     },
+    Bot {
+        #[command(subcommand)]
+        command: BotCommands,
+    }
 }
 
 #[derive(Subcommand)]
@@ -31,6 +37,18 @@ enum RunCommands {
         #[arg(short, long, default_value_t = 1)]
         threads: u8,
     },
+}
+
+#[derive(Subcommand)]
+enum BotCommands {
+    Add {
+        #[arg(help = "Name of the bot, must be unique")]
+        name: String,
+        #[arg(short, long, help = "Path to the bot's source file")]
+        src: String,
+        #[arg(short, long, help = "Bot's language")]
+        lang: String,
+    }
 }
 
 #[tokio::main]
@@ -47,6 +65,7 @@ async fn main() -> Result<(), anyhow::Error> {
             Ok(())
         }
         Commands::Run { command } => handle_run(command).await,
+        Commands::Bot { command } => handle_bot(command).await,
     }
 }
 
@@ -54,6 +73,31 @@ async fn handle_run(command: RunCommands) -> Result<(), anyhow::Error> {
     match command {
         RunCommands::Server { path } => server::start_arena_server(Path::new(&path)).await,
         RunCommands::Worker { threads: _ } => todo!(),
+    }
+}
+
+async fn handle_bot(command: BotCommands) -> Result<(), anyhow::Error> {
+    match command {
+        BotCommands::Add { name, src, lang } => {
+            let source_code = std::fs::read_to_string(src)?;
+            let host = std::env::var("CGARENA_HOST")
+                .unwrap_or("127.0.0.1:12345".to_string());
+            let body = json!({
+                "name": name,
+                "source_code": source_code,
+                "language": lang,
+            });
+            let client = reqwest::Client::new();
+            let res = client.post(host + "/api/bots")
+                .body(body.to_string())
+                .send()
+                .await?;
+            if res.status().is_success() {
+                Ok(())
+            } else {
+                bail!("Unexpected error. http code: {}", res.status().as_u16())
+            }
+        },
     }
 }
 

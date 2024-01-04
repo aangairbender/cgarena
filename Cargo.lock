@@ -644,6 +644,8 @@ dependencies = [
  "anyhow",
  "clap",
  "colored",
+ "reqwest",
+ "serde_json",
  "server",
  "tempdir",
  "tokio",
