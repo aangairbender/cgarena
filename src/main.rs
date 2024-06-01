@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::bail;
 use clap::{command, Parser, Subcommand};
-use tracing::info;
 use serde_json::json;
+use tracing::info;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)] // Read from `Cargo.toml`
@@ -25,7 +25,7 @@ enum Commands {
     Bot {
         #[command(subcommand)]
         command: BotCommands,
-    }
+    },
 }
 
 #[derive(Subcommand)]
@@ -48,7 +48,7 @@ enum BotCommands {
         src: String,
         #[arg(short, long, help = "Bot's language")]
         lang: String,
-    }
+    },
 }
 
 #[tokio::main]
@@ -80,15 +80,15 @@ async fn handle_bot(command: BotCommands) -> Result<(), anyhow::Error> {
     match command {
         BotCommands::Add { name, src, lang } => {
             let source_code = std::fs::read_to_string(src)?;
-            let host = std::env::var("CGARENA_HOST")
-                .unwrap_or("127.0.0.1:12345".to_string());
+            let url = std::env::var("CGARENA_URL").unwrap_or("127.0.0.1:12345".to_string());
             let body = json!({
                 "name": name,
                 "source_code": source_code,
                 "language": lang,
             });
             let client = reqwest::Client::new();
-            let res = client.post(host + "/api/bots")
+            let res = client
+                .post(url + "/api/bots")
                 .body(body.to_string())
                 .send()
                 .await?;
@@ -97,7 +97,7 @@ async fn handle_bot(command: BotCommands) -> Result<(), anyhow::Error> {
             } else {
                 bail!("Unexpected error. http code: {}", res.status().as_u16())
             }
-        },
+        }
     }
 }
 
