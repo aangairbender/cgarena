@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::bail;
 use clap::{command, Parser, Subcommand};
 use serde_json::json;
+use tokio::fs;
 use tracing::info;
 
 #[derive(Parser)]
@@ -79,7 +80,7 @@ async fn handle_run(command: RunCommands) -> Result<(), anyhow::Error> {
 async fn handle_bot(command: BotCommands) -> Result<(), anyhow::Error> {
     match command {
         BotCommands::Add { name, src, lang } => {
-            let source_code = std::fs::read_to_string(src)?;
+            let source_code = fs::read_to_string(src).await?;
             let url = std::env::var("CGARENA_URL").unwrap_or("127.0.0.1:12345".to_string());
             let body = json!({
                 "name": name,
