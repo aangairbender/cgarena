@@ -4,29 +4,24 @@ mod routes;
 
 use std::{net::SocketAddr, sync::Arc};
 
-use config::Config;
-use sea_orm::DatabaseConnection;
-use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tracing::{error, info};
+
+use crate::server::Arena;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub config: Arc<Config>,
-    pub db: DatabaseConnection,
-    pub match_queue_tx: mpsc::UnboundedSender<i32>,
+    pub arena: Arc<Mutex<Arena>>,
 }
 
 pub async fn start_api_server(
-    config: Arc<Config>,
-    db: DatabaseConnection,
-    match_queue_tx: mpsc::UnboundedSender<i32>,
+    port: u16,
+    arena: Arc<Mutex<Arena>>,
 ) -> Result<(), anyhow::Error> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], config.server.port));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
     let app_state = AppState {
-        config,
-        db,
-        match_queue_tx,
+        arena: arena.clone(),
     };
 
     let app = app::create_app(app_state).await;

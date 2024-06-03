@@ -1,9 +1,10 @@
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use sea_orm::DbErr;
 use serde::Serialize;
 use validator::ValidationErrors;
+
+use crate::server::ArenaError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiError {
@@ -52,9 +53,12 @@ impl IntoResponse for ApiError {
     }
 }
 
-impl From<DbErr> for ApiError {
-    fn from(value: DbErr) -> Self {
-        ApiError::Internal(value.into())
+impl From<ArenaError> for ApiError {
+    fn from(value: ArenaError) -> Self {
+        match value {
+            ArenaError::AlreadyExists => ApiError::AlreadyExists,
+            ArenaError::NotFound => ApiError::NotFound,
+        }
     }
 }
 

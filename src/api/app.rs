@@ -5,8 +5,7 @@ use super::{routes, AppState};
 
 pub async fn create_app(app_state: AppState) -> Router {
     let api_router = Router::new()
-        .merge(routes::bot::create_router())
-        .merge(routes::r#match::create_router())
+        .merge(routes::bots::create_router())
         .with_state(app_state);
 
     // .fallback(get_service(ServeFile::new("./web-ui/build/index.html")).handle_error(|_| async move {

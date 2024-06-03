@@ -1,7 +1,15 @@
+mod config;
+mod model;
+mod persistence;
+mod server;
+mod api;
+// mod worker;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::bail;
 use clap::{command, Parser, Subcommand};
+use config::Config;
 use serde_json::json;
 use tokio::fs;
 use tracing::info;
@@ -110,22 +118,20 @@ fn init_colored() {
 #[cfg(not(windows))]
 fn init_colored() {}
 
-static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/assets/cgarena_config.toml"
-));
-
-const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
-
-fn create_new_arena(path: &Path) -> Result<(), std::io::Error> {
+fn create_new_arena(path: &Path) -> Result<(), anyhow::Error> {
     match std::fs::create_dir(path) {
         Ok(_) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
-        e => return e,
+        e => e?,
     }
 
-    let config_file_path = path.join(CONFIG_FILE_NAME);
-    std::fs::write(config_file_path, DEFAULT_CONFIG_CONTENT)?;
+    let res = Config::create_default(path);
+    if let Err(e) = res {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            bail!("Arena already exists")
+        }
+        return Err(anyhow::Error::new(e));
+    }
 
     Ok(())
 }
@@ -141,6 +147,6 @@ mod test {
         let path = tmp_dir.path().join("test");
         let res = create_new_arena(&path);
         assert!(res.is_ok(), "Arena creation failed {:?}", res.err());
-        assert!(path.join("cgarena_config.toml").exists());
+        assert!(path.join("cgarena_config.yaml").exists());
     }
 }
