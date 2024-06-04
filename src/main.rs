@@ -1,8 +1,9 @@
-mod config;
-mod model;
-mod persistence;
-mod server;
 mod api;
+mod arena;
+mod config;
+mod db;
+mod model;
+mod server;
 // mod worker;
 
 use std::path::{Path, PathBuf};
@@ -80,7 +81,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
 async fn handle_run(command: RunCommands) -> Result<(), anyhow::Error> {
     match command {
-        RunCommands::Server { path } => server::start_arena_server(Path::new(&path)).await,
+        RunCommands::Server { path } => server::start_server(Path::new(&path)).await,
         RunCommands::Worker { threads: _ } => todo!(),
     }
 }
@@ -104,7 +105,7 @@ async fn handle_bot(command: BotCommands) -> Result<(), anyhow::Error> {
             if res.status().is_success() {
                 Ok(())
             } else {
-                bail!("Unexpected error. http code: {}", res.status().as_u16())
+                bail!("Unexpected error: {:#?}", res)
             }
         }
     }

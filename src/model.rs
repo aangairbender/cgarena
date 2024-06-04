@@ -1,10 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct Bot {
-    pub id: Uuid,
+    pub id: i32,
     pub name: String,
     pub source_code: String,
     pub language: String,
@@ -14,10 +13,11 @@ pub struct Bot {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BotStatus {
     Pending,
     Building,
-    Ready
+    Ready,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -28,13 +28,16 @@ pub struct Rating {
 
 impl Default for Rating {
     fn default() -> Self {
-        Self { mu: 25.0, sigma: 25.0 / 3.0 }
+        Self {
+            mu: 25.0,
+            sigma: 25.0 / 3.0,
+        }
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Match {
-    pub id: Uuid,
+    pub id: i32,
     pub seed: i32,
     pub status: MatchStatus,
     pub bot_ids: Vec<i32>,

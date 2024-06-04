@@ -13,7 +13,6 @@ use validator::Validate;
 use crate::api::errors::ApiError;
 use crate::api::AppState;
 
-
 pub fn create_router() -> Router<AppState> {
     Router::new()
         .route("/bots", post(create_bot))
@@ -37,8 +36,10 @@ async fn create_bot(
 ) -> Result<impl IntoResponse, ApiError> {
     payload.validate()?;
 
-    let mut arena = app_state.arena.lock().await;
-    arena.add_bot(payload.name, payload.source_code, payload.language)?;
+    app_state
+        .arena
+        .add_bot(payload.name, payload.source_code, payload.language)
+        .await?;
 
     Ok(StatusCode::CREATED)
 }
@@ -49,7 +50,6 @@ pub struct PatchBotRequest {
     pub name: String,
 }
 
-
 async fn patch_bot_by_name(
     State(app_state): State<AppState>,
     Path(name): Path<String>,
@@ -57,8 +57,7 @@ async fn patch_bot_by_name(
 ) -> Result<impl IntoResponse, ApiError> {
     payload.validate()?;
 
-    let mut arena = app_state.arena.lock().await;
-    arena.rename_bot(&name, payload.name)?;
+    app_state.arena.rename_bot(name, payload.name).await?;
 
     Ok(StatusCode::OK)
 }
@@ -67,7 +66,6 @@ async fn delete_bot_by_name(
     State(app_state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let mut arena = app_state.arena.lock().await;
-    arena.remove_bot(&name)?;
+    app_state.arena.remove_bot(name).await?;
     Ok(StatusCode::OK)
 }

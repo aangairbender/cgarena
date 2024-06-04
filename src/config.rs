@@ -83,7 +83,6 @@ mod test {
 
     #[test]
     fn default_config_is_valid() {
-        let _: Config = serde_yaml::from_str(DEFAULT_CONFIG_CONTENT)
-            .expect("to be a valid config");
+        let _: Config = serde_yaml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
     }
 }

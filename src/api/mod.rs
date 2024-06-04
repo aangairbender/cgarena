@@ -2,27 +2,21 @@ mod app;
 mod errors;
 mod routes;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
-use tokio::sync::Mutex;
 use tracing::{error, info};
 
-use crate::server::Arena;
+use crate::arena::Arena;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub arena: Arc<Mutex<Arena>>,
+    pub arena: Arena,
 }
 
-pub async fn start_api_server(
-    port: u16,
-    arena: Arc<Mutex<Arena>>,
-) -> Result<(), anyhow::Error> {
+pub async fn start_api_server(port: u16, arena: Arena) -> Result<(), anyhow::Error> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let app_state = AppState {
-        arena: arena.clone(),
-    };
+    let app_state = AppState { arena };
 
     let app = app::create_app(app_state).await;
 

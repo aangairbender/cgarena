@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Serialize;
 use validator::ValidationErrors;
 
-use crate::server::ArenaError;
+use crate::arena::ArenaError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiError {
@@ -58,6 +58,7 @@ impl From<ArenaError> for ApiError {
         match value {
             ArenaError::AlreadyExists => ApiError::AlreadyExists,
             ArenaError::NotFound => ApiError::NotFound,
+            ArenaError::Unexpected(e) => ApiError::Internal(e),
         }
     }
 }
