@@ -34,16 +34,9 @@ pub enum RankingConfig {
 #[derive(Serialize, Deserialize)]
 pub struct WorkerConfig {
     pub threads: u8,
-    pub workdir: String,
-    pub play_match_command: String,
-    pub languages: Vec<LanguageConfig>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct LanguageConfig {
-    pub name: String,
-    pub build_command: String,
-    pub run_command: String,
+    pub dir_bots: String,
+    pub dir_languages: String,
+    pub cmd_play_match: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -70,12 +63,13 @@ impl Config {
     }
 }
 
+
+const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
+
 static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/cgarena_config.yaml"
+    "/assets/cgarena_config.toml"
 ));
-
-const CONFIG_FILE_NAME: &str = "cgarena_config.yaml";
 
 #[cfg(test)]
 mod test {

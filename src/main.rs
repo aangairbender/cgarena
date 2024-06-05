@@ -4,7 +4,7 @@ mod config;
 mod db;
 mod model;
 mod server;
-// mod worker;
+mod worker;
 
 use std::path::{Path, PathBuf};
 
