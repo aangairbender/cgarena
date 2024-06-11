@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use chrono::Utc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc::{self, error::TryRecvError}, oneshot};
 
 use crate::config::Config;
 use crate::model::*;
@@ -47,9 +47,26 @@ struct ArenaActor {
 
 impl ArenaActor {
     async fn run(&mut self) {
-        while let Some(msg) = self.receiver.recv().await {
-            self.handle_message(msg).await;
+        loop {
+            // processing api calls
+            let disconnected = loop {
+                match self.receiver.try_recv() {
+                    Ok(msg) => self.handle_message(msg).await,
+                    Err(TryRecvError::Empty) => break false,
+                    Err(TryRecvError::Disconnected) => break true,
+                }
+            };
+
+            // matchmaking
+            self.matchmaking();
+
+            // processing match results
         }
+
+    }
+
+    async fn matchmaking(&mut self) {
+
     }
 
     async fn handle_message(&mut self, msg: ArenaMessage) {
