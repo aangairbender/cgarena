@@ -1,4 +1,5 @@
 use crate::model::Bot;
+use indoc::indoc;
 use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite, SqlitePool};
 
 #[derive(thiserror::Error, Debug)]
@@ -38,16 +39,15 @@ impl Database {
     }
 
     pub async fn add_bot(&self, bot: Bot) -> DBResult<()> {
-        const SQL: &str = r#"
-            INSERT INTO bots (name, source_code, language, status, rating_mu, rating_sigma, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-        "#;
+        const SQL: &str = indoc! {"
+            INSERT INTO bots (name, source_code, language, rating_mu, rating_sigma, created_at) \
+            VALUES ($1, $2, $3, $4, $5, $6, $7) \
+        "};
 
         sqlx::query(SQL)
             .bind(bot.name)
             .bind(bot.source_code)
             .bind(bot.language)
-            .bind(serde_json::to_string(&bot.status).unwrap())
             .bind(bot.rating.mu)
             .bind(bot.rating.sigma)
             .bind(bot.created_at)

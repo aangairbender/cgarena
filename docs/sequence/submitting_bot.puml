@@ -1,12 +1,20 @@
 @startuml submitting-a-bot
 
 actor User
-participant "CGArena Server" as Server
+participant Cli
+participant API
+participant Arena
 database DB
-participant "CGArena Worker" as Worker
+participant Worker
+participant Rating
 
-User -> Server ++ : Submits a bot
-Server -> DB : Persists the bot
-Server -> User -- : OK
+User -> Cli ++ : Runs a command to add a bot
+Cli -> API ++ : POST /api/bots
+API -> Arena : Calls
+Arena -> DB : Persists the bot
+Arena --> Worker : event
+Arena --> Rating : event
+API -> Cli -- : OK
+Cli -> User -- : OK
 
 @enduml

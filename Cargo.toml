@@ -29,3 +29,4 @@ mime = "0.3.17"
 rand = "0.8.5"
 uuid = { version = "1.8.0", features = ["v4", "serde"] }
 tower-http = { version = "0.5.2", features = ["trace", "cors"] }
+indoc = "2.0.5"

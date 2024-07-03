@@ -24,7 +24,7 @@ pub fn create_router() -> Router<AppState> {
 pub struct CreateBotRequest {
     #[validate(length(min = 1, max = 32))]
     pub name: String,
-    #[validate(length(max = 100000))]
+    #[validate(length(max = 100_000))]
     pub source_code: String,
     #[validate(length(min = 1, max = 32))]
     pub language: String,

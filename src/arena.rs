@@ -57,6 +57,10 @@ impl ArenaActor {
                 }
             };
 
+            if disconnected {
+                break;
+            }
+
             // matchmaking
             self.matchmaking();
 
@@ -82,7 +86,6 @@ impl ArenaActor {
                     name,
                     source_code,
                     language,
-                    status: BotStatus::Pending,
                     rating: Rating::default(),
                     created_at: Utc::now(),
                 };
@@ -111,7 +114,7 @@ pub struct Arena {
 }
 
 impl Arena {
-    pub async fn new(path: PathBuf, config: Config, db: Database) -> Self {
+    pub fn new(path: PathBuf, config: Config, db: Database) -> Self {
         let (sender, receiver) = mpsc::channel(8);
         let mut actor = ArenaActor {
             path,
