@@ -1,8 +1,7 @@
 mod api;
-mod arena;
+mod matchmaking;
 mod config;
 mod db;
-mod model;
 mod server;
 mod worker;
 

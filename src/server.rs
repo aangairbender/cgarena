@@ -11,7 +11,11 @@ pub async fn start_server(arena_path: &Path) -> Result<(), anyhow::Error> {
     let db = Database::new(&db_url).await;
 
     let server_port = config.server.port;
-    let arena = Arena::new(arena_path.to_owned(), config, db).await;
+    //let arena = Arena::new(arena_path.to_owned(), config, db.clone());
 
-    api::start_api_server(server_port, arena).await
+    api::start_api_server(server_port, db.clone()).await
 }
+
+// architecture simplified
+// api would interact with DB directly and push events for arena to consume
+// instead of api calling arena functions

@@ -1,6 +1,41 @@
-use crate::model::Bot;
+use chrono::{DateTime, Utc};
 use indoc::indoc;
 use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite, SqlitePool};
+
+// Represents a bot submitted to arena
+#[derive(sqlx::FromRow)]
+pub struct Bot {
+    pub id: i32,
+    pub name: String,
+    pub source_code: String,
+    pub language: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct BotStats {
+    pub bot_id: i32,
+    pub games: u32,
+    pub rating_mu: f64,
+    pub rating_sigma: f64,
+}
+
+/// Represents finished match
+/// This should not be created until match result is known
+#[derive(sqlx::FromRow)]
+pub struct Match {
+    pub id: i32,
+    pub seed: i32,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct Participation {
+    pub match_id: i32,
+    pub bot_id: i32,
+    pub rank: usize,
+    pub error: bool
+}
+
 
 #[derive(thiserror::Error, Debug)]
 pub enum DBError {
@@ -29,7 +64,7 @@ impl Database {
         let pool = SqlitePoolOptions::new()
             .connect(db_url)
             .await
-            .expect("cannot cannot to database");
+            .expect("cannot connect to database");
 
         sqlx::migrate!()
             .run(&pool)
@@ -38,60 +73,62 @@ impl Database {
         Self { pool }
     }
 
-    pub async fn add_bot(&self, bot: Bot) -> DBResult<()> {
+    pub async fn add_bot(&self, name: &str, source_code: &str, language: &str) -> DBResult<()> {
         const SQL: &str = indoc! {"
-            INSERT INTO bots (name, source_code, language, rating_mu, rating_sigma, created_at) \
+            INSERT INTO bots (name, source_code, language, created_at) \
             VALUES ($1, $2, $3, $4, $5, $6, $7) \
         "};
 
         sqlx::query(SQL)
-            .bind(bot.name)
-            .bind(bot.source_code)
-            .bind(bot.language)
-            .bind(bot.rating.mu)
-            .bind(bot.rating.sigma)
-            .bind(bot.created_at)
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
-    }
-
-    pub async fn remove_bot(&self, name: String) -> DBResult<()> {
-        let res = sqlx::query("SELECT id FROM bots WHERE name = $1")
-            .bind(&name)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        if res.is_none() {
-            return Err(DBError::NotFound);
-        };
-
-        sqlx::query("DELETE FROM bots WHERE name = $1")
             .bind(name)
+            .bind(source_code)
+            .bind(language)
+            .bind(Utc::now())
             .execute(&self.pool)
             .await?;
-
+        
         Ok(())
     }
 
-    pub async fn rename_bot(&self, old_name: String, new_name: String) -> DBResult<()> {
-        let res = sqlx::query("SELECT id FROM bots WHERE name = $1")
-            .bind(&old_name)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        if res.is_none() {
-            return Err(DBError::NotFound);
-        };
-
-        sqlx::query("UPDATE bots SET name = $1 WHERE name = $2")
-            .bind(new_name)
-            .bind(old_name)
+    pub async fn remove_bot(&self, id: i32) -> DBResult<()> {
+        let res = sqlx::query("DELETE FROM bots WHERE id = $1")
+            .bind(id)
             .execute(&self.pool)
             .await?;
 
-        Ok(())
+        if res.rows_affected() == 0 {
+            Err(DBError::NotFound)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn update_bot(&self, id: i32, name: String) -> DBResult<()> {
+        let res = sqlx::query("UPDATE bots SET name = $1 WHERE id = $2")
+            .bind(name)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        if res.rows_affected() == 0 {
+            Err(DBError::NotFound)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn fetch_bots(&self) -> DBResult<Vec<Bot>> {
+        let res = sqlx::query_as("SELECT * from bots")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(res)
+    }
+
+    pub async fn fetch_bot_stats(&self) -> DBResult<Vec<BotStats>> {
+        let res = sqlx::query_as("SELECT * from bot_stats")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(res)
     }
 }
 

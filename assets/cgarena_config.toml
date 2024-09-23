@@ -7,7 +7,7 @@ symmetric = true
 [matchmaking]
 allow_same_bots = false
 min_matches = 200
-# min_matches_preference = 1.0
+min_matches_preference = 1.0
 
 [ranking]
 algorithm = "weng_lin"
@@ -18,5 +18,20 @@ port = 1234
 [embedded_worker]
 threads = 1
 dir_bots = "bots"
-cmd_bot_setup = "g++ -std=c++17 %SRC%.cpp -o %DIR%/%NAME%.exe && cp %SRC%.cpp %DIR%/%NAME%.cpp"
-cmd_play_match = "python play_game.py %DIR%/%P1%.exe %DIR%/%P2%.exe"
+cmd_play_match = "python play_game.py %P1% %P2%"
+
+[[embedded_worker.languages]]
+name = "cpp"
+# assuming bot folder (%DIR%) contains source code in the "source.txt" file
+cmd_build = "g++ -std=c++17 -x c++ %DIR%/source.txt -o %DIR%/a.exe"
+cmd_run = "./%DIR%/a.exe"
+
+[[embedded_worker.languages]]
+name = "python"
+cmd_build = "mv %DIR%/source.txt %DIR%/bot.py"
+cmd_run = "python %DIR%/bot.py"
+
+[[embedded_worker.languages]]
+name = "rust"
+cmd_build = "sh languages/rust/build.sh %DIR%"
+cmd_run = "./%DIR%/a.exe"
