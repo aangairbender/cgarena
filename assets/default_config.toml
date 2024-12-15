@@ -1,0 +1,30 @@
+[game]
+min_players = 2
+max_players = 2
+# Whether the map is symmetric for all the players. If set to false extra mirror matches would be played.
+symmetric = true
+
+[matchmaking]
+allow_same_bots = false
+min_matches = 200
+min_matches_preference = 1.0
+
+[ranking]
+algorithm = "OpenSkill"
+
+[server]
+port = 1234
+
+[[workers]]
+type = "embedded"
+threads = 1
+cmd_play_match = "python play_game.py {SEED} {P1} {P2}"
+# command should assume bot folder {DIR} contains "source.txt" file with the source code
+# command should output executable to the same folder
+cmd_build = "sh build.sh {DIR} {LANG}"
+cmd_run = "sh run.sh {DIR} {LANG}"
+
+# [[workers]]
+# type = "remote"
+# url = "http://192.168.0.12:2221"
+# key = "secret"

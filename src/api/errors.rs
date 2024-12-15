@@ -4,8 +4,6 @@ use axum::Json;
 use serde::Serialize;
 use validator::ValidationErrors;
 
-use crate::arena::ArenaError;
-
 #[derive(thiserror::Error, Debug)]
 pub enum ApiError {
     #[error("Not found")]
@@ -50,16 +48,6 @@ impl IntoResponse for ApiError {
             message: self.to_string(),
         };
         (status_code, Json(body)).into_response()
-    }
-}
-
-impl From<ArenaError> for ApiError {
-    fn from(value: ArenaError) -> Self {
-        match value {
-            ArenaError::AlreadyExists => ApiError::AlreadyExists,
-            ArenaError::NotFound => ApiError::NotFound,
-            ArenaError::Unexpected(e) => ApiError::Internal(e),
-        }
     }
 }
 

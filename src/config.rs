@@ -8,7 +8,7 @@ pub struct Config {
     pub matchmaking: MatchmakingConfig,
     pub ranking: RankingConfig,
     pub server: ServerConfig,
-    pub embedded_worker: Option<WorkerConfig>,
+    pub workers: Vec<WorkerConfig>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -27,17 +27,24 @@ pub struct MatchmakingConfig {
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "algorithm")]
-#[serde(rename_all = "snake_case")]
 pub enum RankingConfig {
-    WengLin,
+    OpenSkill,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct WorkerConfig {
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerConfig {
+    Embedded(EmbeddedWorkerConfig),
+    // Remote
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EmbeddedWorkerConfig {
     pub threads: u8,
-    pub dir_bots: String,
     pub cmd_play_match: String,
-    pub languages: Vec<LanguageConfig>,
+    pub cmd_build: String,
+    pub cmd_run: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -60,23 +67,23 @@ impl Config {
         Ok(config)
     }
 
-    pub fn create_default(arena_path: &Path) -> Result<(), std::io::Error> {
+    pub fn create_default(arena_path: &Path) {
         let config_file_path = arena_path.join(CONFIG_FILE_NAME);
-        let mut file = OpenOptions::new()
+        OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(config_file_path)?;
-        file.write_all(DEFAULT_CONFIG_CONTENT.as_bytes())?;
-        Ok(())
+            .open(config_file_path)
+            .expect("Cannot create config file")
+            .write_all(DEFAULT_CONFIG_CONTENT.as_bytes())
+            .expect("Cannot write default config");
     }
 }
-
 
 const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
 
 static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/cgarena_config.toml"
+    "/assets/default_config.toml"
 ));
 
 #[cfg(test)]

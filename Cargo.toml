@@ -1,32 +1,35 @@
 [package]
 name = "cgarena"
+version = "0.1.0"
 edition = "2021"
 authors = ["Yevhen Kazmin <gvoin16@gmail.com>"]
-version = "0.1.0"
 
 [dependencies]
 tokio = { version = "1.28.1", features = ["full"] }
+tokio-util = { version = "0.7.13", features = ["rt"] }
 tracing = "0.1"
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"]}
-
+anyhow = "1.0.89"
+serde = { version = "1.0", features = ["derive"] }
 tracing-subscriber = "0.3"
 clap = { version = "4.2.7", features = ["derive"] }
 colored = "2.0.4"
-tempdir = "0.3.7"
 reqwest = { version = "0.12.4", features = ["json"] }
 serde_json = "1.0"
 chrono = { version = "0.4.38", features = ["serde"] }
-sqlx = { version = "0.7.4", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
-thiserror = "1.0.61"
+sqlx = { version = "0.8.2", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+thiserror = "2.0.7"
 dotenvy = "0.15.7"
 axum = "0.7.5"
 axum-macros = "0.4.1"
-validator = { version = "0.18.1", features = ["derive"] }
+validator = { version = "0.19.0", features = ["derive"] }
 bytes = "1.6.0"
 mime = "0.3.17"
 rand = "0.8.5"
 uuid = { version = "1.8.0", features = ["v4", "serde"] }
-tower-http = { version = "0.5.2", features = ["trace", "cors"] }
+tower-http = { version = "0.6.1", features = ["trace", "cors"] }
 indoc = "2.0.5"
 toml = "0.8.19"
+itertools = "0.13.0"
+
+[dev-dependencies]
+tempfile = "3.12.0"
