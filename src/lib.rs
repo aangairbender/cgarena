@@ -1,9 +1,11 @@
 pub mod api;
+pub mod app;
 pub mod arena_server;
 pub mod config;
 pub mod db;
 pub mod domain;
 pub mod embedded_worker;
-pub mod matchmaking;
+pub mod match_manager;
+pub mod ranking;
 pub mod worker;
 pub mod worker_manager;

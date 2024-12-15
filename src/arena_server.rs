@@ -14,10 +14,23 @@ pub async fn start(arena_path: &Path) {
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
 
-    tracker.spawn(api::start(server_port, db.clone(), token.clone()));
-
     let worker_manager = worker_manager::WorkerManager::new(arena_path, config.workers, db.clone());
-    tracker.spawn(worker_manager.run(token.clone()));
+    // building existing bots, TODO: move it somewhere
+    let bots = db.clone().fetch_bots().await;
+    for bot in bots {
+        worker_manager.ensure_built(bot.id).await;
+    }
+
+    tracker.spawn(api::start(
+        server_port,
+        db.clone(),
+        worker_manager,
+        token.clone(),
+    ));
+
+    // let match_manager =
+    //     match_manager::MatchManager::new(db, config.game, config.matchmaking, match_sender);
+    // tracker.spawn(match_manager.run(token.clone()));
 
     tokio::signal::ctrl_c()
         .await

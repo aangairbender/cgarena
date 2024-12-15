@@ -1,21 +1,12 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::bail;
 use itertools::Itertools;
-use tokio::{
-    fs,
-    process::Command,
-    sync::{mpsc, oneshot, Semaphore},
-};
+use tokio::{fs, process::Command};
 
-use crate::config::{EmbeddedWorkerConfig, WorkerConfig};
-use crate::worker::{BuildInput, BuildOutput};
+use crate::config::EmbeddedWorkerConfig;
+use crate::domain::BotId;
+use crate::worker::BuildBotInput;
 
 pub struct EmbeddedWorker {
     worker_path: PathBuf,
@@ -32,15 +23,25 @@ impl EmbeddedWorker {
         }
     }
 
-    pub async fn build(&self, input: BuildInput) -> Result<BuildOutput, anyhow::Error> {
-        let bot_folder_relative = PathBuf::from(DIR_BOTS).join(input.bot_id.0.to_string());
+    pub async fn is_build_valid(&self, id: BotId) -> bool {
+        let bot_folder_relative = PathBuf::from(DIR_BOTS).join(i64::from(id).to_string());
+        let bot_folder = self.worker_path.join(&bot_folder_relative);
+        tokio::fs::try_exists(&bot_folder).await.unwrap_or(false)
+    }
+
+    pub async fn build(&self, input: BuildBotInput) -> Result<(), anyhow::Error> {
+        let bot_folder_relative = PathBuf::from(DIR_BOTS).join(i64::from(input.bot_id).to_string());
         let bot_folder = self.worker_path.join(&bot_folder_relative);
         if bot_folder.exists() {
             bail!("bot folder already exists")
         }
 
         fs::create_dir_all(&bot_folder).await?;
-        fs::write(bot_folder.join("source.txt"), &input.source_code).await?;
+        fs::write(
+            bot_folder.join("source.txt"),
+            &String::from(input.source_code),
+        )
+        .await?;
 
         let dir_param_value = bot_folder_relative.to_str().unwrap();
         let command_parts = self
@@ -61,11 +62,13 @@ impl EmbeddedWorker {
             .output()
             .await?;
 
-        Ok(BuildOutput {
-            status_code: output.status.code(),
-            stdout: Some(std::str::from_utf8(&output.stdout)?.to_owned()),
-            stderr: Some(std::str::from_utf8(&output.stderr)?.to_owned()),
-        })
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::Error::msg(
+                std::str::from_utf8(&output.stderr)?.to_owned(),
+            ))
+        }
     }
 }
 //

@@ -21,7 +21,6 @@ thiserror = "2.0.7"
 dotenvy = "0.15.7"
 axum = "0.7.5"
 axum-macros = "0.4.1"
-validator = { version = "0.19.0", features = ["derive"] }
 bytes = "1.6.0"
 mime = "0.3.17"
 rand = "0.8.5"
@@ -30,6 +29,7 @@ tower-http = { version = "0.6.1", features = ["trace", "cors"] }
 indoc = "2.0.5"
 toml = "0.8.19"
 itertools = "0.13.0"
+skillratings = "0.27.1"
 
 [dev-dependencies]
 tempfile = "3.12.0"

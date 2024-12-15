@@ -2,7 +2,6 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Serialize;
-use validator::ValidationErrors;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiError {
@@ -10,7 +9,7 @@ pub enum ApiError {
     NotFound,
 
     #[error("Validation failed: {0}")]
-    ValidationFailed(#[from] ValidationErrors),
+    ValidationFailed(anyhow::Error),
 
     #[error("Already exists")]
     AlreadyExists,
