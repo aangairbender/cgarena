@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use cgarena::arena_server;
 use clap::{command, Parser, Subcommand, ValueEnum};
+use serde_json::json;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)] // Read from `Cargo.toml`
@@ -23,23 +24,23 @@ enum Commands {
         target: Target,
         path: Option<String>,
     },
-    // Bot {
-    //     #[command(subcommand)]
-    //     command: BotCommands,
-    // },
+    Bot {
+        #[command(subcommand)]
+        command: BotCommands,
+    },
 }
 
-// #[derive(Subcommand)]
-// enum BotCommands {
-//     Add {
-//         #[arg(help = "Name of the bot, must be unique")]
-//         name: String,
-//         #[arg(short, long, help = "Path to the bot's source file")]
-//         src: String,
-//         #[arg(short, long, help = "Bot's language")]
-//         lang: String,
-//     },
-// }
+#[derive(Subcommand)]
+enum BotCommands {
+    Add {
+        #[arg(help = "Name of the bot, must be unique")]
+        name: String,
+        #[arg(short, long, help = "Path to the bot's source file")]
+        src: String,
+        #[arg(short, long, help = "Bot's language")]
+        lang: String,
+    },
+}
 
 #[derive(Copy, Clone, ValueEnum)]
 enum Target {
@@ -66,40 +67,48 @@ async fn main() {
                 Target::Server => arena_server::start(&path).await,
                 Target::Worker => unimplemented!(),
             }
-        } // Commands::Bot { command } => handle_bot(command).await,
+        }
+        Commands::Bot { command } => handle_bot(command).await,
     }
 }
 
-// async fn handle_bot(command: BotCommands) {
-//     match command {
-//         BotCommands::Add { name, src, lang } => {
-//             let source_code = tokio::fs::read_to_string(src)
-//                 .await
-//                 .expect("failed to read source file");
-//             let url =
-//                 dotenvy::var("CGARENA_URL").expect("CGARENA_URL environment variable not set");
-//             let body = json!({
-//                 "name": name,
-//                 "source_code": source_code,
-//                 "language": lang,
-//             });
-//             let client = reqwest::Client::new();
-//             let res = client
-//                 .post(url + "/api/bots")
-//                 .body(body.to_string())
-//                 .send()
-//                 .await
-//                 .expect("failed to send request to the arena");
-//
-//             match res.status() {
-//                 s if s.is_success() => {
-//                     info!("Bot added successfully");
-//                 }
-//                 _ => panic!("Unexpected error occurred: {:#?}", res),
-//             }
-//         }
-//     }
-// }
+async fn handle_bot(command: BotCommands) {
+    let arena_url = std::env::current_dir()
+        .ok()
+        .and_then(|cur_dir| cgarena::config::Config::load(&cur_dir).ok())
+        .map(|c| c.server.port)
+        .map(|port| format!("http://127.0.0.1:{}", port));
+    match command {
+        BotCommands::Add { name, src, lang } => {
+            let source_code = tokio::fs::read_to_string(src)
+                .await
+                .expect("failed to read source file");
+            let url = dotenvy::var("CGARENA_URL")
+                .ok()
+                .or(arena_url)
+                .expect("CGARENA_URL environment variable not set");
+            let body = json!({
+                "name": name,
+                "source_code": source_code,
+                "language": lang,
+            });
+            let client = reqwest::Client::new();
+            let res = client
+                .post(url + "/api/bots")
+                .json(&body)
+                .send()
+                .await
+                .expect("failed to send request to the arena");
+
+            match res.status() {
+                s if s.is_success() => {
+                    println!("Bot added successfully");
+                }
+                _ => eprintln!("Unexpected error occurred: {:#?}", res),
+            }
+        }
+    }
+}
 
 fn unwrap_or_current_dir(path: Option<String>) -> PathBuf {
     path.map(PathBuf::from)

@@ -15,7 +15,7 @@ pub async fn run(mut rx: Receiver<PlayMatchOutput>, db: Database, ranking: Ranki
             .map(|((bot_id, rank), error)| Participant {
                 bot_id,
                 rank,
-                error,
+                error: error == 1,
             })
             .collect();
 

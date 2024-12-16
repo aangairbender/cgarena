@@ -20,7 +20,6 @@ pub struct GameConfig {
 
 #[derive(Serialize, Deserialize)]
 pub struct MatchmakingConfig {
-    pub allow_same_bots: bool,
     pub min_matches: u32,
     pub min_matches_preference: f64,
 }

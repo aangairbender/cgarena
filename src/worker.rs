@@ -4,6 +4,7 @@ use crate::embedded_worker::EmbeddedWorker;
 use serde::Deserialize;
 use std::path::Path;
 use tokio::sync::mpsc::Sender;
+use tokio_util::sync::CancellationToken;
 
 pub struct Worker {
     pub name: WorkerName,
@@ -16,12 +17,13 @@ impl Worker {
         arena_path: &Path,
         config: WorkerConfig,
         match_result_tx: Sender<PlayMatchOutput>,
+        token: CancellationToken,
     ) -> Self {
         match config {
             WorkerConfig::Embedded(c) => Worker {
                 name: "embedded".to_string().try_into().unwrap(),
                 threads: c.threads,
-                inner: EmbeddedWorker::new(arena_path, c, match_result_tx),
+                inner: EmbeddedWorker::new(arena_path, c, match_result_tx, token),
             },
         }
     }
@@ -65,5 +67,5 @@ pub struct PlayMatchOutput {
 #[derive(Deserialize)]
 pub struct CmdPlayMatchStdout {
     pub ranks: Vec<u8>,
-    pub errors: Vec<bool>,
+    pub errors: Vec<u8>,
 }

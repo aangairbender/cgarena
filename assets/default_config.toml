@@ -5,7 +5,6 @@ max_players = 2
 symmetric = true
 
 [matchmaking]
-allow_same_bots = false
 min_matches = 200
 min_matches_preference = 1.0
 

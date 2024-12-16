@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::db::Database;
 use crate::worker::Worker;
-use crate::{api, build_manager, match_result_processor, ranking};
+use crate::{api, build_manager, match_result_processor, match_scheduler, matchmaking, ranking};
 use itertools::Itertools;
 use std::path::Path;
 use std::sync::Arc;
@@ -19,19 +19,20 @@ pub async fn start(arena_path: &Path) {
 
     let ranking = ranking::Ranking::new(Arc::new(config.ranking), db.clone());
 
+    let token = CancellationToken::new();
     let workers = config
         .workers
         .into_iter()
-        .map(|config| Worker::new(arena_path, config, match_result_tx.clone()))
+        .map(|config| Worker::new(arena_path, config, match_result_tx.clone(), token.clone()))
         .collect_vec();
     assert!(
         workers.iter().map(|w| &w.name).all_unique(),
         "All worker names must be unique"
     );
-    let workers = Arc::new(workers);
+    drop(match_result_tx);
+    let workers: Arc<[Worker]> = workers.into();
 
     let tracker = TaskTracker::new();
-    let token = CancellationToken::new();
 
     let worker_manager = build_manager::BuildManager::new(Arc::clone(&workers), db.clone());
 
@@ -48,9 +49,24 @@ pub async fn start(arena_path: &Path) {
         token.clone(),
     ));
 
-    // let match_manager =
-    //     match_manager::MatchManager::new(db, config.game, config.matchmaking, match_sender);
-    // tracker.spawn(match_manager.run(token.clone()));
+    let (scheduled_matches_tx, scheduled_matches_rx) = channel(20);
+    // let match_scheduler = match_scheduler::MatchScheduler::new(scheduled_matches_tx);
+    tracker.spawn(match_scheduler::run(
+        db.clone(),
+        Arc::clone(&workers),
+        scheduled_matches_rx,
+    ));
+
+    tracker.spawn(matchmaking::run(
+        scheduled_matches_tx.clone(),
+        db.clone(),
+        Arc::new(config.game),
+        Arc::new(config.matchmaking),
+        token.clone(),
+    ));
+
+    drop(workers);
+    drop(scheduled_matches_tx);
 
     tokio::signal::ctrl_c()
         .await

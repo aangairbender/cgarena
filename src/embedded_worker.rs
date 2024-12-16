@@ -5,9 +5,10 @@ use anyhow::bail;
 use itertools::Itertools;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{mpsc, Semaphore};
 use tokio::{fs, process::Command};
+use tokio_util::sync::CancellationToken;
 
 pub struct EmbeddedWorker {
     worker_path: PathBuf,
@@ -22,14 +23,16 @@ impl EmbeddedWorker {
         worker_path: &Path,
         config: EmbeddedWorkerConfig,
         match_result_tx: Sender<PlayMatchOutput>,
+        token: CancellationToken,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(config.threads as usize * 10);
+        let (tx, rx) = mpsc::channel(config.threads as usize * 2);
         let config = Arc::new(config);
         tokio::spawn(Self::play_matches(
             rx,
             worker_path.to_path_buf(),
             Arc::clone(&config),
             match_result_tx,
+            token,
         ));
 
         Self {
@@ -44,8 +47,17 @@ impl EmbeddedWorker {
         worker_path: PathBuf,
         config: Arc<EmbeddedWorkerConfig>,
         match_result_tx: Sender<PlayMatchOutput>,
+        token: CancellationToken,
     ) {
+        let semaphore = Arc::new(Semaphore::new(config.threads as usize));
+
         while let Some(input) = rx.recv().await {
+            if token.is_cancelled() {
+                break;
+            }
+
+            let semaphore = Arc::clone(&semaphore);
+            let permit = semaphore.acquire_owned().await.expect("Semaphore poisoned");
             let run_commands = input
                 .bots
                 .iter()
@@ -53,20 +65,21 @@ impl EmbeddedWorker {
                     let bot_folder_relative =
                         PathBuf::from(DIR_BOTS).join(i64::from(b.bot_id).to_string());
                     let dir_param_value = bot_folder_relative.to_str().unwrap();
-                    let command = config
+                    config
                         .cmd_run
                         .replace("{DIR}", dir_param_value)
-                        .replace("{LANG}", &b.language);
-                    command
+                        .replace("{LANG}", &b.language)
                 })
                 .collect_vec();
 
             let run_commands_combined = run_commands.join(" ");
+            let seed = input.seed.to_string();
 
             let command_parts = config
                 .cmd_play_match
                 .split_ascii_whitespace()
                 .map(|s| match s {
+                    "{SEED}" => &seed,
                     "{P1}" => &run_commands[0],
                     "{P2}" => &run_commands[1],
                     "{P3}" => &run_commands[2],
@@ -78,40 +91,60 @@ impl EmbeddedWorker {
                     "{PLAYERS}" => &run_commands_combined,
                     _ => s,
                 })
+                .map(|s| s.to_string())
                 .collect_vec();
             assert_ne!(command_parts.len(), 0);
 
-            let cmd_output = Command::new(command_parts[0])
-                .args(&command_parts[1..])
-                .current_dir(&worker_path)
-                .output()
-                .await
-                .expect("Cannot run match");
-
-            let result = if cmd_output.status.success() {
-                let stdout =
-                    String::from_utf8(cmd_output.stdout).expect("stdout is not valid UTF-8");
-                let match_result: CmdPlayMatchStdout =
-                    serde_json::from_str(&stdout).expect("play match output should be valid JSON");
-                match_result
-            } else {
-                panic!(
-                    "{}",
-                    String::from_utf8(cmd_output.stderr).expect("stderr is not valid UTF-8")
+            let match_result_tx_clone = match_result_tx.clone();
+            let worker_path_clone = worker_path.clone();
+            tokio::spawn(async move {
+                Self::spawn_play_match_command(
+                    command_parts,
+                    worker_path_clone,
+                    input,
+                    match_result_tx_clone,
                 )
-            };
-
-            let output = PlayMatchOutput {
-                seed: input.seed,
-                bot_ids: input.bots.into_iter().map(|b| b.bot_id).collect(),
-                result,
-            };
-
-            match_result_tx
-                .send(output)
-                .await
-                .expect("Cannot send match result");
+                .await;
+                drop(permit);
+            });
         }
+    }
+
+    async fn spawn_play_match_command(
+        command_parts: Vec<String>,
+        worker_path: PathBuf,
+        input: PlayMatchInput,
+        match_result_tx: Sender<PlayMatchOutput>,
+    ) {
+        let cmd_output = Command::new(&command_parts[0])
+            .args(&command_parts[1..])
+            .current_dir(&worker_path)
+            .output()
+            .await
+            .expect("Cannot run match");
+
+        let result = if cmd_output.status.success() {
+            let stdout = String::from_utf8(cmd_output.stdout).expect("stdout is not valid UTF-8");
+            let match_result: CmdPlayMatchStdout =
+                serde_json::from_str(&stdout).expect("play match output should be valid JSON");
+            match_result
+        } else {
+            panic!(
+                "Error while running match: {}",
+                String::from_utf8(cmd_output.stderr).expect("stderr is not valid UTF-8")
+            );
+        };
+
+        let output = PlayMatchOutput {
+            seed: input.seed,
+            bot_ids: input.bots.into_iter().map(|b| b.bot_id).collect(),
+            result,
+        };
+
+        match_result_tx
+            .send(output)
+            .await
+            .expect("Cannot send match result");
     }
 
     pub async fn enqueue_match(&self, input: PlayMatchInput) {

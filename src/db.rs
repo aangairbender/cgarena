@@ -33,6 +33,34 @@ impl TryFrom<BotsRow> for Bot {
 }
 
 #[derive(sqlx::FromRow)]
+struct BotsStatsRow {
+    pub bot_id: i64,
+    pub matches_played: i64,
+    pub rating_mu: f64,
+    pub rating_sigma: f64,
+    pub matches_with_error: i64,
+}
+
+impl From<BotsStatsRow> for BotStats {
+    fn from(r: BotsStatsRow) -> Self {
+        BotStats {
+            matches_played: r.matches_played,
+            rating: Rating {
+                mu: r.rating_mu,
+                sigma: r.rating_sigma,
+            },
+            matches_with_error: r.matches_with_error,
+        }
+    }
+}
+
+impl From<BotsStatsRow> for (BotId, BotStats) {
+    fn from(r: BotsStatsRow) -> Self {
+        (r.bot_id.into(), r.into())
+    }
+}
+
+#[derive(sqlx::FromRow)]
 struct MatchesWithParticipationRow {
     pub id: i64,
     pub seed: i64,
@@ -184,33 +212,22 @@ impl Database {
     }
 
     pub async fn fetch_bot_stats(&self, id: BotId) -> Option<BotStats> {
-        #[derive(sqlx::FromRow)]
-        struct BotsStatsRow {
-            pub matches_played: i64,
-            pub rating_mu: f64,
-            pub rating_sigma: f64,
-            pub matches_with_error: i64,
-        }
-
-        impl From<BotsStatsRow> for BotStats {
-            fn from(r: BotsStatsRow) -> Self {
-                BotStats {
-                    matches_played: r.matches_played,
-                    rating: Rating {
-                        mu: r.rating_mu,
-                        sigma: r.rating_sigma,
-                    },
-                    matches_with_error: r.matches_with_error,
-                }
-            }
-        }
-
-        sqlx::query_as("SELECT * FROM bot_stats WHERE id = $1")
+        sqlx::query_as("SELECT * FROM bot_stats WHERE bot_id = $1")
             .bind::<i64>(id.into())
             .fetch_optional(&self.pool)
             .await
             .expect("Cannot fetch bot stats from db")
             .map(BotsStatsRow::into)
+    }
+
+    pub async fn fetch_bot_stats_all(&self) -> Vec<(BotId, BotStats)> {
+        sqlx::query_as("SELECT * FROM bot_stats")
+            .fetch_all(&self.pool)
+            .await
+            .expect("Cannot fetch bot stats from db")
+            .into_iter()
+            .map(BotsStatsRow::into)
+            .collect()
     }
 
     pub async fn upsert_bot_stats(&self, id: BotId, stats: BotStats) {
@@ -303,7 +320,7 @@ impl Database {
             };
 
             sqlx::query(SQL)
-                .bind::<i64>(r#match.id.into())
+                .bind::<i64>(match_id.into())
                 .bind::<i64>(p.bot_id.into())
                 .bind::<u8>(index as _)
                 .bind::<u8>(p.rank)

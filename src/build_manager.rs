@@ -8,13 +8,13 @@ use tracing::warn;
 
 #[derive(Clone)]
 pub struct BuildManager {
-    workers: Arc<Vec<Worker>>,
+    workers: Arc<[Worker]>,
     db: Database,
     pending_builds_tx: Sender<Build>,
 }
 
 impl BuildManager {
-    pub fn new(workers: Arc<Vec<Worker>>, db: Database) -> Self {
+    pub fn new(workers: Arc<[Worker]>, db: Database) -> Self {
         let (tx, rx) = mpsc::channel(16);
 
         tokio::spawn(Self::process_pending_builds(
@@ -40,11 +40,7 @@ impl BuildManager {
         }
     }
 
-    async fn process_pending_builds(
-        mut rx: Receiver<Build>,
-        db: Database,
-        workers: Arc<Vec<Worker>>,
-    ) {
+    async fn process_pending_builds(mut rx: Receiver<Build>, db: Database, workers: Arc<[Worker]>) {
         while let Some(build) = rx.recv().await {
             let Some(bot) = db.fetch_bot(build.bot_id).await else {
                 warn!(

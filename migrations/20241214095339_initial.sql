@@ -14,11 +14,11 @@ CREATE TABLE bot_stats (
     rating_mu DOUBLE NOT NULL,
     rating_sigma DOUBLE NOT NULL,
     FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
-)
+);
 
 CREATE TABLE matches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    seed INTEGER NOT NULL,
+    seed INTEGER NOT NULL
 );
 
 CREATE TABLE participations (
