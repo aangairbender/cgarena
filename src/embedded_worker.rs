@@ -1,26 +1,124 @@
-use std::path::{Path, PathBuf};
-
-use anyhow::bail;
-use itertools::Itertools;
-use tokio::{fs, process::Command};
-
 use crate::config::EmbeddedWorkerConfig;
 use crate::domain::BotId;
-use crate::worker::BuildBotInput;
+use crate::worker::{BuildBotInput, CmdPlayMatchStdout, PlayMatchInput, PlayMatchOutput};
+use anyhow::bail;
+use itertools::Itertools;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{fs, process::Command};
 
 pub struct EmbeddedWorker {
     worker_path: PathBuf,
-    config: EmbeddedWorkerConfig,
+    config: Arc<EmbeddedWorkerConfig>,
+    match_tx: Sender<PlayMatchInput>,
 }
 
 const DIR_BOTS: &str = "bots";
 
 impl EmbeddedWorker {
-    pub fn new(worker_path: &Path, config: EmbeddedWorkerConfig) -> Self {
+    pub fn new(
+        worker_path: &Path,
+        config: EmbeddedWorkerConfig,
+        match_result_tx: Sender<PlayMatchOutput>,
+    ) -> Self {
+        let (tx, rx) = mpsc::channel(config.threads as usize * 10);
+        let config = Arc::new(config);
+        tokio::spawn(Self::play_matches(
+            rx,
+            worker_path.to_path_buf(),
+            Arc::clone(&config),
+            match_result_tx,
+        ));
+
         Self {
             worker_path: worker_path.to_path_buf(),
             config,
+            match_tx: tx,
         }
+    }
+
+    async fn play_matches(
+        mut rx: Receiver<PlayMatchInput>,
+        worker_path: PathBuf,
+        config: Arc<EmbeddedWorkerConfig>,
+        match_result_tx: Sender<PlayMatchOutput>,
+    ) {
+        while let Some(input) = rx.recv().await {
+            let run_commands = input
+                .bots
+                .iter()
+                .map(|b| {
+                    let bot_folder_relative =
+                        PathBuf::from(DIR_BOTS).join(i64::from(b.bot_id).to_string());
+                    let dir_param_value = bot_folder_relative.to_str().unwrap();
+                    let command = config
+                        .cmd_run
+                        .replace("{DIR}", dir_param_value)
+                        .replace("{LANG}", &b.language);
+                    command
+                })
+                .collect_vec();
+
+            let run_commands_combined = run_commands.join(" ");
+
+            let command_parts = config
+                .cmd_play_match
+                .split_ascii_whitespace()
+                .map(|s| match s {
+                    "{P1}" => &run_commands[0],
+                    "{P2}" => &run_commands[1],
+                    "{P3}" => &run_commands[2],
+                    "{P4}" => &run_commands[3],
+                    "{P5}" => &run_commands[4],
+                    "{P6}" => &run_commands[5],
+                    "{P7}" => &run_commands[6],
+                    "{P8}" => &run_commands[7],
+                    "{PLAYERS}" => &run_commands_combined,
+                    _ => s,
+                })
+                .collect_vec();
+            assert_ne!(command_parts.len(), 0);
+
+            let cmd_output = Command::new(command_parts[0])
+                .args(&command_parts[1..])
+                .current_dir(&worker_path)
+                .output()
+                .await
+                .expect("Cannot run match");
+
+            let result = if cmd_output.status.success() {
+                let stdout =
+                    String::from_utf8(cmd_output.stdout).expect("stdout is not valid UTF-8");
+                let match_result: CmdPlayMatchStdout =
+                    serde_json::from_str(&stdout).expect("play match output should be valid JSON");
+                match_result
+            } else {
+                panic!(
+                    "{}",
+                    String::from_utf8(cmd_output.stderr).expect("stderr is not valid UTF-8")
+                )
+            };
+
+            let output = PlayMatchOutput {
+                seed: input.seed,
+                bot_ids: input.bots.into_iter().map(|b| b.bot_id).collect(),
+                result,
+            };
+
+            match_result_tx
+                .send(output)
+                .await
+                .expect("Cannot send match result");
+        }
+    }
+
+    pub async fn enqueue_match(&self, input: PlayMatchInput) {
+        self.match_tx
+            .send(input)
+            .await
+            .expect("Failed to send input to match channel");
     }
 
     pub async fn is_build_valid(&self, id: BotId) -> bool {
@@ -73,145 +171,3 @@ impl EmbeddedWorker {
         }
     }
 }
-//
-// struct MatchResult {
-//     seed: i32,
-//     bot_ids: Vec<i32>,
-//     ranks: Vec<usize>,
-//     errors: Vec<bool>,
-// }
-//
-// enum Message {
-//     BuildBot {
-//         bot: Bot,
-//         respond_to: oneshot::Sender<Result<(), anyhow::Error>>,
-//     },
-//     EnqueueMatch {
-//         seed: i32,
-//         bot_ids: Vec<i32>,
-//     },
-//     GetQueueSize {
-//         respond_to: oneshot::Sender<usize>,
-//     },
-// }
-//
-// struct Actor {
-//     receiver: mpsc::Receiver<Message>,
-//     queue_size: Arc<AtomicUsize>,
-//     dir_languages: PathBuf,
-//     dir_bots: PathBuf,
-//     config: WorkerConfig,
-//     match_result_sender: mpsc::Sender<Result<MatchResult, anyhow::Error>>,
-//     match_semaphore: Arc<Semaphore>,
-// }
-//
-// impl Actor {
-//     pub async fn run(&mut self) {
-//         while let Some(msg) = self.receiver.recv().await {
-//             self.handle_message(msg).await;
-//         }
-//     }
-//
-//     async fn handle_message(&mut self, msg: Message) {
-//         match msg {
-//             Message::BuildBot { bot, respond_to } => {
-//                 let input = BuildBotInput {
-//                     bot_id: bot.id,
-//                     source_code: bot.source_code,
-//                     language: bot.language,
-//                     dir_bots: self.dir_bots.clone(),
-//                     dir_languages: self.dir_languages.clone(),
-//                 };
-//                 tokio::spawn(async move {
-//                     let res = build_bot(input).await;
-//                     let _ = respond_to.send(res);
-//                 });
-//             }
-//             Message::EnqueueMatch { seed, bot_ids } => {
-//                 let queue_size = self.queue_size.clone();
-//                 let match_semaphore = self.match_semaphore.clone();
-//                 let res_sender = self.match_result_sender.clone();
-//                 let input = RunMatchInput {
-//                     seed,
-//                     bot_ids,
-//                     dir_bots: self.dir_bots.clone(),
-//                     cmd_play_match: self.config.cmd_play_match.clone(),
-//                 };
-//                 tokio::spawn(async move {
-//                     queue_size.fetch_add(1, Ordering::SeqCst);
-//                     let _permit = match_semaphore
-//                         .acquire()
-//                         .await
-//                         .expect("should be able to aquire semaphore permit");
-//                     queue_size.fetch_sub(1, Ordering::SeqCst);
-//                     let res = run_match(input).await;
-//                     let _ = res_sender.send(res).await;
-//                 });
-//             }
-//             Message::GetQueueSize { respond_to } => {
-//                 let sz = self.queue_size.load(Ordering::SeqCst);
-//                 let _ = respond_to.send(sz);
-//             }
-//         }
-//     }
-// }
-//
-// fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-//     std::fs::create_dir_all(&dst)?;
-//     for entry in std::fs::read_dir(src)? {
-//         let entry = entry?;
-//         let ty = entry.file_type()?;
-//         if ty.is_dir() {
-//             copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
-//         } else {
-//             std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-//         }
-//     }
-//     Ok(())
-// }
-//
-// struct RunMatchInput {
-//     seed: i32,
-//     bot_ids: Vec<i32>,
-//     dir_bots: PathBuf,
-//     cmd_play_match: String,
-// }
-//
-// async fn run_match(input: RunMatchInput) -> anyhow::Result<MatchResult> {
-//     let run_cmds: Vec<String> = input
-//         .bot_ids
-//         .iter()
-//         .map(|id| {
-//             let path = input.dir_bots.join(id.to_string()).join("run.sh");
-//             let abs_path = std::fs::canonicalize(path).expect("cant get absolute path");
-//             abs_path
-//                 .to_str()
-//                 .expect("cant convert path to string")
-//                 .to_owned()
-//         })
-//         .collect();
-//
-//     let output = Command::new("sh")
-//         .arg("run_match.sh")
-//         .args(&run_cmds)
-//         .output()
-//         .await?;
-//
-//     if output.status.success() {
-//         // let w = std::str::from_utf8(&output.stdout)?;
-//         unimplemented!()
-//     } else {
-//         bail!(std::str::from_utf8(&output.stderr)?.to_owned())
-//     }
-// }
-//
-// struct BuildBotInput {
-//     bot_id: i32,
-//     source_code: String,
-//     language: String,
-//     dir_bots: PathBuf,
-//     dir_languages: PathBuf,
-// }
-//
-// struct BuildBotOutput {}
-//

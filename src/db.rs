@@ -1,5 +1,5 @@
 use crate::domain::{
-    Bot, BotId, BotName, Build, BuildStatus, Match, MatchId, MatchResult, MatchStatus, Rating,
+    Bot, BotId, BotName, BotStats, Build, BuildStatus, Match, MatchId, Participant, Rating,
 };
 use anyhow::{anyhow, bail};
 use chrono::{DateTime, Utc};
@@ -16,9 +16,6 @@ struct BotsRow {
     pub source_code: String,
     pub language: String,
     pub created_at: DateTime<Utc>,
-    pub matches_played: i64,
-    pub rating_mu: f64,
-    pub rating_sigma: f64,
 }
 
 impl TryFrom<BotsRow> for Bot {
@@ -30,11 +27,6 @@ impl TryFrom<BotsRow> for Bot {
             name: r.name.try_into()?,
             source_code: r.source_code.try_into()?,
             language: r.language.try_into()?,
-            matches_played: r.matches_played.try_into()?,
-            rating: Rating {
-                mu: r.rating_mu,
-                sigma: r.rating_sigma,
-            },
             created_at: r.created_at,
         })
     }
@@ -44,12 +36,10 @@ impl TryFrom<BotsRow> for Bot {
 struct MatchesWithParticipationRow {
     pub id: i64,
     pub seed: i64,
-    pub status: u8,
-    pub status_error: Option<String>,
     pub bot_id: i64,
     pub index: u8,
-    pub rank: Option<u8>,
-    pub error: Option<u8>,
+    pub rank: u8,
+    pub error: bool,
 }
 
 impl TryFrom<Vec<MatchesWithParticipationRow>> for Match {
@@ -66,31 +56,14 @@ impl TryFrom<Vec<MatchesWithParticipationRow>> for Match {
         Ok(Match {
             id: m.id.into(),
             seed: m.seed,
-            bot_ids: ps.iter().map(|p| p.bot_id.into()).collect(),
-            status: match m.status {
-                0 => MatchStatus::Pending,
-                1 => MatchStatus::Running,
-                2 => MatchStatus::Finished(MatchResult {
-                    ranks: ps
-                        .iter()
-                        .map(|p| p.rank.ok_or(anyhow!("Finished match without rank")))
-                        .try_collect()?,
-                    errors: ps
-                        .iter()
-                        .map(|p| {
-                            p.error
-                                .map(|e| e == 1)
-                                .ok_or(anyhow!("Finished match without rank"))
-                        })
-                        .try_collect()?,
-                }),
-                3 => MatchStatus::Error(
-                    m.status_error
-                        .clone()
-                        .ok_or(anyhow!("failed match without error message"))?,
-                ),
-                _ => bail!("Unexpected match status"),
-            },
+            participants: ps
+                .iter()
+                .map(|p| Participant {
+                    bot_id: p.bot_id.into(),
+                    rank: p.rank,
+                    error: p.error,
+                })
+                .collect(),
         })
     }
 }
@@ -167,8 +140,8 @@ impl Database {
     pub async fn create_bot(&self, bot: Bot) -> DBResult<BotId> {
         assert_eq!(bot.id, BotId::UNINITIALIZED);
         const SQL: &str = indoc! {"
-            INSERT INTO bots (name, source_code, language, created_at, matches_played, rating_mu, rating_sigma) \
-            VALUES ($1, $2, $3, $4, $5, $6, $7) \
+            INSERT INTO bots (name, source_code, language, created_at) \
+            VALUES ($1, $2, $3, $4) \
         "};
 
         let res = sqlx::query(SQL)
@@ -176,13 +149,6 @@ impl Database {
             .bind::<String>(bot.source_code.into())
             .bind::<String>(bot.language.into())
             .bind::<DateTime<Utc>>(bot.created_at)
-            .bind::<i64>(
-                bot.matches_played
-                    .try_into()
-                    .expect("matches played exceed i64"),
-            )
-            .bind::<f64>(bot.rating.mu)
-            .bind::<f64>(bot.rating.sigma)
             .execute(&self.pool)
             .await?;
 
@@ -215,6 +181,52 @@ impl Database {
         } else {
             Ok(())
         }
+    }
+
+    pub async fn fetch_bot_stats(&self, id: BotId) -> Option<BotStats> {
+        #[derive(sqlx::FromRow)]
+        struct BotsStatsRow {
+            pub matches_played: i64,
+            pub rating_mu: f64,
+            pub rating_sigma: f64,
+            pub matches_with_error: i64,
+        }
+
+        impl From<BotsStatsRow> for BotStats {
+            fn from(r: BotsStatsRow) -> Self {
+                BotStats {
+                    matches_played: r.matches_played,
+                    rating: Rating {
+                        mu: r.rating_mu,
+                        sigma: r.rating_sigma,
+                    },
+                    matches_with_error: r.matches_with_error,
+                }
+            }
+        }
+
+        sqlx::query_as("SELECT * FROM bot_stats WHERE id = $1")
+            .bind::<i64>(id.into())
+            .fetch_optional(&self.pool)
+            .await
+            .expect("Cannot fetch bot stats from db")
+            .map(BotsStatsRow::into)
+    }
+
+    pub async fn upsert_bot_stats(&self, id: BotId, stats: BotStats) {
+        const SQL: &str = indoc! {
+            "INSERT OR REPLACE INTO bot_stats (bot_id, matches_played, rating_mu, rating_sigma, matches_with_error) \
+            VALUES ($1, $2, $3, $4, $5)"
+        };
+        sqlx::query(SQL)
+            .bind::<i64>(id.into())
+            .bind::<i64>(stats.matches_played)
+            .bind::<f64>(stats.rating.mu)
+            .bind::<f64>(stats.rating.sigma)
+            .bind::<i64>(stats.matches_with_error)
+            .execute(&self.pool)
+            .await
+            .expect("Cannot upsert bot stats");
     }
 
     pub async fn fetch_bot(&self, id: BotId) -> Option<Bot> {
@@ -261,7 +273,7 @@ impl Database {
             .expect("Cannot insert build to db");
     }
 
-    pub async fn fetch_builds(&self, bot_id: BotId) -> Vec<Build> {
+    pub async fn fetch_bot_builds(&self, bot_id: BotId) -> Vec<Build> {
         let builds: Vec<BuildsRow> = sqlx::query_as("SELECT * from builds where bot_id = $1")
             .bind::<i64>(bot_id.into())
             .fetch_all(&self.pool)
@@ -275,38 +287,16 @@ impl Database {
     }
 
     pub async fn create_match(&self, r#match: Match) -> MatchId {
-        let (status, status_error) = match &r#match.status {
-            MatchStatus::Pending => (0, None),
-            MatchStatus::Running => (1, None),
-            MatchStatus::Finished(_) => (2, None),
-            MatchStatus::Error(err) => (3, Some(err.clone())),
-        };
-
-        let (ranks, errors) = if let MatchStatus::Finished(res) = r#match.status {
-            (
-                res.ranks.iter().map(|r| Some(*r)).collect(),
-                res.errors.iter().map(|r| Some(*r as u8)).collect(),
-            )
-        } else {
-            (
-                vec![None; r#match.bot_ids.len()],
-                vec![None; r#match.bot_ids.len()],
-            )
-        };
-
         let mut tx = self.pool.begin().await.expect("cannot start a transaction");
-        let match_id: MatchId =
-            sqlx::query("INSERT INTO matches (seed, status, status_error) VALUES ($1, $2, $3)")
-                .bind::<i64>(r#match.seed)
-                .bind::<u8>(status)
-                .bind::<Option<String>>(status_error)
-                .execute(&mut *tx)
-                .await
-                .expect("Cannot create match in db")
-                .last_insert_rowid()
-                .into();
+        let match_id: MatchId = sqlx::query("INSERT INTO matches (seed) VALUES ($1)")
+            .bind::<i64>(r#match.seed)
+            .execute(&mut *tx)
+            .await
+            .expect("Cannot create match in db")
+            .last_insert_rowid()
+            .into();
 
-        for (index, bot_id) in r#match.bot_ids.into_iter().enumerate() {
+        for (index, p) in r#match.participants.into_iter().enumerate() {
             const SQL: &str = indoc! {
                 "INSERT INTO participations (match_id, bot_id, `index`, rank, error) \
                  VALUES ($1, $2, $3, $4, $5)"
@@ -314,10 +304,10 @@ impl Database {
 
             sqlx::query(SQL)
                 .bind::<i64>(r#match.id.into())
-                .bind::<i64>(bot_id.into())
+                .bind::<i64>(p.bot_id.into())
                 .bind::<u8>(index as _)
-                .bind::<Option<u8>>(ranks[index])
-                .bind::<Option<u8>>(errors[index])
+                .bind::<u8>(p.rank)
+                .bind::<bool>(p.error)
                 .execute(&mut *tx)
                 .await
                 .expect("Cannot create participation in db");

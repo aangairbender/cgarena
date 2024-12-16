@@ -88,7 +88,7 @@ impl BuildManager {
     // }
 
     pub async fn ensure_built(&self, id: BotId) {
-        let existing_builds = self.db.fetch_builds(id).await;
+        let existing_builds = self.db.fetch_bot_builds(id).await;
 
         for w in self.workers.as_ref() {
             let build_exists_in_db = existing_builds

@@ -6,9 +6,14 @@ pub struct Bot {
     pub name: BotName,
     pub source_code: SourceCode,
     pub language: Language,
-    pub matches_played: u64,
-    pub rating: Rating,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Default)]
+pub struct BotStats {
+    pub matches_played: i64,
+    pub rating: Rating,
+    pub matches_with_error: i64,
 }
 
 impl Bot {
@@ -18,8 +23,6 @@ impl Bot {
             name,
             source_code,
             language,
-            matches_played: 0,
-            rating: Rating::default(),
             created_at: Utc::now(),
         }
     }

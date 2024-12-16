@@ -1,31 +1,24 @@
 use crate::domain::{BotId, MatchId};
 
+// only successfully finished matches would be stored in DB
 pub struct Match {
     pub id: MatchId,
     pub seed: i64,
-    pub bot_ids: Vec<BotId>,
-    pub status: MatchStatus,
+    pub participants: Vec<Participant>,
+}
+
+pub struct Participant {
+    pub bot_id: BotId,
+    pub rank: u8,
+    pub error: bool,
 }
 
 impl Match {
-    pub fn new(seed: i64, bot_ids: Vec<BotId>) -> Self {
+    pub fn new(seed: i64, participants: Vec<Participant>) -> Match {
         Self {
             id: MatchId::UNINITIALIZED,
             seed,
-            bot_ids,
-            status: MatchStatus::Pending,
+            participants,
         }
     }
-}
-
-pub enum MatchStatus {
-    Pending,
-    Running,
-    Finished(MatchResult),
-    Error(String),
-}
-
-pub struct MatchResult {
-    pub ranks: Vec<u8>,
-    pub errors: Vec<bool>,
 }

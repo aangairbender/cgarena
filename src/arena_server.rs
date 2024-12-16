@@ -1,10 +1,11 @@
 use crate::config::Config;
 use crate::db::Database;
 use crate::worker::Worker;
-use crate::{api, build_manager};
+use crate::{api, build_manager, match_result_processor, ranking};
 use itertools::Itertools;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::mpsc::channel;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
@@ -14,10 +15,14 @@ pub async fn start(arena_path: &Path) {
     let db = Database::connect(arena_path).await;
     let server_port = config.server.port;
 
+    let (match_result_tx, match_result_rx) = channel(16);
+
+    let ranking = ranking::Ranking::new(Arc::new(config.ranking), db.clone());
+
     let workers = config
         .workers
         .into_iter()
-        .map(|config| Worker::new(arena_path, config))
+        .map(|config| Worker::new(arena_path, config, match_result_tx.clone()))
         .collect_vec();
     assert!(
         workers.iter().map(|w| &w.name).all_unique(),
@@ -29,6 +34,12 @@ pub async fn start(arena_path: &Path) {
     let token = CancellationToken::new();
 
     let worker_manager = build_manager::BuildManager::new(Arc::clone(&workers), db.clone());
+
+    tracker.spawn(match_result_processor::run(
+        match_result_rx,
+        db.clone(),
+        ranking,
+    ));
 
     tracker.spawn(api::start(
         server_port,

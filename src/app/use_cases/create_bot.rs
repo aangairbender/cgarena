@@ -1,6 +1,6 @@
 use crate::build_manager::BuildManager;
 use crate::db::{DBError, Database};
-use crate::domain::{Bot, BotId, BotName, Language, SourceCode};
+use crate::domain::{Bot, BotId, BotName, BotStats, Language, SourceCode};
 
 pub struct Input {
     pub name: BotName,
@@ -20,6 +20,8 @@ pub async fn execute(input: Input, db: Database, wm: BuildManager) -> Output {
         Err(DBError::AlreadyExists) => return Output::AlreadyExists,
         _ => panic!("Unexpected error from repo"),
     };
+
+    db.upsert_bot_stats(bot_id, BotStats::default()).await;
 
     wm.ensure_built(bot_id).await;
 

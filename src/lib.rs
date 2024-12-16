@@ -7,5 +7,6 @@ pub mod db;
 pub mod domain;
 pub mod embedded_worker;
 pub mod match_manager;
+pub mod match_result_processor;
 pub mod ranking;
 pub mod worker;

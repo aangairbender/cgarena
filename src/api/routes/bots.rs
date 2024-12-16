@@ -1,7 +1,7 @@
 use crate::api::errors::ApiError;
 use crate::api::AppState;
 use crate::app::use_cases;
-use crate::domain::{Bot, BotId, Build, BuildStatus};
+use crate::domain::{Bot, BotId, BotStats, Build, BuildStatus};
 use anyhow::anyhow;
 use axum::extract::Path;
 use axum::http::StatusCode;
@@ -23,6 +23,7 @@ pub fn create_router() -> Router<AppState> {
         .route("/bots/:id", delete(delete_bot))
         .route("/bots/:id", get(fetch_bot))
         .route("/bots/:id/builds", get(fetch_bot_builds))
+        .route("/bots/:id/stats", get(fetch_bot_stats))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,35 +44,34 @@ struct BotResponse {
     pub name: String,
     pub language: String,
     pub created_at: DateTime<Utc>,
-    pub stats: BotStats,
 }
 
 impl From<Bot> for BotResponse {
     fn from(bot: Bot) -> Self {
-        let stats = BotStats::from(&bot);
         Self {
             id: bot.id.into(),
             name: bot.name.into(),
             language: bot.language.into(),
             created_at: bot.created_at,
-            stats,
         }
     }
 }
 
 #[derive(Serialize)]
-struct BotStats {
-    pub matches_played: u64,
+struct BotStatsResponse {
+    pub matches_played: i64,
     pub rating_mu: f64,
     pub rating_sigma: f64,
+    pub matches_with_error: i64,
 }
 
-impl From<&Bot> for BotStats {
-    fn from(bot: &Bot) -> Self {
-        BotStats {
-            matches_played: bot.matches_played,
-            rating_mu: bot.rating.mu,
-            rating_sigma: bot.rating.sigma,
+impl From<BotStats> for BotStatsResponse {
+    fn from(stats: BotStats) -> Self {
+        BotStatsResponse {
+            matches_played: stats.matches_played,
+            rating_mu: stats.rating.mu,
+            rating_sigma: stats.rating.sigma,
+            matches_with_error: stats.matches_with_error,
         }
     }
 }
@@ -195,10 +195,24 @@ async fn fetch_bot_builds(
 ) -> Result<impl IntoResponse, ApiError> {
     let builds = app_state
         .db
-        .fetch_builds(id.into())
+        .fetch_bot_builds(id.into())
         .await
         .into_iter()
         .map(BuildResponse::from)
+        .collect_vec();
+    Ok(Json(builds))
+}
+
+async fn fetch_bot_stats(
+    State(app_state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    let builds = app_state
+        .db
+        .fetch_bot_stats(id.into())
+        .await
+        .into_iter()
+        .map(BotStatsResponse::from)
         .collect_vec();
     Ok(Json(builds))
 }
