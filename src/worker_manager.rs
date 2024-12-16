@@ -71,7 +71,7 @@ impl WorkerManager {
         };
         for w in target_workers {
             let bot_id = input.bot_id;
-            let res = w.build(input.clone()).await;
+            let res = w.build_bot(input.clone()).await;
             let build = Build {
                 bot_id,
                 worker_name: w.name.clone(),

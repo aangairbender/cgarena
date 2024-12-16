@@ -24,8 +24,10 @@ impl EmbeddedWorker {
     }
 
     pub async fn is_build_valid(&self, id: BotId) -> bool {
-        let bot_folder_relative = PathBuf::from(DIR_BOTS).join(i64::from(id).to_string());
-        let bot_folder = self.worker_path.join(&bot_folder_relative);
+        let bot_folder = self
+            .worker_path
+            .join(DIR_BOTS)
+            .join(i64::from(id).to_string());
         tokio::fs::try_exists(&bot_folder).await.unwrap_or(false)
     }
 

@@ -22,7 +22,7 @@ impl Worker {
         }
     }
 
-    pub async fn build(&self, input: BuildBotInput) -> Result<(), anyhow::Error> {
+    pub async fn build_bot(&self, input: BuildBotInput) -> Result<(), anyhow::Error> {
         self.inner.build(input).await
     }
 
