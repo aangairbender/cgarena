@@ -1,4 +1,5 @@
 use anyhow::bail;
+use std::ops::Deref;
 
 #[derive(Clone)]
 pub struct SourceCode(String);
@@ -17,6 +18,14 @@ impl TryFrom<String> for SourceCode {
 impl From<SourceCode> for String {
     fn from(value: SourceCode) -> Self {
         value.0
+    }
+}
+
+impl Deref for SourceCode {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

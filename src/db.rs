@@ -238,24 +238,24 @@ impl Database {
             .collect()
     }
 
-    pub async fn insert_build(&self, build: Build) {
+    pub async fn upsert_build(&self, build: &Build) {
         const SQL: &str = indoc! {"
             INSERT OR REPLACE INTO builds (bot_id, worker_name, status, error) \
             VALUES ($1, $2, $3, $4) \
         "};
 
-        let (status, error) = match build.status {
+        let (status, error) = match &build.status {
             BuildStatus::Pending => (0, None),
             BuildStatus::Running => (1, None),
             BuildStatus::Success => (2, None),
-            BuildStatus::Failure(err) => (3, Some(err)),
+            BuildStatus::Failure(err) => (3, Some(err.as_ref())),
         };
 
         sqlx::query(SQL)
             .bind::<i64>(build.bot_id.into())
-            .bind::<String>(build.worker_name.into())
+            .bind::<&str>(&build.worker_name)
             .bind::<u8>(status)
-            .bind::<Option<String>>(error)
+            .bind::<Option<&str>>(error)
             .execute(&self.pool)
             .await
             .expect("Cannot insert build to db");
@@ -284,7 +284,7 @@ impl Database {
 
         let (ranks, errors) = if let MatchStatus::Finished(res) = r#match.status {
             (
-                res.ranks.iter().map(|r| Some(*r as u8)).collect(),
+                res.ranks.iter().map(|r| Some(*r)).collect(),
                 res.errors.iter().map(|r| Some(*r as u8)).collect(),
             )
         } else {

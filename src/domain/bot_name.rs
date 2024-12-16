@@ -1,4 +1,5 @@
 use anyhow::bail;
+use std::ops::Deref;
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub struct BotName(String);
@@ -20,6 +21,14 @@ impl TryFrom<String> for BotName {
 impl From<BotName> for String {
     fn from(value: BotName) -> Self {
         value.0
+    }
+}
+
+impl Deref for BotName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

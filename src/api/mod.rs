@@ -1,8 +1,8 @@
 mod errors;
 mod routes;
 
+use crate::build_manager::BuildManager;
 use crate::db::Database;
-use crate::worker_manager::WorkerManager;
 use axum::Router;
 use std::net::SocketAddr;
 use tokio_util::sync::CancellationToken;
@@ -12,7 +12,7 @@ use tracing::{error, info};
 pub async fn start(
     port: u16,
     db: Database,
-    wm: WorkerManager,
+    wm: BuildManager,
     cancellation_token: CancellationToken,
 ) {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -50,5 +50,5 @@ async fn create_router(app_state: AppState) -> Router {
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub db: Database,
-    pub wm: WorkerManager,
+    pub wm: BuildManager,
 }

@@ -1,6 +1,6 @@
+use crate::build_manager::BuildManager;
 use crate::db::{DBError, Database};
 use crate::domain::{Bot, BotId, BotName, Language, SourceCode};
-use crate::worker_manager::WorkerManager;
 
 pub struct Input {
     pub name: BotName,
@@ -13,7 +13,7 @@ pub enum Output {
     AlreadyExists,
 }
 
-pub async fn execute(input: Input, db: Database, wm: WorkerManager) -> Output {
+pub async fn execute(input: Input, db: Database, wm: BuildManager) -> Output {
     let bot = Bot::new(input.name, input.source_code, input.language);
     let bot_id = match db.create_bot(bot).await {
         Ok(bot) => bot,

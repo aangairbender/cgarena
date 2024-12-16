@@ -1,7 +1,10 @@
 use crate::config::Config;
 use crate::db::Database;
-use crate::{api, worker_manager};
+use crate::worker::Worker;
+use crate::{api, build_manager};
+use itertools::Itertools;
 use std::path::Path;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::info;
@@ -11,15 +14,21 @@ pub async fn start(arena_path: &Path) {
     let db = Database::connect(arena_path).await;
     let server_port = config.server.port;
 
+    let workers = config
+        .workers
+        .into_iter()
+        .map(|config| Worker::new(arena_path, config))
+        .collect_vec();
+    assert!(
+        workers.iter().map(|w| &w.name).all_unique(),
+        "All worker names must be unique"
+    );
+    let workers = Arc::new(workers);
+
     let tracker = TaskTracker::new();
     let token = CancellationToken::new();
 
-    let worker_manager = worker_manager::WorkerManager::new(arena_path, config.workers, db.clone());
-    // building existing bots, TODO: move it somewhere
-    let bots = db.clone().fetch_bots().await;
-    for bot in bots {
-        worker_manager.ensure_built(bot.id).await;
-    }
+    let worker_manager = build_manager::BuildManager::new(Arc::clone(&workers), db.clone());
 
     tracker.spawn(api::start(
         server_port,
