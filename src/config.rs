@@ -38,7 +38,7 @@ pub enum WorkerConfig {
     // Remote
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct EmbeddedWorkerConfig {
     pub threads: u8,
     pub cmd_play_match: String,

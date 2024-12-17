@@ -1,4 +1,4 @@
-use crate::domain::{BotId, BuildStatus, WorkerName};
+use crate::domain::{BotId, BuildResult, BuildStatus, WorkerName};
 
 pub struct Build {
     pub bot_id: BotId,
@@ -15,29 +15,35 @@ impl Build {
         }
     }
 
-    pub fn reset(mut self) -> Self {
+    pub fn reset(&mut self) {
         self.status = BuildStatus::Pending;
-        self
     }
 
-    pub fn into_running(mut self) -> Self {
+    pub fn make_running(&mut self) {
         assert_eq!(
             std::mem::discriminant(&self.status),
             std::mem::discriminant(&BuildStatus::Pending)
         );
         self.status = BuildStatus::Running;
-        self
     }
 
-    pub fn into_finished(mut self, res: Result<(), anyhow::Error>) -> Self {
+    pub fn make_finished(&mut self, result: BuildResult) {
         assert_eq!(
             std::mem::discriminant(&self.status),
             std::mem::discriminant(&BuildStatus::Running)
         );
-        self.status = match res {
-            Ok(()) => BuildStatus::Success,
-            Err(err) => BuildStatus::Failure(err.to_string()),
-        };
-        self
+        self.status = BuildStatus::Finished(result);
+    }
+
+    pub fn is_pending(&self) -> bool {
+        matches!(self.status, BuildStatus::Pending)
+    }
+
+    pub fn is_running(&self) -> bool {
+        matches!(self.status, BuildStatus::Running)
+    }
+
+    pub fn was_finished_successfully(&self) -> bool {
+        matches!(self.status, BuildStatus::Finished(BuildResult::Success))
     }
 }

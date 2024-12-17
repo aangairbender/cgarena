@@ -1,15 +1,11 @@
 pub enum BuildStatus {
     Pending,
     Running,
-    Success,
-    Failure(String),
+    Finished(BuildResult),
 }
 
-impl BuildStatus {
-    pub(crate) fn is_success(&self) -> bool {
-        match self {
-            BuildStatus::Success => true,
-            _ => false,
-        }
-    }
+#[derive(Debug)]
+pub enum BuildResult {
+    Success,
+    Failure { stderr: String },
 }

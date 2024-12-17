@@ -2,7 +2,13 @@ use anyhow::bail;
 use std::ops::Deref;
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
-pub struct WorkerName(pub String);
+pub struct WorkerName(String);
+
+impl WorkerName {
+    pub fn embedded() -> WorkerName {
+        WorkerName("embedded".to_string())
+    }
+}
 
 impl TryFrom<String> for WorkerName {
     type Error = anyhow::Error;

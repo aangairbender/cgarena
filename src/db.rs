@@ -1,14 +1,12 @@
-use crate::domain::{
-    Bot, BotId, BotName, BotStats, Build, BuildStatus, Match, MatchId, Participant, Rating,
-};
-use anyhow::{anyhow, bail};
+use crate::domain::{Bot, BotId, Build, BuildResult, BuildStatus, Match, MatchId, Participant};
+use anyhow::bail;
 use chrono::{DateTime, Utc};
 use indoc::indoc;
 use itertools::Itertools;
 use sqlx::{migrate::MigrateDatabase, sqlite::SqlitePoolOptions, Sqlite, SqlitePool};
+use std::collections::HashMap;
 use std::path::Path;
 
-// Represents a bot submitted to arena
 #[derive(sqlx::FromRow)]
 struct BotsRow {
     pub id: i64,
@@ -18,82 +16,20 @@ struct BotsRow {
     pub created_at: DateTime<Utc>,
 }
 
-impl TryFrom<BotsRow> for Bot {
-    type Error = anyhow::Error;
-
-    fn try_from(r: BotsRow) -> Result<Self, Self::Error> {
-        Ok(Bot {
-            id: r.id.into(),
-            name: r.name.try_into()?,
-            source_code: r.source_code.try_into()?,
-            language: r.language.try_into()?,
-            created_at: r.created_at,
-        })
-    }
-}
-
 #[derive(sqlx::FromRow)]
-struct BotsStatsRow {
-    pub bot_id: i64,
-    pub matches_played: i64,
-    pub rating_mu: f64,
-    pub rating_sigma: f64,
-    pub matches_with_error: i64,
-}
-
-impl From<BotsStatsRow> for BotStats {
-    fn from(r: BotsStatsRow) -> Self {
-        BotStats {
-            matches_played: r.matches_played,
-            rating: Rating {
-                mu: r.rating_mu,
-                sigma: r.rating_sigma,
-            },
-            matches_with_error: r.matches_with_error,
-        }
-    }
-}
-
-impl From<BotsStatsRow> for (BotId, BotStats) {
-    fn from(r: BotsStatsRow) -> Self {
-        (r.bot_id.into(), r.into())
-    }
-}
-
-#[derive(sqlx::FromRow)]
-struct MatchesWithParticipationRow {
+struct MatchesRow {
     pub id: i64,
     pub seed: i64,
+    pub participant_cnt: u8,
+}
+
+#[derive(sqlx::FromRow)]
+struct ParticipationsRow {
+    pub match_id: i64,
     pub bot_id: i64,
     pub index: u8,
     pub rank: u8,
     pub error: bool,
-}
-
-impl TryFrom<Vec<MatchesWithParticipationRow>> for Match {
-    type Error = anyhow::Error;
-
-    fn try_from(mut ps: Vec<MatchesWithParticipationRow>) -> Result<Self, Self::Error> {
-        if ps.is_empty() {
-            bail!("No participations found for match");
-        }
-        ps.sort_by_key(|p| p.index);
-
-        let m = &ps[0];
-
-        Ok(Match {
-            id: m.id.into(),
-            seed: m.seed,
-            participants: ps
-                .iter()
-                .map(|p| Participant {
-                    bot_id: p.bot_id.into(),
-                    rank: p.rank,
-                    error: p.error,
-                })
-                .collect(),
-        })
-    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -101,26 +37,70 @@ pub struct BuildsRow {
     pub bot_id: i64,
     pub worker_name: String,
     pub status: u8,
+    pub result: Option<u8>,
     pub error: Option<String>,
 }
 
 impl TryFrom<BuildsRow> for Build {
     type Error = anyhow::Error;
 
-    fn try_from(b: BuildsRow) -> Result<Self, Self::Error> {
+    fn try_from(row: BuildsRow) -> Result<Self, Self::Error> {
+        let status = match (row.status, row.result, row.error) {
+            (0, None, None) => BuildStatus::Pending,
+            (1, None, None) => BuildStatus::Running,
+            (2, Some(0), None) => BuildStatus::Finished(BuildResult::Success),
+            (2, Some(1), Some(stderr)) => BuildStatus::Finished(BuildResult::Failure { stderr }),
+            _ => bail!("unexpected build status in db"),
+        };
         Ok(Build {
-            bot_id: b.bot_id.into(),
-            worker_name: b.worker_name.try_into()?,
-            status: match b.status {
-                0 => BuildStatus::Pending,
-                1 => BuildStatus::Running,
-                2 => BuildStatus::Success,
-                3 => BuildStatus::Failure(
-                    b.error
-                        .ok_or(anyhow!("Error cannot be null for failed build"))?,
-                ),
-                _ => bail!("unexpected build status"),
-            },
+            bot_id: row.bot_id.into(),
+            worker_name: row.worker_name.try_into()?,
+            status,
+        })
+    }
+}
+
+impl TryFrom<BotsRow> for Bot {
+    type Error = anyhow::Error;
+
+    fn try_from(bot: BotsRow) -> Result<Self, Self::Error> {
+        Ok(Bot {
+            id: bot.id.into(),
+            name: bot.name.try_into()?,
+            source_code: bot.source_code.try_into()?,
+            language: bot.language.try_into()?,
+            created_at: bot.created_at,
+        })
+    }
+}
+
+impl From<ParticipationsRow> for Participant {
+    fn from(row: ParticipationsRow) -> Self {
+        Participant {
+            bot_id: row.bot_id.into(),
+            rank: row.rank.into(),
+            error: row.error,
+        }
+    }
+}
+
+impl TryFrom<(MatchesRow, Vec<ParticipationsRow>)> for Match {
+    type Error = anyhow::Error;
+
+    fn try_from((m, mut ps): (MatchesRow, Vec<ParticipationsRow>)) -> Result<Self, Self::Error> {
+        if m.participant_cnt as usize != ps.len() {
+            bail!("participant count mismatch");
+        }
+        ps.sort_by_key(|p| p.index);
+        for (index, p) in ps.iter().enumerate() {
+            if index != p.index as usize {
+                bail!("Some participation index is missing");
+            }
+        }
+        Ok(Match {
+            id: m.id.into(),
+            seed: m.seed,
+            participants: ps.into_iter().map(|p| p.into()).collect(),
         })
     }
 }
@@ -165,7 +145,15 @@ impl Database {
         Self { pool }
     }
 
-    pub async fn create_bot(&self, bot: Bot) -> DBResult<BotId> {
+    pub async fn persist_bot(&self, bot: &mut Bot) {
+        if bot.id == BotId::UNINITIALIZED {
+            bot.id = self.insert_bot(&bot).await;
+        } else {
+            self.update_bot(&bot).await;
+        }
+    }
+
+    async fn insert_bot(&self, bot: &Bot) -> BotId {
         assert_eq!(bot.id, BotId::UNINITIALIZED);
         const SQL: &str = indoc! {"
             INSERT INTO bots (name, source_code, language, created_at) \
@@ -173,147 +161,110 @@ impl Database {
         "};
 
         let res = sqlx::query(SQL)
-            .bind::<String>(bot.name.into())
-            .bind::<String>(bot.source_code.into())
-            .bind::<String>(bot.language.into())
+            .bind::<&str>(&bot.name)
+            .bind::<&str>(&bot.source_code)
+            .bind::<&str>(&bot.language)
             .bind::<DateTime<Utc>>(bot.created_at)
             .execute(&self.pool)
-            .await?;
-
-        let bot_id = BotId::from(res.last_insert_rowid());
-        Ok(bot_id)
-    }
-
-    pub async fn delete_bot(&self, id: BotId) -> DBResult<()> {
-        let res = sqlx::query("DELETE FROM bots WHERE id = $1")
-            .bind::<i64>(id.into())
-            .execute(&self.pool)
-            .await?;
-
-        if res.rows_affected() == 0 {
-            Err(DBError::NotFound)
-        } else {
-            Ok(())
-        }
-    }
-
-    pub async fn rename_bot(&self, id: BotId, new_name: BotName) -> DBResult<()> {
-        let res = sqlx::query("UPDATE bots SET name = $1 WHERE id = $2")
-            .bind::<String>(new_name.into())
-            .bind::<i64>(id.into())
-            .execute(&self.pool)
-            .await?;
-
-        if res.rows_affected() == 0 {
-            Err(DBError::NotFound)
-        } else {
-            Ok(())
-        }
-    }
-
-    pub async fn fetch_bot_stats(&self, id: BotId) -> Option<BotStats> {
-        sqlx::query_as("SELECT * FROM bot_stats WHERE bot_id = $1")
-            .bind::<i64>(id.into())
-            .fetch_optional(&self.pool)
             .await
-            .expect("Cannot fetch bot stats from db")
-            .map(BotsStatsRow::into)
+            .expect("Cannot insert bot to db");
+
+        BotId::from(res.last_insert_rowid())
     }
 
-    pub async fn fetch_bot_stats_all(&self) -> Vec<(BotId, BotStats)> {
-        sqlx::query_as("SELECT * FROM bot_stats")
-            .fetch_all(&self.pool)
-            .await
-            .expect("Cannot fetch bot stats from db")
-            .into_iter()
-            .map(BotsStatsRow::into)
-            .collect()
-    }
-
-    pub async fn upsert_bot_stats(&self, id: BotId, stats: BotStats) {
-        const SQL: &str = indoc! {
-            "INSERT OR REPLACE INTO bot_stats (bot_id, matches_played, rating_mu, rating_sigma, matches_with_error) \
-            VALUES ($1, $2, $3, $4, $5)"
+    /// only updates mutable fields
+    async fn update_bot(&self, bot: &Bot) {
+        assert_ne!(bot.id, BotId::UNINITIALIZED);
+        const SQL: &str = indoc! {"
+            UPDATE bots SET name = $1 \
+            WHERE id = $2"
         };
-        sqlx::query(SQL)
-            .bind::<i64>(id.into())
-            .bind::<i64>(stats.matches_played)
-            .bind::<f64>(stats.rating.mu)
-            .bind::<f64>(stats.rating.sigma)
-            .bind::<i64>(stats.matches_with_error)
+
+        let res = sqlx::query(SQL)
+            .bind::<&str>(&bot.name)
+            .bind::<i64>(bot.id.into())
             .execute(&self.pool)
             .await
-            .expect("Cannot upsert bot stats");
+            .expect("Cannot update bot in db");
+
+        assert_eq!(res.rows_affected(), 1);
     }
 
-    pub async fn fetch_bot(&self, id: BotId) -> Option<Bot> {
-        let row: Option<BotsRow> = sqlx::query_as("SELECT * FROM bots WHERE id = $1")
+    pub async fn delete_bot(&self, id: BotId) {
+        sqlx::query("DELETE FROM bots WHERE id = $1")
             .bind::<i64>(id.into())
-            .fetch_optional(&self.pool)
+            .execute(&self.pool)
             .await
-            .expect("Query execution failed");
-
-        row.map(|r| r.try_into().expect("invalid bot in db"))
+            .expect("Cannot delete bot from db");
     }
 
     pub async fn fetch_bots(&self) -> Vec<Bot> {
-        let bots: Vec<BotsRow> = sqlx::query_as("SELECT * from bots")
+        sqlx::query_as::<_, BotsRow>("SELECT * from bots")
             .fetch_all(&self.pool)
             .await
-            .expect("Query execution failed");
-
-        bots.into_iter()
-            .map(|r| r.try_into().expect("invalid bot in db"))
-            .collect()
+            .expect("Cannot fetch all bots")
+            .into_iter()
+            .map(Bot::try_from)
+            .try_collect()
+            .expect("Error during mapping db to domain")
     }
 
-    pub async fn upsert_build(&self, build: &Build) {
+    pub async fn fetch_builds(&self) -> Vec<Build> {
+        sqlx::query_as::<_, BuildsRow>("SELECT * from builds")
+            .fetch_all(&self.pool)
+            .await
+            .expect("Cannot fetch all builds")
+            .into_iter()
+            .map(Build::try_from)
+            .try_collect()
+            .expect("Error during mapping db to domain")
+    }
+
+    pub async fn persist_build(&self, build: &Build) {
         const SQL: &str = indoc! {"
-            INSERT OR REPLACE INTO builds (bot_id, worker_name, status, error) \
-            VALUES ($1, $2, $3, $4) \
+            INSERT OR REPLACE INTO builds (bot_id, worker_name, status, result, error) \
+            VALUES ($1, $2, $3, $4, $5) \
         "};
 
-        let (status, error) = match &build.status {
-            BuildStatus::Pending => (0, None),
-            BuildStatus::Running => (1, None),
-            BuildStatus::Success => (2, None),
-            BuildStatus::Failure(err) => (3, Some(err.as_ref())),
+        let (status, result, error) = match &build.status {
+            BuildStatus::Pending => (0, None, None),
+            BuildStatus::Running => (1, None, None),
+            BuildStatus::Finished(BuildResult::Success) => (2, Some(0), None),
+            BuildStatus::Finished(BuildResult::Failure { stderr }) => {
+                (2, Some(1), Some(stderr.as_ref()))
+            }
         };
 
         sqlx::query(SQL)
             .bind::<i64>(build.bot_id.into())
             .bind::<&str>(&build.worker_name)
             .bind::<u8>(status)
+            .bind::<Option<u8>>(result)
             .bind::<Option<&str>>(error)
             .execute(&self.pool)
             .await
-            .expect("Cannot insert build to db");
+            .expect("Cannot upsert build to db");
     }
 
-    pub async fn fetch_bot_builds(&self, bot_id: BotId) -> Vec<Build> {
-        let builds: Vec<BuildsRow> = sqlx::query_as("SELECT * from builds where bot_id = $1")
-            .bind::<i64>(bot_id.into())
-            .fetch_all(&self.pool)
-            .await
-            .expect("Cannot fetch builds from db");
-
-        builds
-            .into_iter()
-            .map(|b| b.try_into().expect("invalid build in db"))
-            .collect()
+    pub async fn persist_match(&self, m: &mut Match) {
+        assert_eq!(m.id, MatchId::UNINITIALIZED);
+        m.id = self.create_match(m).await;
     }
 
-    pub async fn create_match(&self, r#match: Match) -> MatchId {
+    pub async fn create_match(&self, m: &Match) -> MatchId {
         let mut tx = self.pool.begin().await.expect("cannot start a transaction");
-        let match_id: MatchId = sqlx::query("INSERT INTO matches (seed) VALUES ($1)")
-            .bind::<i64>(r#match.seed)
-            .execute(&mut *tx)
-            .await
-            .expect("Cannot create match in db")
-            .last_insert_rowid()
-            .into();
 
-        for (index, p) in r#match.participants.into_iter().enumerate() {
+        let match_id: MatchId =
+            sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)")
+                .bind::<i64>(m.seed)
+                .bind::<u8>(m.participants.len() as _)
+                .execute(&mut *tx)
+                .await
+                .expect("Cannot create match in db")
+                .last_insert_rowid()
+                .into();
+
+        for (index, p) in m.participants.iter().enumerate() {
             const SQL: &str = indoc! {
                 "INSERT INTO participations (match_id, bot_id, `index`, rank, error) \
                  VALUES ($1, $2, $3, $4, $5)"
@@ -334,34 +285,33 @@ impl Database {
         match_id
     }
 
-    pub async fn fetch_matches_with_bot(&self, bot_id: BotId) -> Vec<Match> {
-        const SQL: &str = indoc! {
-            "SELECT m.*, p.* FROM matches m \
-            INNER JOIN participations p ON m.id = p.match_id \
-            WHERE m.bot_id = $1"
-        };
-
-        let rows: Vec<MatchesWithParticipationRow> = sqlx::query_as(SQL)
-            .bind::<i64>(bot_id.into())
+    pub async fn fetch_matches(&self) -> Vec<Match> {
+        let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
             .fetch_all(&self.pool)
             .await
             .expect("Cannot query matches from db");
 
-        rows.into_iter()
-            .into_group_map_by(|r| r.id)
-            .into_values()
-            .map(|ps| ps.try_into().expect("invalid match in db"))
-            .collect()
-    }
-}
+        let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
+            .fetch_all(&self.pool)
+            .await
+            .expect("Cannot query matches from db");
 
-impl From<sqlx::Error> for DBError {
-    fn from(value: sqlx::Error) -> Self {
-        let err = value.into_database_error().expect("Unexpected db error");
-        if err.is_unique_violation() {
-            DBError::AlreadyExists
-        } else {
-            panic!("Unexpected db error: {}", err);
+        let mut combined = HashMap::with_capacity(matches.len());
+        for m in matches {
+            combined.insert(m.id, (m, vec![]));
         }
+        for p in participations {
+            combined
+                .get_mut(&p.match_id)
+                .expect("Participation does not match any match in db")
+                .1
+                .push(p);
+        }
+
+        combined
+            .into_values()
+            .map(Match::try_from)
+            .try_collect()
+            .expect("Error during mapping db to domain")
     }
 }

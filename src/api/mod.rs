@@ -1,23 +1,22 @@
 mod errors;
 mod routes;
 
-use crate::build_manager::BuildManager;
-use crate::db::Database;
+use crate::arena::ArenaCommand;
 use axum::Router;
 use std::net::SocketAddr;
+use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 
 pub async fn start(
     port: u16,
-    db: Database,
-    wm: BuildManager,
+    arena_tx: Sender<ArenaCommand>,
     cancellation_token: CancellationToken,
 ) {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let app_state = AppState { db, wm };
+    let app_state = AppState { arena_tx };
 
     let router = create_router(app_state).await;
 
@@ -49,6 +48,5 @@ async fn create_router(app_state: AppState) -> Router {
 
 #[derive(Clone)]
 pub(crate) struct AppState {
-    pub db: Database,
-    pub wm: BuildManager,
+    pub arena_tx: Sender<ArenaCommand>,
 }

@@ -1,13 +1,8 @@
 pub mod api;
-pub mod app;
+pub mod arena;
 pub mod arena_server;
-pub mod build_manager;
 pub mod config;
 pub mod db;
 pub mod domain;
 pub mod embedded_worker;
-pub mod match_result_processor;
-pub mod match_scheduler;
-pub mod matchmaking;
 pub mod ranking;
-pub mod worker;

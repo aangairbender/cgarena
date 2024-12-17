@@ -1,49 +1,35 @@
 use crate::config::RankingConfig;
-use crate::db::Database;
-use crate::domain::{Match, Rating};
+use crate::domain::{BotId, Match, Rating};
 use itertools::Itertools;
 use skillratings::MultiTeamOutcome;
-use std::sync::Arc;
-use tracing::warn;
+use std::collections::HashMap;
 
-#[derive(Clone)]
-pub struct Ranking {
-    config: Arc<RankingConfig>,
-    db: Database,
-}
-
-impl Ranking {
-    pub fn new(config: Arc<RankingConfig>, db: Database) -> Self {
-        Self { config, db }
-    }
-
-    pub async fn update_rating(&self, r#match: &Match) {
-        let mut participant_stats = Vec::with_capacity(r#match.participants.len());
-        for p in &r#match.participants {
-            let Some(stats) = self.db.fetch_bot_stats(p.bot_id).await else {
-                warn!("Can't process result of match. Bot stats is missing");
-                return;
-            };
-            participant_stats.push((p, stats));
-        }
-
-        let input = participant_stats
+pub fn recalc_rating<'a>(
+    config: &RankingConfig,
+    ratings: &mut HashMap<BotId, Rating>,
+    matches: impl Iterator<Item = &'a Match>,
+) {
+    for m in matches {
+        let ps = m
+            .participants
             .iter()
-            .map(|(p, s)| (s.rating, p.rank))
+            .map(|p| (ratings.get(&p.bot_id).copied().unwrap_or_default(), p.rank))
             .collect_vec();
 
-        let new_ratings = match self.config.as_ref() {
-            &RankingConfig::OpenSkill => recalc_ratings_openskill(&input),
-        };
+        let new_ratings = recalc_ratings(&ps, &config);
 
-        for ((p, mut s), r) in participant_stats.into_iter().zip(new_ratings) {
-            s.matches_played += 1;
-            if p.error {
-                s.matches_with_error += 1;
-            }
-            s.rating = r;
-            self.db.upsert_bot_stats(p.bot_id, s).await;
-        }
+        m.participants
+            .iter()
+            .zip_eq(new_ratings)
+            .for_each(|(p, new_rating)| {
+                ratings.insert(p.bot_id, new_rating);
+            });
+    }
+}
+
+fn recalc_ratings(input: &[(Rating, u8)], config: &RankingConfig) -> Vec<Rating> {
+    match config {
+        RankingConfig::OpenSkill => recalc_ratings_openskill(input),
     }
 }
 

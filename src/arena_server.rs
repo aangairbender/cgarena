@@ -1,79 +1,32 @@
-use crate::config::Config;
+use crate::config::{Config, WorkerConfig};
 use crate::db::Database;
-use crate::worker::Worker;
-use crate::{api, build_manager, match_result_processor, match_scheduler, matchmaking, ranking};
-use itertools::Itertools;
+use crate::embedded_worker::EmbeddedWorker;
+use crate::{api, arena};
 use std::path::Path;
-use std::sync::Arc;
-use tokio::sync::mpsc::channel;
 use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
 use tracing::info;
 
 pub async fn start(arena_path: &Path) {
     let config = Config::load(arena_path).expect("Cannot load arena config");
     let db = Database::connect(arena_path).await;
     let server_port = config.server.port;
-
-    let (match_result_tx, match_result_rx) = channel(16);
-
-    let ranking = ranking::Ranking::new(Arc::new(config.ranking), db.clone());
-
     let token = CancellationToken::new();
-    let workers = config
-        .workers
-        .into_iter()
-        .map(|config| Worker::new(arena_path, config, match_result_tx.clone(), token.clone()))
-        .collect_vec();
-    assert!(
-        workers.iter().map(|w| &w.name).all_unique(),
-        "All worker names must be unique"
-    );
-    drop(match_result_tx);
-    let workers: Arc<[Worker]> = workers.into();
 
-    let tracker = TaskTracker::new();
+    let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
+        panic!("In the current version only single embedded worker supported");
+    };
+    let worker = EmbeddedWorker::new(arena_path, cfg.clone(), token.clone());
 
-    let worker_manager = build_manager::BuildManager::new(Arc::clone(&workers), db.clone());
+    let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
 
-    tracker.spawn(match_result_processor::run(
-        match_result_rx,
-        db.clone(),
-        ranking,
-    ));
-
-    tracker.spawn(api::start(
-        server_port,
-        db.clone(),
-        worker_manager,
-        token.clone(),
-    ));
-
-    let (scheduled_matches_tx, scheduled_matches_rx) = channel(20);
-    // let match_scheduler = match_scheduler::MatchScheduler::new(scheduled_matches_tx);
-    tracker.spawn(match_scheduler::run(
-        db.clone(),
-        Arc::clone(&workers),
-        scheduled_matches_rx,
-    ));
-
-    tracker.spawn(matchmaking::run(
-        scheduled_matches_tx.clone(),
-        db.clone(),
-        Arc::new(config.game),
-        Arc::new(config.matchmaking),
-        token.clone(),
-    ));
-
-    drop(workers);
-    drop(scheduled_matches_tx);
+    tokio::spawn(arena::run(config, db, worker, arena_rx, token.clone()));
+    tokio::spawn(api::start(server_port, arena_tx, token.clone()));
 
     tokio::signal::ctrl_c()
         .await
         .expect("failed to install CTRL+C signal handler");
-    tracker.close();
+
     token.cancel();
-    tracker.wait().await;
 }
 
 pub fn init(path: &Path) {

@@ -6,6 +6,16 @@ pub struct Rating {
     pub sigma: f64,
 }
 
+impl Rating {
+    pub fn new(mu: f64, sigma: f64) -> Rating {
+        Self { mu, sigma }
+    }
+
+    pub fn score(&self) -> f64 {
+        self.mu - self.sigma * 3.0
+    }
+}
+
 impl Default for Rating {
     fn default() -> Self {
         Self {

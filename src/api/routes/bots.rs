@@ -1,29 +1,31 @@
 use crate::api::errors::ApiError;
 use crate::api::AppState;
-use crate::app::use_cases;
-use crate::domain::{Bot, BotId, BotStats, Build, BuildStatus};
+use crate::arena::{
+    ArenaCommand, BotMinimal, CreateBotCommand, CreateBotResult, DeleteBotCommand,
+    FetchBotsCommand, FetchLeaderboardCommand, FetchLeaderboardResult, LeaderboardBotOverview,
+    LeaderboardItem,
+};
+use crate::domain::{BotId, BotName, Language, SourceCode};
 use anyhow::anyhow;
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::{
     extract::State,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
 pub fn create_router() -> Router<AppState> {
     Router::new()
-        .route("/bots", get(fetch_bots))
         .route("/bots", post(create_bot))
-        .route("/bots/:id", patch(patch_bot))
+        .route("/bots", get(fetch_bots))
         .route("/bots/:id", delete(delete_bot))
-        .route("/bots/:id", get(fetch_bot))
-        .route("/bots/:id/builds", get(fetch_bot_builds))
-        .route("/bots/:id/stats", get(fetch_bot_stats))
+        .route("/bots/:id", get(fetch_bot_leaderboard))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -33,96 +35,89 @@ struct CreateBotRequest {
     pub language: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct PatchBotRequest {
+#[derive(Serialize)]
+struct BotMinimalResponse {
+    pub id: i64,
     pub name: String,
 }
 
 #[derive(Serialize)]
-struct BotResponse {
+struct FetchLeaderboardResponse {
+    pub bot_overview: LeaderboardBotOverviewResponse,
+    pub items: Vec<LeaderboardItemResponse>,
+}
+
+#[derive(Serialize)]
+struct LeaderboardBotOverviewResponse {
     pub id: i64,
     pub name: String,
     pub language: String,
-    pub created_at: DateTime<Utc>,
-}
-
-impl From<Bot> for BotResponse {
-    fn from(bot: Bot) -> Self {
-        Self {
-            id: bot.id.into(),
-            name: bot.name.into(),
-            language: bot.language.into(),
-            created_at: bot.created_at,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct BotStatsResponse {
-    pub matches_played: i64,
     pub rating_mu: f64,
     pub rating_sigma: f64,
-    pub matches_with_error: i64,
-}
-
-impl From<BotStats> for BotStatsResponse {
-    fn from(stats: BotStats) -> Self {
-        BotStatsResponse {
-            matches_played: stats.matches_played,
-            rating_mu: stats.rating.mu,
-            rating_sigma: stats.rating.sigma,
-            matches_with_error: stats.matches_with_error,
-        }
-    }
+    pub matches_played: usize,
+    pub matches_with_error: usize,
 }
 
 #[derive(Serialize)]
-struct BuildResponse {
-    worker_name: String,
-    status: String,
-    error: Option<String>,
+struct LeaderboardItemResponse {
+    pub id: i64,
+    pub rank: usize,
+    pub name: String,
+    pub rating_mu: f64,
+    pub rating_sigma: f64,
+    pub wins: usize,
+    pub loses: usize,
+    pub draws: usize,
+    pub created_at: String,
 }
 
-impl From<Build> for BuildResponse {
-    fn from(build: Build) -> Self {
-        Self {
-            worker_name: build.worker_name.into(),
-            status: match &build.status {
-                BuildStatus::Pending => "pending".to_string(),
-                BuildStatus::Running => "running".to_string(),
-                BuildStatus::Success => "success".to_string(),
-                BuildStatus::Failure(_) => "failure".to_string(),
-            },
-            error: if let BuildStatus::Failure(err) = build.status {
-                Some(err)
-            } else {
-                None
-            },
+impl From<BotMinimal> for BotMinimalResponse {
+    fn from(value: BotMinimal) -> Self {
+        BotMinimalResponse {
+            id: value.id.into(),
+            name: value.name.into(),
         }
     }
 }
 
-async fn fetch_bots(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let bots = app_state
-        .db
-        .fetch_bots()
-        .await
-        .into_iter()
-        .map(BotResponse::from)
-        .collect_vec();
-
-    Ok(Json(bots))
+impl From<LeaderboardItem> for LeaderboardItemResponse {
+    fn from(item: LeaderboardItem) -> Self {
+        LeaderboardItemResponse {
+            id: item.id.into(),
+            rank: item.rank,
+            name: item.name.into(),
+            rating_mu: item.rating.mu,
+            rating_sigma: item.rating.sigma,
+            wins: item.wins,
+            loses: item.loses,
+            draws: item.draws,
+            created_at: DateTime::<Local>::from(item.created_at)
+                .format("%d/%m/%Y %H:%M")
+                .to_string(),
+        }
+    }
 }
 
-impl TryFrom<CreateBotRequest> for use_cases::create_bot::Input {
-    type Error = anyhow::Error;
+impl From<LeaderboardBotOverview> for LeaderboardBotOverviewResponse {
+    fn from(v: LeaderboardBotOverview) -> Self {
+        LeaderboardBotOverviewResponse {
+            id: v.id.into(),
+            name: v.name.to_string(),
+            language: v.language.to_string(),
+            rating_mu: v.rating.mu,
+            rating_sigma: v.rating.sigma,
+            matches_played: v.matches_played,
+            matches_with_error: v.matches_with_error,
+        }
+    }
+}
 
-    fn try_from(req: CreateBotRequest) -> Result<Self, Self::Error> {
-        Ok(Self {
-            name: req.name.try_into()?,
-            source_code: req.source_code.try_into()?,
-            language: req.language.try_into()?,
-        })
+impl From<FetchLeaderboardResult> for FetchLeaderboardResponse {
+    fn from(value: FetchLeaderboardResult) -> Self {
+        FetchLeaderboardResponse {
+            bot_overview: value.bot_overview.into(),
+            items: value.items.into_iter().map(Into::into).collect(),
+        }
     }
 }
 
@@ -130,50 +125,39 @@ async fn create_bot(
     State(app_state): State<AppState>,
     Json(payload): Json<CreateBotRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use use_cases::create_bot::*;
-
-    let input = payload
+    let name: BotName = payload
+        .name
         .try_into()
-        .map_err(|err| ApiError::ValidationFailed(err))?;
+        .map_err(ApiError::ValidationFailed)?;
+    let source_code: SourceCode = payload
+        .source_code
+        .try_into()
+        .map_err(ApiError::ValidationFailed)?;
+    let language: Language = payload
+        .language
+        .try_into()
+        .map_err(ApiError::ValidationFailed)?;
 
-    let bot_id = match execute(input, app_state.db.clone(), app_state.wm.clone()).await {
-        Output::Created(id) => id,
-        Output::AlreadyExists => return Err(ApiError::AlreadyExists),
+    let (tx, rx) = oneshot::channel();
+
+    let command = CreateBotCommand {
+        name,
+        source_code,
+        language,
+        response: tx,
     };
 
-    let bot = app_state
-        .db
-        .fetch_bot(bot_id)
+    app_state
+        .arena_tx
+        .send(ArenaCommand::CreateBot(command))
         .await
-        .ok_or(anyhow!("Failed to fetch bot after creation"))?;
+        .map_err(|e| anyhow!(e))?;
 
-    Ok(Json(BotResponse::from(bot)))
-}
+    let res = rx.await.map_err(|e| anyhow!(e))?;
 
-impl TryFrom<(i64, PatchBotRequest)> for use_cases::rename_bot::Input {
-    type Error = anyhow::Error;
-
-    fn try_from((id, req): (i64, PatchBotRequest)) -> Result<Self, Self::Error> {
-        Ok(Self {
-            bot_id: id.into(),
-            new_name: req.name.try_into()?,
-        })
-    }
-}
-
-async fn patch_bot(
-    State(app_state): State<AppState>,
-    Path(id): Path<i64>,
-    Json(payload): Json<PatchBotRequest>,
-) -> Result<impl IntoResponse, ApiError> {
-    use use_cases::rename_bot::*;
-
-    let input = Input::try_from((id, payload)).map_err(|err| ApiError::ValidationFailed(err))?;
-
-    match execute(input, app_state.db.clone()).await {
-        Output::Ok => Ok(StatusCode::OK),
-        Output::NotFound => Err(ApiError::NotFound),
-        Output::AlreadyExists => Err(ApiError::AlreadyExists),
+    match res {
+        CreateBotResult::Created(bot_id) => Ok(Json(i64::from(bot_id))),
+        CreateBotResult::DuplicateName => Err(ApiError::AlreadyExists),
     }
 }
 
@@ -181,58 +165,55 @@ async fn delete_bot(
     State(app_state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    use use_cases::delete_bot::*;
     let bot_id: BotId = id.into();
-    match execute(bot_id, app_state.db).await {
-        Output::Deleted => Ok(StatusCode::OK),
-        Output::NotFound => Err(ApiError::NotFound),
-    }
-}
 
-async fn fetch_bot_builds(
-    State(app_state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, ApiError> {
-    let builds = app_state
-        .db
-        .fetch_bot_builds(id.into())
+    let command = DeleteBotCommand { id: bot_id };
+    app_state
+        .arena_tx
+        .send(ArenaCommand::DeleteBot(command))
         .await
-        .into_iter()
-        .map(BuildResponse::from)
-        .collect_vec();
-    Ok(Json(builds))
+        .map_err(|e| anyhow!(e))?;
+    Ok(StatusCode::OK)
 }
 
-async fn fetch_bot_stats(
+async fn fetch_bot_leaderboard(
     State(app_state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let builds = app_state
-        .db
-        .fetch_bot_stats(id.into())
+    let (tx, rx) = oneshot::channel();
+    let command = FetchLeaderboardCommand {
+        bot_id: id.into(),
+        response: tx,
+    };
+
+    app_state
+        .arena_tx
+        .send(ArenaCommand::FetchLeaderboard(command))
         .await
-        .into_iter()
-        .map(BotStatsResponse::from)
-        .collect_vec();
-    Ok(Json(builds))
+        .map_err(|e| anyhow!(e))?;
+
+    let res = rx.await.map_err(|e| anyhow!(e))?;
+
+    let Some(res) = res else {
+        return Err(ApiError::NotFound);
+    };
+
+    Ok(Json(FetchLeaderboardResponse::from(res)))
 }
 
-async fn fetch_bot(
-    State(app_state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, ApiError> {
-    match app_state.db.fetch_bot(id.into()).await {
-        Some(bot) => Ok(Json(BotResponse::from(bot))),
-        None => Err(ApiError::NotFound),
-    }
-}
+async fn fetch_bots(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let (tx, rx) = oneshot::channel();
+    let command = FetchBotsCommand { response: tx };
 
-// impl From<DBError> for ApiError {
-//     fn from(value: DBError) -> Self {
-//         match value {
-//             DBError::AlreadyExists => ApiError::AlreadyExists,
-//             DBError::NotFound => ApiError::NotFound,
-//             DBError::Unexpected(e) => ApiError::Internal(e),
-//         }
-//     }
-// }
+    app_state
+        .arena_tx
+        .send(ArenaCommand::FetchBots(command))
+        .await
+        .map_err(|e| anyhow!(e))?;
+
+    let res = rx.await.map_err(|e| anyhow!(e))?;
+
+    Ok(Json(
+        res.into_iter().map(BotMinimalResponse::from).collect_vec(),
+    ))
+}
