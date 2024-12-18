@@ -7,7 +7,10 @@ pub struct Config {
     pub game: GameConfig,
     pub matchmaking: MatchmakingConfig,
     pub ranking: RankingConfig,
+    #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
+    pub log: LogConfig,
     pub workers: Vec<WorkerConfig>,
 }
 
@@ -46,16 +49,18 @@ pub struct EmbeddedWorkerConfig {
     pub cmd_run: String,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct LanguageConfig {
-    pub name: String,
-    pub cmd_build: String,
-    pub cmd_run: String,
+#[derive(Serialize, Deserialize, Default)]
+pub struct ServerConfig {
+    #[serde(default)]
+    pub port: u16,
+    #[serde(default)]
+    pub expose: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ServerConfig {
-    pub port: u16,
+#[derive(Serialize, Deserialize, Default)]
+pub struct LogConfig {
+    pub level: Option<String>,
+    pub file: Option<String>,
 }
 
 impl Config {

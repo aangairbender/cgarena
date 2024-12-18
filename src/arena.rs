@@ -1,19 +1,20 @@
-use crate::config::Config;
+use crate::config::{GameConfig, MatchmakingConfig};
 use crate::db::Database;
 use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceCode, WorkerName};
 use crate::embedded_worker::{BuildBotInput, EmbeddedWorker, PlayMatchBot, PlayMatchInput};
-use crate::ranking;
+use crate::ranking::Ranker;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{instrument, warn};
 
 pub enum ArenaCommand {
     CreateBot(CreateBotCommand),
@@ -39,7 +40,7 @@ pub struct CreateBotCommand {
 }
 
 pub enum CreateBotResult {
-    Created(BotId),
+    Created(BotMinimal),
     DuplicateName,
 }
 
@@ -78,13 +79,15 @@ pub struct LeaderboardItem {
 }
 
 pub async fn run(
-    config: Config,
+    game_config: GameConfig,
+    matchmaking_config: MatchmakingConfig,
+    ranker: Ranker,
     db: Database,
     worker: EmbeddedWorker,
     mut commands_rx: Receiver<ArenaCommand>,
     cancellation_token: CancellationToken,
 ) {
-    let mut arena = Arena::new(config, db, worker);
+    let mut arena = Arena::new(game_config, matchmaking_config, ranker, db, worker);
 
     arena.load_from_db().await;
     arena.reset_stale_builds().await;
@@ -99,7 +102,9 @@ pub async fn run(
         // 1. handle commands
         let disconnected = loop {
             match commands_rx.try_recv() {
-                Ok(cmd) => arena.handle_command(cmd).await,
+                Ok(cmd) => {
+                    arena.handle_command(cmd).await;
+                }
                 Err(TryRecvError::Empty) => break false,
                 Err(TryRecvError::Disconnected) => break true,
             }
@@ -108,21 +113,17 @@ pub async fn run(
             break;
         }
 
-        // 2. run builds
-        arena.run_builds().await;
+        // time to let api return responses to clients
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // 4. perform matchmaking
-        arena.perform_matchmaking();
-
-        // 5. process finished matches
-        arena.process_finished_matches().await;
-
-        // 7. (future) update views
+        arena.do_chores().await;
     }
 }
 
 struct Arena {
-    config: Config,
+    game_config: GameConfig,
+    matchmaking_config: MatchmakingConfig,
+    ranker: Ranker,
     db: Database,
     bots: Vec<Bot>,
     matches: Vec<Match>,
@@ -133,9 +134,17 @@ struct Arena {
 }
 
 impl Arena {
-    pub fn new(config: Config, db: Database, worker: EmbeddedWorker) -> Self {
+    pub fn new(
+        game_config: GameConfig,
+        matchmaking_config: MatchmakingConfig,
+        ranker: Ranker,
+        db: Database,
+        worker: EmbeddedWorker,
+    ) -> Self {
         Self {
-            config,
+            game_config,
+            matchmaking_config,
+            ranker,
             db,
             worker,
             bots: Default::default(),
@@ -146,6 +155,21 @@ impl Arena {
         }
     }
 
+    #[instrument(skip(self), level = "debug")]
+    pub async fn do_chores(&mut self) {
+        // 2. run builds
+        self.run_builds().await;
+
+        // 4. perform matchmaking
+        self.perform_matchmaking();
+
+        // 5. process finished matches
+        self.process_finished_matches().await;
+
+        // 7. (future) update views
+    }
+
+    #[instrument(skip(self))]
     pub async fn load_from_db(&mut self) {
         self.bots = self.db.fetch_bots().await;
         self.matches = self.db.fetch_matches().await;
@@ -172,6 +196,7 @@ impl Arena {
         }
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub async fn run_builds(&mut self) {
         let mut inputs = Vec::new();
         for bot in &mut self.bots {
@@ -222,106 +247,146 @@ impl Arena {
         }
     }
 
+    #[instrument(skip(self, source_code))]
+    async fn cmd_create_bot(
+        &mut self,
+        name: BotName,
+        source_code: SourceCode,
+        language: Language,
+    ) -> CreateBotResult {
+        if self.bots.iter().any(|b| b.name == name) {
+            return CreateBotResult::DuplicateName;
+        }
+        let mut bot = Bot::new(name, source_code, language);
+        self.db.persist_bot(&mut bot).await;
+        let bot_minimal = BotMinimal {
+            id: bot.id,
+            name: bot.name.clone(),
+        };
+        self.bots.push(bot);
+        CreateBotResult::Created(bot_minimal)
+    }
+
+    #[instrument(skip(self))]
+    async fn cmd_delete_bot(&mut self, id: BotId) {
+        // matches should be automatically deleted by foreign link constraint
+        // builds should be automatically deleted by foreign link constraint
+        self.db.delete_bot(id).await;
+        self.bots.retain(|bot| bot.id != id);
+        self.matches
+            .retain(|m| !m.participants.iter().any(|p| p.bot_id == id));
+        self.builds.retain(|b| b.bot_id != id);
+        self.recalculate_computed_full();
+    }
+
+    #[instrument(skip(self))]
+    async fn cmd_fetch_bots(&mut self) -> Vec<BotMinimal> {
+        let mut bots = self
+            .bots
+            .iter()
+            .map(|b| BotMinimal {
+                id: b.id,
+                name: b.name.clone(),
+            })
+            .collect_vec();
+        // sort+rev so that bot with the biggest id is first in the list
+        bots.sort_by_key::<i64, _>(|b| b.id.into());
+        bots.reverse();
+        bots
+    }
+
+    #[instrument(skip(self))]
+    async fn cmd_fetch_leaderboard(&mut self, target_id: BotId) -> Option<FetchLeaderboardResult> {
+        let target = self.bots.iter().find(|b| b.id == target_id)?;
+
+        let bot_overview = LeaderboardBotOverview {
+            id: target.id,
+            name: target.name.clone(),
+            language: target.language.clone(),
+            rating: self.rating(target.id),
+            matches_played: self.matches_played(target.id),
+            matches_with_error: self.matches_with_error(target.id),
+        };
+
+        let mut items = Vec::with_capacity(self.bots.len());
+        for bot in &self.bots {
+            let rating = self.rating(bot.id);
+            let stronger_bots_cnt = self
+                .bots
+                .iter()
+                .filter(|b| rating.score() < self.rating(b.id).score())
+                .count();
+
+            let mut wins = 0;
+            let mut loses = 0;
+            let mut draws = 0;
+
+            if target_id != bot.id {
+                for m in &self.matches {
+                    let Some(p_target) = m.participants.iter().find(|p| p.bot_id == target_id)
+                    else {
+                        continue;
+                    };
+                    let Some(p_current) = m.participants.iter().find(|p| p.bot_id == bot.id) else {
+                        continue;
+                    };
+
+                    match p_target.rank.cmp(&p_current.rank) {
+                        Ordering::Less => wins += 1,
+                        Ordering::Equal => draws += 1,
+                        Ordering::Greater => loses += 1,
+                    }
+                }
+            }
+
+            let item = LeaderboardItem {
+                id: bot.id,
+                rank: 1 + stronger_bots_cnt,
+                name: bot.name.clone(),
+                rating,
+                wins,
+                loses,
+                draws,
+                created_at: bot.created_at,
+            };
+            items.push(item);
+        }
+        items.sort_by_key(|i| i.rank);
+        Some(FetchLeaderboardResult {
+            bot_overview,
+            items,
+        })
+    }
+
     pub async fn handle_command(&mut self, command: ArenaCommand) {
         match command {
             ArenaCommand::CreateBot(command) => {
-                let mut bot = Bot::new(command.name, command.source_code, command.language);
-                self.db.persist_bot(&mut bot).await;
-                self.bots.push(bot);
+                let res = self
+                    .cmd_create_bot(command.name, command.source_code, command.language)
+                    .await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
             }
             ArenaCommand::DeleteBot(command) => {
-                // matches should be automatically deleted by foreign link constraint
-                // builds should be automatically deleted by foreign link constraint
-                self.db.delete_bot(command.id).await;
-                self.bots.retain(|bot| bot.id != command.id);
-                self.matches
-                    .retain(|m| !m.participants.iter().any(|p| p.bot_id == command.id));
-                self.builds.retain(|b| b.bot_id != command.id);
-                self.recalculate_computed_full();
+                self.cmd_delete_bot(command.id).await;
             }
             ArenaCommand::FetchBots(command) => {
-                let res = self
-                    .bots
-                    .iter()
-                    .map(|b| BotMinimal {
-                        id: b.id,
-                        name: b.name.clone(),
-                    })
-                    .collect_vec();
-                let _ = command.response.send(res);
+                let res = self.cmd_fetch_bots().await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
             }
             ArenaCommand::FetchLeaderboard(command) => {
-                let target_id = command.bot_id;
-                let Some(target) = self.bots.iter().find(|b| b.id == target_id) else {
-                    let _ = command.response.send(None);
-                    return;
-                };
-
-                let bot_overview = LeaderboardBotOverview {
-                    id: target.id,
-                    name: target.name.clone(),
-                    language: target.language.clone(),
-                    rating: self.computed_stats.rating(target.id),
-                    matches_played: self.computed_stats.matches_played(target.id),
-                    matches_with_error: self.computed_stats.matches_with_error(target.id),
-                };
-
-                let mut items = Vec::with_capacity(self.bots.len());
-                for bot in &self.bots {
-                    let rating = self.computed_stats.rating(bot.id);
-                    let stronger_bots_cnt = self
-                        .bots
-                        .iter()
-                        .filter(|b| rating.score() < self.computed_stats.rating(b.id).score())
-                        .count();
-
-                    let mut wins = 0;
-                    let mut loses = 0;
-                    let mut draws = 0;
-
-                    if target_id != bot.id {
-                        for m in &self.matches {
-                            let Some(p_target) =
-                                m.participants.iter().find(|p| p.bot_id == target_id)
-                            else {
-                                continue;
-                            };
-                            let Some(p_current) =
-                                m.participants.iter().find(|p| p.bot_id == bot.id)
-                            else {
-                                continue;
-                            };
-
-                            match p_target.rank.cmp(&p_current.rank) {
-                                Ordering::Less => wins += 1,
-                                Ordering::Equal => draws += 1,
-                                Ordering::Greater => loses += 1,
-                            }
-                        }
-                    }
-
-                    let item = LeaderboardItem {
-                        id: bot.id,
-                        rank: 1 + stronger_bots_cnt,
-                        name: bot.name.clone(),
-                        rating,
-                        wins,
-                        loses,
-                        draws,
-                        created_at: bot.created_at,
-                    };
-                    items.push(item);
+                let res = self.cmd_fetch_leaderboard(command.bot_id).await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
                 }
-                items.sort_by_key(|i| i.rank);
-                let res = FetchLeaderboardResult {
-                    bot_overview,
-                    items,
-                };
-                let _ = command.response.send(Some(res));
             }
         }
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub fn perform_matchmaking(&mut self) {
         let mm_match_queue_size_threshold = self.worker.config.threads as usize * 2;
 
@@ -337,11 +402,15 @@ impl Arena {
                 Ok(permit) => {
                     permit.send(input);
                 }
-                Err(_) => self.match_queue.push_front(input),
+                Err(_) => {
+                    self.match_queue.push_front(input);
+                    break;
+                }
             }
         }
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub async fn process_finished_matches(&mut self) {
         while let Ok(output) = self.worker.match_result_rx.try_recv() {
             let mut new_match = Match::new(output.seed, output.participants);
@@ -349,7 +418,7 @@ impl Arena {
             self.matches.push(new_match);
 
             self.computed_stats
-                .recalc_after_matches(&self.config, self.matches.last().into_iter());
+                .recalc_after_matches(&self.ranker, self.matches.last().into_iter());
         }
     }
 
@@ -379,20 +448,18 @@ impl Arena {
             .filter(|id| self.is_bot_ready_for_playing(*id))
             .collect_vec();
 
-        if bot_ids.len() < self.config.game.min_players as usize {
+        if bot_ids.len() < self.game_config.min_players as usize {
             return None;
         }
 
         let bot_ids_min_matches = bot_ids
             .iter()
             .copied()
-            .filter(|id| {
-                self.computed_stats.matches_played(*id) < self.config.matchmaking.min_matches as _
-            })
+            .filter(|id| self.matches_played(*id) < self.matchmaking_config.min_matches as _)
             .collect::<Vec<_>>();
 
         let first_bot_id = if !bot_ids_min_matches.is_empty()
-            && rng.gen::<f64>() < self.config.matchmaking.min_matches_preference
+            && rng.gen::<f64>() < self.matchmaking_config.min_matches_preference
         {
             bot_ids_min_matches[rng.gen_range(0..bot_ids_min_matches.len())]
         } else {
@@ -400,7 +467,7 @@ impl Arena {
         };
 
         let n_players =
-            rng.gen_range(self.config.game.min_players..=self.config.game.max_players) as usize;
+            rng.gen_range(self.game_config.min_players..=self.game_config.max_players) as usize;
         let mut players = Vec::with_capacity(n_players);
         players.push(first_bot_id);
         while players.len() < n_players {
@@ -431,7 +498,7 @@ impl Arena {
                 .collect(),
         };
 
-        let res = if self.config.game.symmetric {
+        let res = if self.game_config.symmetric {
             vec![scheduled_match]
         } else {
             let n = scheduled_match.bots.len();
@@ -448,10 +515,35 @@ impl Arena {
         Some(res)
     }
 
+    #[instrument(skip(self))]
     fn recalculate_computed_full(&mut self) {
         self.computed_stats.clear();
         self.computed_stats
-            .recalc_after_matches(&self.config, self.matches.iter());
+            .recalc_after_matches(&self.ranker, self.matches.iter());
+    }
+
+    fn rating(&self, id: BotId) -> Rating {
+        self.computed_stats
+            .ratings
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.ranker.default_rating())
+    }
+
+    fn matches_played(&self, id: BotId) -> usize {
+        self.computed_stats
+            .matches_played
+            .get(&id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn matches_with_error(&self, id: BotId) -> usize {
+        self.computed_stats
+            .matches_with_error
+            .get(&id)
+            .copied()
+            .unwrap_or_default()
     }
 }
 
@@ -469,11 +561,11 @@ impl ComputedStats {
 
     pub fn recalc_after_matches<'a>(
         &mut self,
-        config: &Config,
+        ranker: &Ranker,
         matches: impl Iterator<Item = &'a Match> + Clone,
     ) {
         // rating
-        ranking::recalc_rating(&config.ranking, &mut self.ratings, matches.clone());
+        ranker.recalc_rating(&mut self.ratings, matches.clone());
 
         // matches_played and matches_with_error
         for m in matches.clone() {
@@ -491,20 +583,5 @@ impl ComputedStats {
                 }
             }
         }
-    }
-
-    pub fn rating(&self, id: BotId) -> Rating {
-        self.ratings.get(&id).cloned().unwrap_or_default()
-    }
-
-    pub fn matches_played(&self, id: BotId) -> usize {
-        self.matches_played.get(&id).copied().unwrap_or_default()
-    }
-
-    pub fn matches_with_error(&self, id: BotId) -> usize {
-        self.matches_with_error
-            .get(&id)
-            .copied()
-            .unwrap_or_default()
     }
 }

@@ -15,12 +15,3 @@ impl Rating {
         self.mu - self.sigma * 3.0
     }
 }
-
-impl Default for Rating {
-    fn default() -> Self {
-        Self {
-            mu: 25.0,
-            sigma: 25.0 / 3.0,
-        }
-    }
-}

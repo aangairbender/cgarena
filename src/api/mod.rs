@@ -1,32 +1,28 @@
 mod errors;
 mod routes;
+mod web_router;
 
+use crate::api::web_router::create_web_router;
 use crate::arena::ArenaCommand;
 use axum::Router;
-use std::net::SocketAddr;
+use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 pub async fn start(
-    port: u16,
+    listener: TcpListener,
     arena_tx: Sender<ArenaCommand>,
     cancellation_token: CancellationToken,
 ) {
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-
     let app_state = AppState { arena_tx };
-
     let router = create_router(app_state).await;
-
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .expect("Cannot bind tcp listener to the target address");
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(async move { cancellation_token.cancelled().await });
 
-    info!("Arena API server started at {}", addr);
+    info!("Arena API server started");
     if let Err(e) = server.await {
         error!("API Server error: {}", e);
     }
@@ -38,12 +34,10 @@ async fn create_router(app_state: AppState) -> Router {
         .merge(routes::bots::create_router())
         .with_state(app_state);
 
-    Router::new()
+    create_web_router()
         .nest("/api", api_router)
-        // .fallback(get_service(ServeFile::new("./web-ui/build/index.html")).handle_error(|_| async move {
-        //     (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
-        // }));
         .layer(CorsLayer::permissive())
+        .layer(TraceLayer::new_for_http())
 }
 
 #[derive(Clone)]

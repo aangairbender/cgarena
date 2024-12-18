@@ -42,7 +42,7 @@ impl EmbeddedWorker {
     }
 
     pub async fn build_bot(&self, input: BuildBotInput) -> BuildBotOutput {
-        let bot_id = input.bot_id.clone();
+        let bot_id = input.bot_id;
         let worker_name = input.worker_name.clone();
 
         let result = build_bot(self.worker_path.clone(), Arc::clone(&self.config), input).await;

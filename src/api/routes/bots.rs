@@ -156,7 +156,7 @@ async fn create_bot(
     let res = rx.await.map_err(|e| anyhow!(e))?;
 
     match res {
-        CreateBotResult::Created(bot_id) => Ok(Json(i64::from(bot_id))),
+        CreateBotResult::Created(bot_minimal) => Ok(Json(BotMinimalResponse::from(bot_minimal))),
         CreateBotResult::DuplicateName => Err(ApiError::AlreadyExists),
     }
 }
