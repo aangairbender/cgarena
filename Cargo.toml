@@ -7,6 +7,7 @@ repository = "https://github.com/aangairbender/cgarena"
 license = "MIT"
 keywords = ["codingame"]
 description = "Local bot arena with matchmaking, rating calculation and web ui."
+include = ["/assets", "/cg-arena-ui/dist", "/migrations", "/src"]
 
 [dependencies]
 tokio = { version = "1.28.1", features = ["full"] }
