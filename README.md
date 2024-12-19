@@ -104,3 +104,15 @@ For languages which need project folder (e.g. Rust) you build bot the following 
 - inside `build.sh` copy `source.txt` to that project folder (e.g. `main.rs` for Rust)
 - build the project
 - copy the executable from the project build to the bot directory
+
+## Building from source
+
+To build CG Arena from source code run the following (make sure `cargo` is installed):
+
+```shell
+git clone https://github.com/aangairbender/cgarena.git
+cd cgarena
+cargo build --release
+```
+
+You can find executable in `/target/release` folder.
