@@ -31,7 +31,10 @@ file = "cgarena.log"
 # list of the arena workers, currently only list with single "embedded" worker is supported
 # use 'type' = "embedded" for worker embedded into arena
 # 'threads' controls how many games can be run in parallel
-# 'cmd_play_match' is a command to run single match
+# 'cmd_play_match' is a command to run single match, should print JSON to stdout in the following format:
+#   { "ranks" [..], "errors": [..] }
+#   where "ranks" - list of numbers where i-th number is i-th match participant final placement (e.g. 1 for winner). Duplicates are allowed in case of draw.
+#   where "errors" - list of numbers where i-th number is 1 if i-th match participant failed during match or 0 otherwise
 # 'cmd_build' is a command to build a bot
 # 'cmd_run' is a command to run bot
 # the above commands will have the following replacements applied:
