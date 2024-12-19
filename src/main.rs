@@ -7,7 +7,7 @@ mod domain;
 mod embedded_worker;
 mod ranking;
 
-use clap::{command, Parser, Subcommand, ValueEnum};
+use clap::{command, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -20,51 +20,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize a new server or worker
-    Init {
-        target: Target,
-        path: Option<String>,
-    },
-    /// Run server or worker
-    Run {
-        target: Target,
-        path: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum BotCommands {
-    Add {
-        #[arg(help = "Name of the bot, must be unique")]
-        name: String,
-        #[arg(short, long, help = "Path to the bot's source file")]
-        src: String,
-        #[arg(short, long, help = "Bot's language")]
-        lang: String,
-    },
-}
-
-#[derive(Copy, Clone, ValueEnum)]
-enum Target {
-    Server,
-    // Worker,
+    /// Initialize a new server
+    Init { path: Option<String> },
+    /// Run server
+    Run { path: Option<String> },
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Init { path, target } => {
+        Commands::Init { path } => {
             let path = unwrap_or_current_dir(path);
-            match target {
-                Target::Server => arena_server::init(&path),
-            };
+            arena_server::init(&path);
         }
-        Commands::Run { path, target } => {
+        Commands::Run { path } => {
             let path = unwrap_or_current_dir(path);
-            match target {
-                Target::Server => arena_server::start(&path).await,
-            }
+            arena_server::start(&path).await;
         }
     }
 }
