@@ -184,7 +184,9 @@ async fn create_bot(
 
     match res {
         CreateBotResult::Created(bot_minimal) => Ok(Json(BotMinimalResponse::from(bot_minimal))),
-        CreateBotResult::DuplicateName => Err(ApiError::AlreadyExists),
+        CreateBotResult::DuplicateName => Err(ApiError::Conflict(anyhow!(
+            "Bot with the same name already exists"
+        ))),
     }
 }
 

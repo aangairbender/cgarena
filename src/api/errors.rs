@@ -11,8 +11,8 @@ pub enum ApiError {
     #[error("Validation failed: {0}")]
     ValidationFailed(anyhow::Error),
 
-    #[error("Already exists")]
-    AlreadyExists,
+    #[error("Conflict: {0}")]
+    Conflict(anyhow::Error),
 
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -23,7 +23,7 @@ impl ApiError {
         match self {
             ApiError::NotFound => StatusCode::NOT_FOUND,
             ApiError::ValidationFailed(_) => StatusCode::BAD_REQUEST,
-            ApiError::AlreadyExists => StatusCode::CONFLICT,
+            ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -32,7 +32,7 @@ impl ApiError {
         match self {
             ApiError::NotFound => "not_found",
             ApiError::ValidationFailed(_) => "validation_failed",
-            ApiError::AlreadyExists => "already_exists",
+            ApiError::Conflict(_) => "already_exists",
             ApiError::Internal(_) => "internal_error",
         }
     }

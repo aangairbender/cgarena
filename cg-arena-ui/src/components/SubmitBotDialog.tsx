@@ -13,6 +13,8 @@ const SubmitBotDialog = (dialog: DialogProps<Data>) => {
   const [sourceCode, setSourceCode] = useState("");
   const [error, setError] = useState("");
 
+  const canSubmit = name.length > 0 && sourceCode.length > 0 && language.length > 0;
+
   const closeDialog = () => {
     setName("");
     setLanguage("");
@@ -32,7 +34,7 @@ const SubmitBotDialog = (dialog: DialogProps<Data>) => {
       closeDialog();
     } catch (e) {
       if (e instanceof Error) {
-        setError(e.toString());
+        setError(e.message);
       } else {
         setError(String(e));
       }
@@ -95,7 +97,7 @@ const SubmitBotDialog = (dialog: DialogProps<Data>) => {
         <Button variant="secondary" onClick={closeDialog}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleSubmit}>
+        <Button variant="primary" onClick={handleSubmit} disabled={!canSubmit}>
           Submit
         </Button>
       </Modal.Footer>
