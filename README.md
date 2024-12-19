@@ -15,6 +15,13 @@ Local bot arena similar to CodinGame.
 
 ## Installation
 
+You would need `cargo` installed ([here](https://doc.rust-lang.org/cargo/getting-started/installation.html) is how to
+install it).
+
+```shell
+cargo install cgarena
+```
+
 ## Usage
 
 1. To create a new arena in the current folder run:
