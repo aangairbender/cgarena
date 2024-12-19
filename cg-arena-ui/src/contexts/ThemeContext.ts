@@ -5,8 +5,8 @@ export type Theme = "light" | "dark";
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 interface ThemeContextType {
-  theme: Theme,
-  toggleTheme: () => void,
+  theme: Theme;
+  toggleTheme: () => void;
 }
 
 export default ThemeContext;

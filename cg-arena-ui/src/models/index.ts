@@ -22,6 +22,7 @@ export interface LeaderboardBotOverviewResponse {
   rating_sigma: number;
   matches_played: number;
   matches_with_error: number;
+  builds: BuildResponse[];
 }
 
 export interface LeaderboardItemResponse {
@@ -34,6 +35,12 @@ export interface LeaderboardItemResponse {
   loses: number;
   draws: number;
   created_at: string;
+}
+
+export interface BuildResponse {
+  worker_name: string;
+  status: string;
+  stderr?: string;
 }
 
 export function rating_score(item: {

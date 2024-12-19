@@ -5,7 +5,7 @@ use crate::arena::{
     FetchBotsCommand, FetchLeaderboardCommand, FetchLeaderboardResult, LeaderboardBotOverview,
     LeaderboardItem,
 };
-use crate::domain::{BotId, BotName, Language, SourceCode};
+use crate::domain::{BotId, BotName, Build, BuildResult, BuildStatus, Language, SourceCode};
 use anyhow::anyhow;
 use axum::extract::Path;
 use axum::http::StatusCode;
@@ -56,6 +56,14 @@ struct LeaderboardBotOverviewResponse {
     pub rating_sigma: f64,
     pub matches_played: usize,
     pub matches_with_error: usize,
+    pub builds: Vec<BuildResponse>,
+}
+
+#[derive(Serialize)]
+struct BuildResponse {
+    pub worker_name: String,
+    pub status: String,
+    pub stderr: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -108,6 +116,25 @@ impl From<LeaderboardBotOverview> for LeaderboardBotOverviewResponse {
             rating_sigma: v.rating.sigma,
             matches_played: v.matches_played,
             matches_with_error: v.matches_with_error,
+            builds: v.builds.into_iter().map(|b| b.into()).collect(),
+        }
+    }
+}
+
+impl From<Build> for BuildResponse {
+    fn from(b: Build) -> Self {
+        let (status, stderr) = match b.status {
+            BuildStatus::Pending => ("pending".to_string(), None),
+            BuildStatus::Running => ("running".to_string(), None),
+            BuildStatus::Finished(BuildResult::Success) => ("finished".to_string(), None),
+            BuildStatus::Finished(BuildResult::Failure { stderr }) => {
+                ("finished".to_string(), Some(stderr))
+            }
+        };
+        BuildResponse {
+            worker_name: b.worker_name.into(),
+            status,
+            stderr,
         }
     }
 }

@@ -65,6 +65,7 @@ pub struct LeaderboardBotOverview {
     pub rating: Rating,
     pub matches_played: usize,
     pub matches_with_error: usize,
+    pub builds: Vec<Build>,
 }
 
 pub struct LeaderboardItem {
@@ -306,6 +307,12 @@ impl Arena {
             rating: self.rating(target.id),
             matches_played: self.matches_played(target.id),
             matches_with_error: self.matches_with_error(target.id),
+            builds: self
+                .builds
+                .iter()
+                .filter(|b| b.bot_id == target_id)
+                .cloned()
+                .collect(),
         };
 
         let mut items = Vec::with_capacity(self.bots.len());

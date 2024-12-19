@@ -1,5 +1,6 @@
 use crate::domain::{BotId, BuildResult, BuildStatus, WorkerName};
 
+#[derive(Clone)]
 pub struct Build {
     pub bot_id: BotId,
     pub worker_name: WorkerName,

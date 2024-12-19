@@ -24,7 +24,7 @@ const AppNavbar: React.FC<AppNavbarProps> = ({
 
   useEffect(() => {
     if (!autoRefresh) return;
-    
+
     const interval = setInterval(refreshLeaderboard, 3000); // in ms
     return () => clearInterval(interval);
   }, [refreshLeaderboard, autoRefresh]);

@@ -6,6 +6,6 @@ export const useTheme = () => {
   if (!ctx) {
     throw new Error("ThemeProvider is not found");
   }
-  
+
   return ctx;
 };
