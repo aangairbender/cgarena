@@ -82,7 +82,7 @@ const WinrateCell = ({ item }: WinrateCellProps) => {
 
   const wr = Number(
     (
-      (100 * (item.wins + item.draws)) /
+      (100 * (item.wins + item.draws * 0.5)) /
       (item.wins + item.loses + item.draws)
     ).toFixed()
   );
