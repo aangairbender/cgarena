@@ -9,6 +9,8 @@ pub fn create_web_router() -> Router {
         .route("/", get(index_handler))
         .route("/index.html", get(index_handler))
         .route("/assets/*file", get(static_handler))
+        .route("/favicon-16x16.png", get(static_handler))
+        .route("/favicon-32x32.png", get(static_handler))
         .fallback_service(get(not_found))
 }
 
