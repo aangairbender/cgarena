@@ -1,34 +1,50 @@
 [game]
+# Games with up to 8 players are supported
 min_players = 2
 max_players = 2
-# Whether the map is symmetric for all the players. If set to false extra mirror matches would be played.
+# Whether the map is symmetric for all the players.
+# if 'symmetric' = true CG Arena will play 1 match per seed.
+# if 'symmetric' = false CG Arena will play n! matches per seed, where n is the amount of players.
 symmetric = true
 
+# matchmaking prioritizes bots which played less than 'min_matches' matches with probability 'min_matches_preference'
+# otherwise matchmaking picks bots randomly
+# note: matches would always have distinct bots
 [matchmaking]
 min_matches = 200
 min_matches_preference = 1.0
 
+# supported algorithms: ["OpenSkill"]
 [ranking]
 algorithm = "OpenSkill"
 
+# 'port' controls web server port. If 'port' is ommitted then OS assigns some available port
+# 'expose' controls whether to expose web server to the local network
 [server]
-port = 1234
-expose = true
+# port = 1234
+expose = false
 
 [log]
-level = "DEBUG"
+level = "INFO"
 file = "cgarena.log"
 
+# list of the arena workers, currently only list with single "embedded" worker is supported
+# use 'type' = "embedded" for worker embedded into arena
+# 'threads' controls how many games can be run in parallel
+# 'cmd_play_match' is a command to run single match
+# 'cmd_build' is a command to build a bot
+# 'cmd_run' is a command to run bot
+# the above commands will have the following replacements applied:
+# - {SEED} would be replaced with match seed
+# - {P1}, {P2}, etc. would be replaced with 'cmd_run' configured for match participant 1, 2, etc.
+# - {PLAYERS} would be replaced with concatenated version of the above. Please use this when game can have varying player counts.
+# - {DIR} would be replaced with target bot's directory
+# - {LANG} would be replaced with target bot's language
+# 'cmd_build' should assume bot folder {DIR} contains "source.txt" file with the bot's source code
+# 'cmd_build' should output bot's executable to the same folder
 [[workers]]
 type = "embedded"
 threads = 1
 cmd_play_match = "python play_game.py {SEED} {P1} {P2}"
-# command should assume bot folder {DIR} contains "source.txt" file with the source code
-# command should output executable to the same folder
 cmd_build = "sh build.sh {DIR} {LANG}"
 cmd_run = "sh run.sh {DIR} {LANG}"
-
-# [[workers]]
-# type = "remote"
-# url = "http://192.168.0.12:2221"
-# key = "secret"

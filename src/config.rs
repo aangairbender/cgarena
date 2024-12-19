@@ -1,6 +1,6 @@
-use std::{fs::OpenOptions, io::Write, path::Path};
-
+use anyhow::bail;
 use serde::{Deserialize, Serialize};
+use std::{fs::OpenOptions, io::Write, path::Path};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -67,8 +67,21 @@ impl Config {
     pub fn load(arena_path: &Path) -> Result<Config, anyhow::Error> {
         let path = arena_path.join(CONFIG_FILE_NAME);
         let config_content = std::fs::read_to_string(path)?;
-        let config = toml::from_str(&config_content)?;
+        let config: Config = toml::from_str(&config_content)?;
         Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<(), anyhow::Error> {
+        if self.game.max_players > 8 {
+            bail!("Games with up to 8 players are supported");
+        }
+        if self.game.min_players > self.game.max_players {
+            bail!("game.max_players must be not less than game.min_players");
+        }
+        if !(0.0..=1.0).contains(&self.matchmaking.min_matches_preference) {
+            bail!("matchmaking.min_matches_preference should be in 0..1 range");
+        }
+        Ok(())
     }
 
     pub fn create_default(arena_path: &Path) {

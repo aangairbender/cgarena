@@ -14,6 +14,11 @@ use tracing_subscriber::fmt::format::FmtSpan;
 pub async fn start(arena_path: &Path) {
     let config = Config::load(arena_path).expect("Cannot load arena config");
 
+    if let Err(e) = config.validate() {
+        eprintln!("Invalid config: {e}");
+        return;
+    }
+
     let log_file = OpenOptions::new()
         .append(true)
         .create(true)
