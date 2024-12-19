@@ -19,12 +19,25 @@ use tracing::{instrument, warn};
 pub enum ArenaCommand {
     CreateBot(CreateBotCommand),
     DeleteBot(DeleteBotCommand),
+    RenameBot(RenameBotCommand),
     FetchLeaderboard(FetchLeaderboardCommand),
     FetchBots(FetchBotsCommand),
 }
 
 pub struct FetchBotsCommand {
     pub response: oneshot::Sender<Vec<BotMinimal>>,
+}
+
+pub struct RenameBotCommand {
+    pub id: BotId,
+    pub new_name: BotName,
+    pub response: oneshot::Sender<RenameBotResult>,
+}
+
+pub enum RenameBotResult {
+    Renamed(BotMinimal),
+    DuplicateName,
+    NotFound,
 }
 
 pub struct BotMinimal {
@@ -268,6 +281,25 @@ impl Arena {
         CreateBotResult::Created(bot_minimal)
     }
 
+    #[instrument(skip(self), level = "debug")]
+    async fn cmd_rename_bot(&mut self, id: BotId, new_name: BotName) -> RenameBotResult {
+        if self.bots.iter().any(|b| b.id != id && b.name == new_name) {
+            return RenameBotResult::DuplicateName;
+        }
+
+        let Some(bot) = self.bots.iter_mut().find(|b| b.id == id) else {
+            return RenameBotResult::NotFound;
+        };
+
+        bot.name = new_name;
+        self.db.persist_bot(bot).await;
+        let bot_minimal = BotMinimal {
+            id: bot.id,
+            name: bot.name.clone(),
+        };
+        RenameBotResult::Renamed(bot_minimal)
+    }
+
     #[instrument(skip(self))]
     async fn cmd_delete_bot(&mut self, id: BotId) {
         // builds would be automatically deleted by foreign link constraint
@@ -378,6 +410,12 @@ impl Arena {
             }
             ArenaCommand::DeleteBot(command) => {
                 self.cmd_delete_bot(command.id).await;
+            }
+            ArenaCommand::RenameBot(command) => {
+                let res = self.cmd_rename_bot(command.id, command.new_name).await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
             }
             ArenaCommand::FetchBots(command) => {
                 let res = self.cmd_fetch_bots().await;

@@ -6,10 +6,11 @@ import AppNavbar from "@components/AppNavbar";
 import BotSelector from "@components/BotSelector";
 import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
-import { useAppLogic } from "@hooks/useAppLogic";
 import ViewContentDialog from "@components/ViewContentDialog";
-import { useDialog } from "@hooks/useDialog";
 import ConfirmDialog from "@components/ConfirmDialog";
+import RenameBotDialog from "@components/RenameBotDialog";
+import { useAppLogic } from "@hooks/useAppLogic";
+import { useDialog } from "@hooks/useDialog";
 
 function App() {
   const {
@@ -19,18 +20,26 @@ function App() {
     selectBot,
     submitNewBot,
     loading,
-    refreshLeaderboard,
     deleteBot,
+    renameBot,
+    autoRefresh,
+    setAutoRefresh,
   } = useAppLogic();
   const submitBotDialog = useDialog({ onSubmit: submitNewBot });
   const viewContentDialog = useDialog({ title: "", content: "" });
   const confirmDialog = useDialog({ prompt: "", action: () => {} });
+  const renameBotDialog = useDialog({
+    botId: "",
+    currentName: "",
+    onSubmit: renameBot,
+  });
 
   return (
     <>
       <AppNavbar
         loading={loading}
-        refreshLeaderboard={refreshLeaderboard}
+        autoRefresh={autoRefresh}
+        setAutoRefresh={setAutoRefresh}
         openSubmitDialog={() =>
           submitBotDialog.show({ onSubmit: submitNewBot })
         }
@@ -46,10 +55,21 @@ function App() {
             <BotOverview
               bot={leaderboardData.bot_overview}
               showContentDialog={viewContentDialog.show}
-              deleteBot={() => confirmDialog.show({
-                prompt: `Are you sure you want to delete bot '${leaderboardData.bot_overview.name}'?`,
-                action: () => { deleteBot(leaderboardData.bot_overview.id) },
-              })}
+              deleteBot={() =>
+                confirmDialog.show({
+                  prompt: `Are you sure you want to delete bot '${leaderboardData.bot_overview.name}'?`,
+                  action: () => {
+                    deleteBot(leaderboardData.bot_overview.id);
+                  },
+                })
+              }
+              renameBot={() =>
+                renameBotDialog.show({
+                  botId: leaderboardData.bot_overview.id,
+                  currentName: leaderboardData.bot_overview.name,
+                  onSubmit: renameBot,
+                })
+              }
             />
           )}
           {leaderboardData && (
@@ -60,6 +80,7 @@ function App() {
       <SubmitBotDialog {...submitBotDialog} />
       <ViewContentDialog {...viewContentDialog} />
       <ConfirmDialog {...confirmDialog} />
+      <RenameBotDialog {...renameBotDialog} />
     </>
   );
 }

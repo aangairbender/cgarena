@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   Button,
   Container,
@@ -12,23 +12,16 @@ import ThemeSwitcher from "./ThemeSwitcher";
 interface AppNavbarProps {
   loading: boolean;
   openSubmitDialog: () => void;
-  refreshLeaderboard: () => void;
+  autoRefresh: boolean,
+  setAutoRefresh: (v: boolean) => void;
 }
 
 const AppNavbar: React.FC<AppNavbarProps> = ({
   loading,
   openSubmitDialog,
-  refreshLeaderboard,
+  autoRefresh,
+  setAutoRefresh,
 }) => {
-  const [autoRefresh, setAutoRefresh] = useState(true);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
-
-    const interval = setInterval(refreshLeaderboard, 3000); // in ms
-    return () => clearInterval(interval);
-  }, [refreshLeaderboard, autoRefresh]);
-
   return (
     <Navbar className="bg-body-tertiary">
       <Container>

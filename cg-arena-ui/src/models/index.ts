@@ -4,6 +4,10 @@ export interface CreateBotRequest {
   language: string;
 }
 
+export interface RenameBotRequest {
+  name: string;
+}
+
 export interface BotMinimalResponse {
   id: string;
   name: string;

@@ -6,17 +6,20 @@ import {
 import React from "react";
 import { Badge, Button, Stack, Table } from "react-bootstrap";
 import { FaTrash } from "react-icons/fa";
+import { FaPencil } from "react-icons/fa6";
 
 interface BotOverviewProps {
   bot: LeaderboardBotOverviewResponse;
   showContentDialog: (data: { title: string; content: string }) => void;
   deleteBot: () => void;
+  renameBot: () => void;
 }
 
 const BotOverview: React.FC<BotOverviewProps> = ({
   bot,
   showContentDialog,
   deleteBot,
+  renameBot,
 }) => {
   return (
     <Table bordered hover>
@@ -42,7 +45,10 @@ const BotOverview: React.FC<BotOverviewProps> = ({
             <Builds builds={bot.builds} showContentDialog={showContentDialog} />
           </td>
           <td>
-            <Stack direction="horizontal">
+            <Stack direction="horizontal" gap={2}>
+              <Button variant="outline-warning" size="sm" onClick={renameBot}>
+                <FaPencil />
+              </Button>
               <Button variant="outline-danger" size="sm" onClick={deleteBot}>
                 <FaTrash />
               </Button>

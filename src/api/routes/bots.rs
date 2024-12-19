@@ -3,13 +3,14 @@ use crate::api::AppState;
 use crate::arena::{
     ArenaCommand, BotMinimal, CreateBotCommand, CreateBotResult, DeleteBotCommand,
     FetchBotsCommand, FetchLeaderboardCommand, FetchLeaderboardResult, LeaderboardBotOverview,
-    LeaderboardItem,
+    LeaderboardItem, RenameBotCommand, RenameBotResult,
 };
 use crate::domain::{BotId, BotName, Build, BuildResult, BuildStatus, Language, SourceCode};
 use anyhow::anyhow;
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::routing::patch;
 use axum::{
     extract::State,
     routing::{delete, get, post},
@@ -26,13 +27,19 @@ pub fn create_router() -> Router<AppState> {
         .route("/bots", get(fetch_bots))
         .route("/bots/:id", delete(delete_bot))
         .route("/bots/:id", get(fetch_bot_leaderboard))
+        .route("/bots/:id", patch(rename_bot))
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct CreateBotRequest {
     pub name: String,
     pub source_code: String,
     pub language: String,
+}
+
+#[derive(Deserialize)]
+struct RenameBotRequest {
+    pub name: String,
 }
 
 #[derive(Serialize)]
@@ -187,6 +194,41 @@ async fn create_bot(
         CreateBotResult::DuplicateName => Err(ApiError::Conflict(anyhow!(
             "Bot with the same name already exists"
         ))),
+    }
+}
+
+async fn rename_bot(
+    State(app_state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<RenameBotRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id: BotId = id.into();
+    let new_name: BotName = payload
+        .name
+        .try_into()
+        .map_err(ApiError::ValidationFailed)?;
+
+    let (tx, rx) = oneshot::channel();
+    let command = RenameBotCommand {
+        id,
+        new_name,
+        response: tx,
+    };
+
+    app_state
+        .arena_tx
+        .send(ArenaCommand::RenameBot(command))
+        .await
+        .map_err(|e| anyhow!(e))?;
+
+    let res = rx.await.map_err(|e| anyhow!(e))?;
+
+    match res {
+        RenameBotResult::Renamed(bot_minimal) => Ok(Json(BotMinimalResponse::from(bot_minimal))),
+        RenameBotResult::DuplicateName => Err(ApiError::Conflict(anyhow!(
+            "Bot with the same name already exists"
+        ))),
+        RenameBotResult::NotFound => Err(ApiError::NotFound),
     }
 }
 

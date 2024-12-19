@@ -2,6 +2,7 @@ import {
   BotMinimalResponse,
   CreateBotRequest,
   FetchLeaderboardResponse,
+  RenameBotRequest,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -24,6 +25,22 @@ export const submitNewBot = async (
 ): Promise<BotMinimalResponse> => {
   const req = new Request(`${host}/api/bots`, {
     method: "POST",
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const response = await fetch(req);
+  return await parseResponse<BotMinimalResponse>(response);
+};
+
+export const renameBot = async (
+  id: string,
+  payload: RenameBotRequest
+): Promise<BotMinimalResponse> => {
+  const req = new Request(`${host}/api/bots/${id}`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
     headers: {
       "Content-Type": "application/json",

@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 export function useDialog<D>(initialData: D): DialogProps<D> {
   const [isOpen, setIsOpen] = useState(false);
   const [data, setData] = useState(initialData);
 
-  const show = (data: D) => {
+  const show = useCallback((data: D) => {
     setData(data);
     setIsOpen(true);
-  };
+  }, [setData, setIsOpen]);
 
-  const hide = () => {
+  const hide = useCallback(() => {
     setIsOpen(false);
-  };
+  }, [setIsOpen]);
 
   return {
     isOpen,
