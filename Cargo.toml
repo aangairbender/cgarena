@@ -6,6 +6,7 @@ authors = ["Yevhen Kazmin <gvoin16@gmail.com>"]
 repository = "https://github.com/aangairbender/cg-arena"
 license = "MIT"
 keywords = ["codingame"]
+description = "Local bot arena with matchmaking, rating calculation and web ui."
 
 [dependencies]
 tokio = { version = "1.28.1", features = ["full"] }

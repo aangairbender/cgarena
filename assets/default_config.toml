@@ -18,7 +18,7 @@ min_matches_preference = 1.0
 [ranking]
 algorithm = "OpenSkill"
 
-# 'port' controls web server port. If 'port' is ommitted then OS assigns some available port
+# 'port' controls web server port. If 'port' is omitted then OS assigns some available port
 # 'expose' controls whether to expose web server to the local network
 [server]
 # port = 1234

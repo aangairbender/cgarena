@@ -20,10 +20,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize a new server
-    Init { path: Option<String> },
-    /// Run server
-    Run { path: Option<String> },
+    /// Initialize a new arena
+    Init {
+        /// Path to the arena directory. Path would be created if it does not exist.
+        /// If omitted the current working directory is used.
+        path: Option<String>,
+    },
+    /// Run existing arena
+    Run {
+        /// Path to the arena directory.
+        /// If omitted the current working directory is used.
+        path: Option<String>,
+    },
 }
 
 #[tokio::main]
