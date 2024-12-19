@@ -5,7 +5,7 @@ import {
   LeaderboardItemResponse,
   rating_score,
 } from "@models";
-import { Stack, Table } from "react-bootstrap";
+import { OverlayTrigger, Stack, Table, Tooltip } from "react-bootstrap";
 
 interface LeaderboardProps {
   data: FetchLeaderboardResponse;
@@ -53,10 +53,13 @@ const Row = ({ item, selected, select }: RowProps) => {
       <td>
         <Stack direction="horizontal">
           <Identicon input={item.id + ""} size={24} />
-          <a href="#" style={{ marginLeft: "8px" }} onClick={select}>{item.name}</a>
+          <a href="#" style={{ marginLeft: "8px" }} onClick={select}>
+            {item.name}
+          </a>
         </Stack>
       </td>
-      <td>{rating_score(item)}</td>
+      <RatingCell item={item} />
+      {/* <td>{rating_score(item)}</td> */}
       {<WinrateCell item={item} />}
       {selected ? (
         <td></td>
@@ -72,6 +75,22 @@ const Row = ({ item, selected, select }: RowProps) => {
 interface WinrateCellProps {
   item: LeaderboardItemResponse;
 }
+
+const RatingCell = ({ item }: { item: LeaderboardItemResponse }) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderTooltip = (props: any) => (
+    <Tooltip
+      id={`bot-${item.id}-tooltip`}
+      {...props}
+    >{`mu: ${item.rating_mu.toFixed(2)} sigma: ${item.rating_sigma.toFixed(2)}`}</Tooltip>
+  );
+
+  return (
+    <OverlayTrigger overlay={renderTooltip} placement="left">
+      <td>{rating_score(item)}</td>
+    </OverlayTrigger>
+  );
+};
 
 const WinrateCell = ({ item }: WinrateCellProps) => {
   const { theme } = useTheme();
