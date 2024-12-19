@@ -22,6 +22,8 @@ install it).
 cargo install cgarena
 ```
 
+The same command can be used to update CG Arena to the latest version.
+
 ## Usage
 
 1. To create a new arena in the current folder run:
