@@ -107,7 +107,7 @@ For languages which need project folder (e.g. Rust) you build bot the following 
 
 ## Building from source
 
-To build CG Arena from source code run the following (make sure `cargo` is installed):
+To build CG Arena from source code run the following (make sure `cargo` and `npm` are installed):
 
 ```shell
 git clone https://github.com/aangairbender/cgarena.git
