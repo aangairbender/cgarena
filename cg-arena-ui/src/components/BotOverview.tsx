@@ -4,16 +4,19 @@ import {
   rating_score,
 } from "@models";
 import React from "react";
-import { Badge, Stack, Table } from "react-bootstrap";
+import { Badge, Button, Stack, Table } from "react-bootstrap";
+import { FaTrash } from "react-icons/fa";
 
 interface BotOverviewProps {
   bot: LeaderboardBotOverviewResponse;
-  showContentDialog: (title: string, content: string) => void;
+  showContentDialog: (data: { title: string; content: string }) => void;
+  deleteBot: () => void;
 }
 
 const BotOverview: React.FC<BotOverviewProps> = ({
   bot,
   showContentDialog,
+  deleteBot,
 }) => {
   return (
     <Table bordered hover>
@@ -25,6 +28,7 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <th>Matches played</th>
           <th>Matches with error</th>
           <th>Build</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -37,6 +41,13 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <td>
             <Builds builds={bot.builds} showContentDialog={showContentDialog} />
           </td>
+          <td>
+            <Stack direction="horizontal">
+              <Button variant="outline-danger" size="sm" onClick={deleteBot}>
+                <FaTrash />
+              </Button>
+            </Stack>
+          </td>
         </tr>
       </tbody>
     </Table>
@@ -45,7 +56,7 @@ const BotOverview: React.FC<BotOverviewProps> = ({
 
 interface BuildsProps {
   builds: BuildResponse[];
-  showContentDialog: (title: string, content: string) => void;
+  showContentDialog: (data: { title: string; content: string }) => void;
 }
 
 const Builds: React.FC<BuildsProps> = ({ builds, showContentDialog }) => {
@@ -58,10 +69,10 @@ const Builds: React.FC<BuildsProps> = ({ builds, showContentDialog }) => {
             <a
               href="#"
               onClick={() =>
-                showContentDialog(
-                  `Build on worker ${build.worker_name}`,
-                  build.stderr ?? ""
-                )
+                showContentDialog({
+                  title: `Build on worker ${build.worker_name}`,
+                  content: build.stderr ?? "",
+                })
               }
             >
               details

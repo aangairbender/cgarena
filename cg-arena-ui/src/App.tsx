@@ -1,5 +1,4 @@
 import "./App.css";
-import { useState } from "react";
 import { Container, Stack } from "react-bootstrap";
 
 import SubmitBotDialog from "@components/SubmitBotDialog";
@@ -9,6 +8,8 @@ import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
 import { useAppLogic } from "@hooks/useAppLogic";
 import ViewContentDialog from "@components/ViewContentDialog";
+import { useDialog } from "@hooks/useDialog";
+import ConfirmDialog from "@components/ConfirmDialog";
 
 function App() {
   const {
@@ -19,25 +20,20 @@ function App() {
     submitNewBot,
     loading,
     refreshLeaderboard,
+    deleteBot,
   } = useAppLogic();
-  const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
-  const [viewContentDialogOpen, setViewContentDialogOpen] = useState(false);
-  const [viewContentData, setViewContentData] = useState({
-    title: "",
-    content: "",
-  });
-
-  const showContentDialog = (title: string, content: string) => {
-    setViewContentData({ title, content });
-    setViewContentDialogOpen(true);
-  };
+  const submitBotDialog = useDialog({ onSubmit: submitNewBot });
+  const viewContentDialog = useDialog({ title: "", content: "" });
+  const confirmDialog = useDialog({ prompt: "", action: () => {} });
 
   return (
     <>
       <AppNavbar
         loading={loading}
         refreshLeaderboard={refreshLeaderboard}
-        openSubmitDialog={() => setSubmitDialogOpen(true)}
+        openSubmitDialog={() =>
+          submitBotDialog.show({ onSubmit: submitNewBot })
+        }
       />
       <Container className="mt-3">
         <BotSelector
@@ -49,7 +45,11 @@ function App() {
           {leaderboardData && (
             <BotOverview
               bot={leaderboardData.bot_overview}
-              showContentDialog={showContentDialog}
+              showContentDialog={viewContentDialog.show}
+              deleteBot={() => confirmDialog.show({
+                prompt: `Are you sure you want to delete bot '${leaderboardData.bot_overview.name}'?`,
+                action: () => { deleteBot(leaderboardData.bot_overview.id) },
+              })}
             />
           )}
           {leaderboardData && (
@@ -57,17 +57,9 @@ function App() {
           )}
         </Stack>
       </Container>
-      <SubmitBotDialog
-        open={submitDialogOpen}
-        onClose={() => setSubmitDialogOpen(false)}
-        onSubmit={submitNewBot}
-      />
-      <ViewContentDialog
-        open={viewContentDialogOpen}
-        onClose={() => setViewContentDialogOpen(false)}
-        title={viewContentData.title}
-        content={viewContentData.content}
-      />
+      <SubmitBotDialog {...submitBotDialog} />
+      <ViewContentDialog {...viewContentDialog} />
+      <ConfirmDialog {...confirmDialog} />
     </>
   );
 }

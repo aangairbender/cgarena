@@ -270,8 +270,9 @@ impl Arena {
 
     #[instrument(skip(self))]
     async fn cmd_delete_bot(&mut self, id: BotId) {
-        // matches should be automatically deleted by foreign link constraint
-        // builds should be automatically deleted by foreign link constraint
+        // builds would be automatically deleted by foreign link constraint
+        // participations would be automatically deleted by foreign link constraint
+        // matches would be automatically delete by db trigger
         self.db.delete_bot(id).await;
         self.bots.retain(|bot| bot.id != id);
         self.matches
@@ -280,7 +281,7 @@ impl Arena {
         self.recalculate_computed_full();
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), level = "debug")]
     async fn cmd_fetch_bots(&mut self) -> Vec<BotMinimal> {
         let mut bots = self
             .bots
@@ -296,7 +297,7 @@ impl Arena {
         bots
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), level = "debug")]
     async fn cmd_fetch_leaderboard(&mut self, target_id: BotId) -> Option<FetchLeaderboardResult> {
         let target = self.bots.iter().find(|b| b.id == target_id)?;
 
@@ -420,6 +421,18 @@ impl Arena {
     #[instrument(skip(self), level = "debug")]
     pub async fn process_finished_matches(&mut self) {
         while let Ok(output) = self.worker.match_result_rx.try_recv() {
+            // validation
+            if output
+                .participants
+                .iter()
+                .any(|p| self.bots.iter().all(|b| b.id != p.bot_id))
+            {
+                warn!(
+                    "Match participant was deleted while match was running, ignoring match results"
+                );
+                continue;
+            }
+
             let mut new_match = Match::new(output.seed, output.participants);
             self.db.persist_match(&mut new_match).await;
             self.matches.push(new_match);

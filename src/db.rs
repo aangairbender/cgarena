@@ -2,11 +2,11 @@ use crate::domain::{Bot, BotId, Build, BuildResult, BuildStatus, Match, MatchId,
 use anyhow::bail;
 use chrono::{DateTime, Utc};
 use indoc::indoc;
-use itertools::Itertools;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{migrate::MigrateDatabase, ConnectOptions, Connection, Sqlite, SqliteConnection};
 use std::collections::HashMap;
 use std::path::Path;
+use tracing::warn;
 
 #[derive(sqlx::FromRow)]
 struct BotsRow {
@@ -195,9 +195,13 @@ impl Database {
             .await
             .expect("Cannot fetch all bots")
             .into_iter()
-            .map(Bot::try_from)
-            .try_collect()
-            .expect("Error during mapping db to domain")
+            .filter_map(|item| {
+                let id = item.id;
+                Bot::try_from(item)
+                    .inspect_err(|e| warn!("Invalid db data (bot {}): {}. Skipping.", id, e))
+                    .ok()
+            })
+            .collect()
     }
 
     pub async fn fetch_builds(&mut self) -> Vec<Build> {
@@ -206,9 +210,13 @@ impl Database {
             .await
             .expect("Cannot fetch all builds")
             .into_iter()
-            .map(Build::try_from)
-            .try_collect()
-            .expect("Error during mapping db to domain")
+            .filter_map(|item| {
+                let id = (item.worker_name.clone(), item.bot_id);
+                Build::try_from(item)
+                    .inspect_err(|e| warn!("Invalid db data (build {:?}): {}. Skipping.", id, e))
+                    .ok()
+            })
+            .collect()
     }
 
     pub async fn persist_build(&mut self, build: &Build) {
@@ -301,8 +309,12 @@ impl Database {
 
         combined
             .into_values()
-            .map(Match::try_from)
-            .try_collect()
-            .expect("Error during mapping db to domain")
+            .filter_map(|item| {
+                let id = item.0.id;
+                Match::try_from(item)
+                    .inspect_err(|e| warn!("Invalid db data (match {}): {}. Skipping.", id, e))
+                    .ok()
+            })
+            .collect()
     }
 }

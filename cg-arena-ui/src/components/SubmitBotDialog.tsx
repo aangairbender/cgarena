@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { CreateBotRequest } from "@models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
+import { DialogProps } from "@hooks/useDialog";
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
+interface Data {
   onSubmit: (req: CreateBotRequest) => Promise<void>;
 }
 
-const SubmitBotDialog = ({ open, onClose, onSubmit }: Props) => {
+const SubmitBotDialog = (dialog: DialogProps<Data>) => {
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("");
   const [sourceCode, setSourceCode] = useState("");
@@ -19,7 +18,7 @@ const SubmitBotDialog = ({ open, onClose, onSubmit }: Props) => {
     setLanguage("");
     setSourceCode("");
     setError("");
-    onClose();
+    dialog.hide();
   };
 
   const handleSubmit = async () => {
@@ -29,7 +28,7 @@ const SubmitBotDialog = ({ open, onClose, onSubmit }: Props) => {
       source_code: sourceCode,
     };
     try {
-      await onSubmit(req);
+      await dialog.data.onSubmit(req);
       closeDialog();
     } catch (e) {
       if (e instanceof Error) {
@@ -52,7 +51,7 @@ const SubmitBotDialog = ({ open, onClose, onSubmit }: Props) => {
   };
 
   return (
-    <Modal show={open} onHide={closeDialog}>
+    <Modal show={dialog.isOpen} onHide={closeDialog} centered>
       <Modal.Header closeButton>
         <Modal.Title>Submit a new bot</Modal.Title>
       </Modal.Header>

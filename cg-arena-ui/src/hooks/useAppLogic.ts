@@ -19,9 +19,6 @@ export const useAppLogic = () => {
     try {
       const res = await api.fetchBots()
       setBots(res);
-      if (res.length != 0) {
-        setSelectedBotId(res[0].id);
-      }
     } finally {
       setLoading(false);
     }
@@ -53,6 +50,20 @@ export const useAppLogic = () => {
     setSelectedBotId(bot.id);
   };
 
+  const deleteBot = async (botId: string) => {
+    setBots(bots => bots.filter(b => b.id != botId));
+    if (selectedBotId == botId) setSelectedBotId(undefined);
+
+    await api.deleteBot(botId);
+  };
+
+  // select bot from the list
+  useEffect(() => {
+    if (selectedBotId) return;
+    if (bots.length == 0) return;
+    setSelectedBotId(bots[0].id);
+  }, [selectedBotId, bots]);
+
   // load bots initially
   useEffect(() => {
     fetchInitialBots();
@@ -74,5 +85,6 @@ export const useAppLogic = () => {
     selectBot,
     submitNewBot,
     refreshLeaderboard,
+    deleteBot,
   };
 };

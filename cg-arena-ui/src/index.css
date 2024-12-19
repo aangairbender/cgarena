@@ -15,3 +15,7 @@ body {
 .table > tbody > tr.highlighted-row > td {
   background-color: var(--bs-table-hover-bg);
 }
+
+.table th, .table td {
+  vertical-align: middle;
+}

@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use tokio_util::sync::CancellationToken;
-use tracing::Level;
+use tracing::{warn, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 pub async fn start(arena_path: &Path) {
@@ -44,7 +44,7 @@ pub async fn start(arena_path: &Path) {
 
     let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
 
-    tokio::spawn(arena::run(
+    let arena_task_handle = tokio::spawn(arena::run(
         config.game,
         config.matchmaking,
         ranker,
@@ -69,7 +69,7 @@ pub async fn start(arena_path: &Path) {
         .local_addr()
         .expect("Cannot get local address of tcp binding");
 
-    tokio::spawn(api::start(listener, arena_tx, token.clone()));
+    let api_task_handle = tokio::spawn(api::start(listener, arena_tx, token.clone()));
 
     println!("CG Arena started, press Ctrl+C to stop it");
     println!("Local:   http://localhost:{}/", bind_addr.port());
@@ -81,13 +81,19 @@ pub async fn start(arena_path: &Path) {
         println!("Network: use 'server.expose' config param to expose",);
     }
 
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to install CTRL+C signal handler");
+    tokio::select! {
+        _ = shutdown_signal() => {
+            token.cancel();
+        },
+        _ = arena_task_handle => {
+            warn!("Arena task terminated unexpectedly.");
+        }
+        _ = api_task_handle => {
+            warn!("API task terminated unexpectedly.");
+        }
+    }
 
     println!("Stopping CG Arena... press Ctrl+C again to kill it");
-
-    token.cancel();
 }
 
 pub fn init(path: &Path) {
@@ -98,6 +104,30 @@ pub fn init(path: &Path) {
     }
     Config::create_default(path);
     println!("New arena has been initialized in {}", path.display());
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
 
 #[cfg(test)]
