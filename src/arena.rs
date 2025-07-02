@@ -4,10 +4,11 @@ use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceC
 use crate::embedded_worker::{BuildBotInput, EmbeddedWorker, PlayMatchBot, PlayMatchInput};
 use crate::matchmaking;
 use crate::ranking::Ranker;
+use crate::statistics::Statistic;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::Receiver;
@@ -136,13 +137,12 @@ pub async fn run(
 struct Arena {
     game_config: GameConfig,
     matchmaking_config: MatchmakingConfig,
-    ranker: Ranker,
     db: Database,
     bots: Vec<Bot>,
     matches: Vec<Match>,
     builds: Vec<Build>,
     worker: EmbeddedWorker,
-    computed_stats: ComputedStats,
+    stats: Statistic,
     match_queue: VecDeque<PlayMatchInput>,
 }
 
@@ -157,13 +157,12 @@ impl Arena {
         Self {
             game_config,
             matchmaking_config,
-            ranker,
             db,
             worker,
             bots: Default::default(),
             matches: Default::default(),
             builds: Default::default(),
-            computed_stats: Default::default(),
+            stats: Statistic::new_without_filter(ranker),
             match_queue: Default::default(),
         }
     }
@@ -336,9 +335,9 @@ impl Arena {
             id: target.id,
             name: target.name.clone(),
             language: target.language.clone(),
-            rating: self.rating(target.id),
-            matches_played: self.matches_played(target.id),
-            matches_with_error: self.matches_with_error(target.id),
+            rating: self.stats.rating(target.id),
+            matches_played: self.stats.matches_played(target.id),
+            matches_with_error: self.stats.matches_with_error(target.id),
             builds: self
                 .builds
                 .iter()
@@ -349,11 +348,11 @@ impl Arena {
 
         let mut items = Vec::with_capacity(self.bots.len());
         for bot in &self.bots {
-            let rating = self.rating(bot.id);
+            let rating = self.stats.rating(bot.id);
             let stronger_bots_cnt = self
                 .bots
                 .iter()
-                .filter(|b| rating.score() < self.rating(b.id).score())
+                .filter(|b| rating.score() < self.stats.rating(b.id).score())
                 .count();
 
             let mut wins = 0;
@@ -475,8 +474,7 @@ impl Arena {
             self.db.persist_match(&mut new_match).await;
             self.matches.push(new_match);
 
-            self.computed_stats
-                .recalc_after_matches(&self.ranker, self.matches.last().into_iter());
+            self.stats.process(self.matches.last().unwrap());
         }
     }
 
@@ -504,7 +502,7 @@ impl Arena {
             .filter(|id| self.is_bot_ready_for_playing(*id))
             .map(|id| matchmaking::Candidate {
                 id,
-                matches_played: self.matches_played(id),
+                matches_played: self.stats.matches_played(id),
             })
             .collect_vec();
 
@@ -535,71 +533,9 @@ impl Arena {
 
     #[instrument(skip(self))]
     fn recalculate_computed_full(&mut self) {
-        self.computed_stats.clear();
-        self.computed_stats
-            .recalc_after_matches(&self.ranker, self.matches.iter());
-    }
-
-    fn rating(&self, id: BotId) -> Rating {
-        self.computed_stats
-            .ratings
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| self.ranker.default_rating())
-    }
-
-    fn matches_played(&self, id: BotId) -> u64 {
-        self.computed_stats
-            .matches_played
-            .get(&id)
-            .copied()
-            .unwrap_or_default()
-    }
-
-    fn matches_with_error(&self, id: BotId) -> u64 {
-        self.computed_stats
-            .matches_with_error
-            .get(&id)
-            .copied()
-            .unwrap_or_default()
-    }
-}
-
-#[derive(Default)]
-struct ComputedStats {
-    ratings: HashMap<BotId, Rating>,
-    matches_played: HashMap<BotId, u64>,
-    matches_with_error: HashMap<BotId, u64>,
-}
-
-impl ComputedStats {
-    pub fn clear(&mut self) {
-        *self = Default::default();
-    }
-
-    pub fn recalc_after_matches<'a>(
-        &mut self,
-        ranker: &Ranker,
-        matches: impl Iterator<Item = &'a Match> + Clone,
-    ) {
-        // rating
-        ranker.recalc_rating(&mut self.ratings, matches.clone());
-
-        // matches_played and matches_with_error
-        for m in matches.clone() {
-            for p in &m.participants {
-                self.matches_played
-                    .entry(p.bot_id)
-                    .and_modify(|w| *w += 1)
-                    .or_insert(1);
-
-                if p.error {
-                    self.matches_with_error
-                        .entry(p.bot_id)
-                        .and_modify(|w| *w += 1)
-                        .or_insert(1);
-                }
-            }
+        self.stats.reset();
+        for m in &self.matches {
+            self.stats.process(m);
         }
     }
 }

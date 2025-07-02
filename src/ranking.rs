@@ -21,35 +21,29 @@ impl Ranker {
         self.algorithm.default_rating()
     }
 
-    pub fn recalc_rating<'a>(
-        &self,
-        ratings: &mut HashMap<BotId, Rating>,
-        matches: impl Iterator<Item = &'a Match>,
-    ) {
-        for m in matches {
-            let ps = m
-                .participants
-                .iter()
-                .map(|p| {
-                    (
-                        ratings
-                            .get(&p.bot_id)
-                            .copied()
-                            .unwrap_or_else(|| self.algorithm.default_rating()),
-                        p.rank,
-                    )
-                })
-                .collect_vec();
+    pub fn recalc_rating<'a>(&self, ratings: &mut HashMap<BotId, Rating>, m: &'a Match) {
+        let ps = m
+            .participants
+            .iter()
+            .map(|p| {
+                (
+                    ratings
+                        .get(&p.bot_id)
+                        .copied()
+                        .unwrap_or_else(|| self.algorithm.default_rating()),
+                    p.rank,
+                )
+            })
+            .collect_vec();
 
-            let new_ratings = self.algorithm.recalc_ratings(&ps);
+        let new_ratings = self.algorithm.recalc_ratings(&ps);
 
-            m.participants
-                .iter()
-                .zip_eq(new_ratings)
-                .for_each(|(p, new_rating)| {
-                    ratings.insert(p.bot_id, new_rating);
-                });
-        }
+        m.participants
+            .iter()
+            .zip_eq(new_ratings)
+            .for_each(|(p, new_rating)| {
+                ratings.insert(p.bot_id, new_rating);
+            });
     }
 }
 

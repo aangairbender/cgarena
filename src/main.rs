@@ -7,6 +7,7 @@ mod domain;
 mod embedded_worker;
 mod matchmaking;
 mod ranking;
+mod statistics;
 
 use clap::{command, Parser, Subcommand};
 use std::path::PathBuf;
