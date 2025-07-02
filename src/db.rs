@@ -140,6 +140,22 @@ impl Database {
         Self { conn }
     }
 
+    /// for tests
+    pub async fn in_memory() -> Self {
+        let mut conn = SqliteConnectOptions::new()
+            .in_memory(true)
+            .connect()
+            .await
+            .unwrap();
+        
+        sqlx::migrate!()
+            .run(&mut conn)
+            .await
+            .expect("can't run migrations");
+
+        Self { conn }
+    }
+
     pub async fn persist_bot(&mut self, bot: &mut Bot) {
         if bot.id == BotId::UNINITIALIZED {
             bot.id = self.insert_bot(bot).await;

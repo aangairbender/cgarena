@@ -39,7 +39,6 @@ pub async fn start(arena_path: &Path) {
         .init();
 
     let db = Database::connect(arena_path).await;
-    let ranker = Ranker::new(config.ranking);
     let token = CancellationToken::new();
 
     let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
@@ -52,7 +51,7 @@ pub async fn start(arena_path: &Path) {
     let arena_task_handle = tokio::spawn(arena::run(
         config.game,
         config.matchmaking,
-        ranker,
+        config.ranking,
         db,
         worker,
         arena_rx,

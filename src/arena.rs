@@ -1,4 +1,4 @@
-use crate::config::{GameConfig, MatchmakingConfig};
+use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
 use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceCode, WorkerName};
 use crate::embedded_worker::{BuildBotInput, EmbeddedWorker, PlayMatchBot, PlayMatchInput};
@@ -95,12 +95,13 @@ pub struct LeaderboardItem {
 pub async fn run(
     game_config: GameConfig,
     matchmaking_config: MatchmakingConfig,
-    ranker: Ranker,
+    ranking_config: RankingConfig,
     db: Database,
     worker: EmbeddedWorker,
     mut commands_rx: Receiver<ArenaCommand>,
     cancellation_token: CancellationToken,
 ) {
+    let ranker = Ranker::new(ranking_config);
     let mut arena = Arena::new(game_config, matchmaking_config, ranker, db, worker);
 
     arena.load_from_db().await;
@@ -147,7 +148,7 @@ struct Arena {
 }
 
 impl Arena {
-    pub fn new(
+    fn new(
         game_config: GameConfig,
         matchmaking_config: MatchmakingConfig,
         ranker: Ranker,
