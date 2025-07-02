@@ -1,8 +1,6 @@
 use crate::config::{Config, WorkerConfig};
 use crate::db::Database;
-use crate::embedded_worker::EmbeddedWorker;
-use crate::ranking::Ranker;
-use crate::{api, arena};
+use crate::{api, arena, worker};
 use std::fs::OpenOptions;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -44,7 +42,7 @@ pub async fn start(arena_path: &Path) {
     let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
         panic!("In the current version only single embedded worker supported");
     };
-    let worker = EmbeddedWorker::new(arena_path, cfg.clone(), token.clone());
+    let worker_handle = worker::run_embedded_worker(arena_path, cfg.clone(), token.clone());
 
     let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
 
@@ -53,7 +51,7 @@ pub async fn start(arena_path: &Path) {
         config.matchmaking,
         config.ranking,
         db,
-        worker,
+        worker_handle,
         arena_rx,
         token.clone(),
     ));

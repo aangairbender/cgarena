@@ -4,7 +4,7 @@ mod arena_server;
 mod config;
 mod db;
 mod domain;
-mod embedded_worker;
+mod worker;
 mod matchmaking;
 mod ranking;
 mod statistics;

@@ -6,61 +6,100 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::Semaphore;
+use tokio::sync::{oneshot, Semaphore};
 use tokio::{fs, process::Command};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
-pub struct EmbeddedWorker {
-    worker_path: PathBuf,
-    pub config: Arc<EmbeddedWorkerConfig>,
+pub struct WorkerHandle {
     pub match_tx: Sender<PlayMatchInput>,
     pub match_result_rx: Receiver<PlayMatchOutput>,
+    pub build_tx: Sender<BuildCmd>,
+    pub known_bot_ids: Vec<BotId>,
+}
+
+impl WorkerHandle {
+    pub async fn build_bot(&self, input: BuildBotInput) -> BuildBotOutput {
+        let (tx, rx) = oneshot::channel();
+        let cmd = BuildCmd { input, result: tx };
+        let _ = self.build_tx.send(cmd).await;
+        rx.await.unwrap()
+    }
+}
+
+pub struct BuildCmd {
+    pub input: BuildBotInput,
+    pub result: oneshot::Sender<BuildBotOutput>,
 }
 
 const DIR_BOTS: &str = "bots";
 
-impl EmbeddedWorker {
-    pub fn new(worker_path: &Path, config: EmbeddedWorkerConfig, token: CancellationToken) -> Self {
-        let config = Arc::new(config);
+pub fn run_embedded_worker(worker_path: &Path, config: EmbeddedWorkerConfig, token: CancellationToken) -> WorkerHandle {
+    let config = Arc::new(config);
+    
+    let known_bot_ids = known_bot_ids(worker_path);
 
-        let (match_result_tx, match_result_rx) = channel(100);
-        let (match_tx, match_rx) = channel(config.threads as usize * 2);
-        tokio::spawn(run_play_matches(
-            match_rx,
-            worker_path.to_path_buf(),
-            Arc::clone(&config),
-            match_result_tx,
-            token.clone(),
-        ));
+    let (match_result_tx, match_result_rx) = channel(100);
+    let (match_tx, match_rx) = channel(config.threads as usize * 2);
+    tokio::spawn(run_play_matches(
+        match_rx,
+        worker_path.to_path_buf(),
+        Arc::clone(&config),
+        match_result_tx,
+        token.clone(),
+    ));
 
-        Self {
-            worker_path: worker_path.to_path_buf(),
-            config,
-            match_tx,
-            match_result_rx,
+    
+    let (build_tx, build_rx) = channel(1);
+    tokio::spawn(run_build_bots(worker_path.to_path_buf(), config, build_rx));
+
+    WorkerHandle {
+        match_tx,
+        match_result_rx,
+        build_tx,
+        known_bot_ids,
+    }
+}
+
+fn known_bot_ids(worker_path: &Path) -> Vec<BotId> {
+    let bots_folder = worker_path.join(DIR_BOTS);
+    let mut res = vec![];
+
+    for entry in std::fs::read_dir(bots_folder).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        if !path.is_dir() {
+            continue;
         }
+
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
+        let Ok(bot_id_i64) = name.parse::<i64>() else {
+            continue;
+        };
+
+        res.push(BotId::from(bot_id_i64));
     }
 
-    pub async fn build_bot(&self, input: BuildBotInput) -> BuildBotOutput {
-        let bot_id = input.bot_id;
-        let worker_name = input.worker_name.clone();
+    res
+}
 
-        let result = build_bot(self.worker_path.clone(), Arc::clone(&self.config), input).await;
+async fn run_build_bots(worker_path: PathBuf, config: Arc<EmbeddedWorkerConfig>, mut rx: Receiver<BuildCmd>) {
+    while let Some(cmd) = rx.recv().await {
+        let bot_id = cmd.input.bot_id;
+        let worker_name = cmd.input.worker_name.clone();
 
-        BuildBotOutput {
+        let result = build_bot(worker_path.clone(), Arc::clone(&config), cmd.input).await;
+
+        let output = BuildBotOutput {
             bot_id,
             worker_name,
             result,
-        }
-    }
-
-    pub async fn is_build_valid(&self, id: BotId) -> bool {
-        let bot_folder = self
-            .worker_path
-            .join(DIR_BOTS)
-            .join(i64::from(id).to_string());
-        tokio::fs::try_exists(&bot_folder).await.unwrap_or(false)
+        };
+        let _ = cmd.result.send(output);
     }
 }
 

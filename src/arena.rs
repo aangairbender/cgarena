@@ -1,7 +1,7 @@
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
 use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceCode, WorkerName};
-use crate::embedded_worker::{BuildBotInput, EmbeddedWorker, PlayMatchBot, PlayMatchInput};
+use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
 use crate::matchmaking;
 use crate::ranking::Ranker;
 use crate::statistics::Statistic;
@@ -97,12 +97,12 @@ pub async fn run(
     matchmaking_config: MatchmakingConfig,
     ranking_config: RankingConfig,
     db: Database,
-    worker: EmbeddedWorker,
+    worker_handle: WorkerHandle,
     mut commands_rx: Receiver<ArenaCommand>,
     cancellation_token: CancellationToken,
 ) {
     let ranker = Ranker::new(ranking_config);
-    let mut arena = Arena::new(game_config, matchmaking_config, ranker, db, worker);
+    let mut arena = Arena::new(game_config, matchmaking_config, ranker, db, worker_handle);
 
     arena.load_from_db().await;
     arena.reset_stale_builds().await;
@@ -142,7 +142,7 @@ struct Arena {
     bots: Vec<Bot>,
     matches: Vec<Match>,
     builds: Vec<Build>,
-    worker: EmbeddedWorker,
+    worker_handle: WorkerHandle,
     stats: Statistic,
     match_queue: VecDeque<PlayMatchInput>,
 }
@@ -153,13 +153,13 @@ impl Arena {
         matchmaking_config: MatchmakingConfig,
         ranker: Ranker,
         db: Database,
-        worker: EmbeddedWorker,
+        worker_handle: WorkerHandle,
     ) -> Self {
         Self {
             game_config,
             matchmaking_config,
             db,
-            worker,
+            worker_handle,
             bots: Default::default(),
             matches: Default::default(),
             builds: Default::default(),
@@ -200,7 +200,7 @@ impl Arena {
 
         // validate successful builds
         for build in &mut self.builds {
-            let still_valid = self.worker.is_build_valid(build.bot_id).await;
+            let still_valid = self.worker_handle.known_bot_ids.contains(&build.bot_id);
 
             if build.was_finished_successfully() && !still_valid {
                 build.reset();
@@ -240,7 +240,7 @@ impl Arena {
         }
 
         for input in inputs {
-            let output = self.worker.build_bot(input).await;
+            let output = self.worker_handle.build_bot(input).await;
             if !self.bots.iter_mut().any(|b| b.id == output.bot_id) {
                 warn!(
                     "Obtained build result for non-existent bot, skipping. {:?}",
@@ -433,7 +433,8 @@ impl Arena {
 
     #[instrument(skip(self), level = "debug")]
     pub fn perform_matchmaking(&mut self) {
-        let mm_match_queue_size_threshold = self.worker.config.threads as usize * 2;
+        // hardcoded for now
+        let mm_match_queue_size_threshold: usize = 20;
 
         while self.match_queue.len() < mm_match_queue_size_threshold {
             let new_matches = self.schedule_match();
@@ -444,7 +445,7 @@ impl Arena {
         }
 
         while let Some(input) = self.match_queue.pop_front() {
-            match self.worker.match_tx.try_reserve() {
+            match self.worker_handle.match_tx.try_reserve() {
                 Ok(permit) => {
                     permit.send(input);
                 }
@@ -458,7 +459,7 @@ impl Arena {
 
     #[instrument(skip(self), level = "debug")]
     pub async fn process_finished_matches(&mut self) {
-        while let Ok(output) = self.worker.match_result_rx.try_recv() {
+        while let Ok(output) = self.worker_handle.match_result_rx.try_recv() {
             // validation
             if output
                 .participants
