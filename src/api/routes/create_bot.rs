@@ -1,13 +1,12 @@
 use crate::api::errors::ApiError;
 use crate::api::models::{BotMinimalResponse, CreateBotRequest};
 use crate::api::AppState;
-use crate::arena::{ArenaCommand, CreateBotCommand, CreateBotResult};
+use crate::arena::{CreateBotResult};
 use crate::domain::{BotName, Language, SourceCode};
 use anyhow::anyhow;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
-use tokio::sync::oneshot;
 
 pub async fn create_bot(
     State(app_state): State<AppState>,
@@ -26,22 +25,10 @@ pub async fn create_bot(
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
 
-    let (tx, rx) = oneshot::channel();
-
-    let command = CreateBotCommand {
-        name,
-        source_code,
-        language,
-        response: tx,
-    };
-
-    app_state
-        .arena_tx
-        .send(ArenaCommand::CreateBot(command))
-        .await
-        .map_err(|e| anyhow!(e))?;
-
-    let res = rx.await.map_err(|e| anyhow!(e))?;
+    let res = app_state
+        .arena_handle
+        .create_bot(name, source_code, language)
+        .await;
 
     match res {
         CreateBotResult::Created(bot_minimal) => Ok(Json(BotMinimalResponse::from(bot_minimal))),

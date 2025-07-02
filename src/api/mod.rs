@@ -5,12 +5,11 @@ mod web_router;
 
 use crate::api::routes::{delete_bot, fetch_bot_leaderboard, fetch_bots, rename_bot};
 use crate::api::web_router::create_web_router;
-use crate::arena::ArenaCommand;
+use crate::arena_handle::ArenaHandle;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use routes::create_bot;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -18,10 +17,10 @@ use tracing::{error, info};
 
 pub async fn start(
     listener: TcpListener,
-    arena_tx: Sender<ArenaCommand>,
+    arena_handle: ArenaHandle,
     cancellation_token: CancellationToken,
 ) {
-    let app_state = AppState { arena_tx };
+    let app_state = AppState { arena_handle };
     let router = create_router(app_state).await;
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(async move { cancellation_token.cancelled().await });
@@ -50,5 +49,5 @@ async fn create_router(app_state: AppState) -> Router {
 
 #[derive(Clone)]
 pub(crate) struct AppState {
-    pub arena_tx: Sender<ArenaCommand>,
+    pub arena_handle: ArenaHandle,
 }

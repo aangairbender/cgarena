@@ -1,3 +1,4 @@
+use crate::arena_handle::ArenaHandle;
 use crate::config::{Config, WorkerConfig};
 use crate::db::Database;
 use crate::{api, arena, worker};
@@ -71,7 +72,8 @@ pub async fn start(arena_path: &Path) {
         .local_addr()
         .expect("Cannot get local address of tcp binding");
 
-    let api_task_handle = tokio::spawn(api::start(listener, arena_tx, token.clone()));
+    let arena_handle = ArenaHandle::new(arena_tx);
+    let api_task_handle = tokio::spawn(api::start(listener, arena_handle, token.clone()));
 
     println!("CG Arena started, press Ctrl+C to stop it");
     println!("Local:   http://localhost:{}/", bind_addr.port());

@@ -59,6 +59,7 @@ pub enum CreateBotResult {
 
 pub struct DeleteBotCommand {
     pub id: BotId,
+    pub response: oneshot::Sender<()>,
 }
 
 pub struct FetchLeaderboardCommand {
@@ -408,7 +409,10 @@ impl Arena {
                 }
             }
             ArenaCommand::DeleteBot(command) => {
-                self.cmd_delete_bot(command.id).await;
+                let res = self.cmd_delete_bot(command.id).await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
             }
             ArenaCommand::RenameBot(command) => {
                 let res = self.cmd_rename_bot(command.id, command.new_name).await;

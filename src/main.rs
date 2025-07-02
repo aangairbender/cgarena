@@ -1,5 +1,6 @@
 mod api;
 mod arena;
+mod arena_handle;
 mod arena_server;
 mod config;
 mod db;
