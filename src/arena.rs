@@ -2,11 +2,10 @@ use crate::config::{GameConfig, MatchmakingConfig};
 use crate::db::Database;
 use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceCode, WorkerName};
 use crate::embedded_worker::{BuildBotInput, EmbeddedWorker, PlayMatchBot, PlayMatchInput};
+use crate::matchmaking;
 use crate::ranking::Ranker;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
-use rand::prelude::SliceRandom;
-use rand::{thread_rng, Rng};
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
@@ -76,8 +75,8 @@ pub struct LeaderboardBotOverview {
     pub name: BotName,
     pub language: Language,
     pub rating: Rating,
-    pub matches_played: usize,
-    pub matches_with_error: usize,
+    pub matches_played: u64,
+    pub matches_with_error: u64,
     pub builds: Vec<Build>,
 }
 
@@ -437,9 +436,10 @@ impl Arena {
         let mm_match_queue_size_threshold = self.worker.config.threads as usize * 2;
 
         while self.match_queue.len() < mm_match_queue_size_threshold {
-            let Some(new_matches) = self.schedule_match() else {
+            let new_matches = self.schedule_match();
+            if new_matches.is_empty() {
                 break;
-            };
+            }
             self.match_queue.extend(new_matches);
         }
 
@@ -496,81 +496,41 @@ impl Arena {
         true
     }
 
-    fn schedule_match(&self) -> Option<Vec<PlayMatchInput>> {
-        let mut rng = thread_rng();
-
-        let bot_ids = self
+    fn schedule_match(&self) -> Vec<PlayMatchInput> {
+        let candidates = self
             .bots
             .iter()
             .map(|b| b.id)
             .filter(|id| self.is_bot_ready_for_playing(*id))
+            .map(|id| matchmaking::Candidate {
+                id,
+                matches_played: self.matches_played(id),
+            })
             .collect_vec();
 
-        if bot_ids.len() < self.game_config.min_players as usize {
-            return None;
-        }
+        let matches =
+            matchmaking::create_match(&self.game_config, &self.matchmaking_config, &candidates);
 
-        let bot_ids_min_matches = bot_ids
-            .iter()
-            .copied()
-            .filter(|id| self.matches_played(*id) < self.matchmaking_config.min_matches as _)
-            .collect::<Vec<_>>();
-
-        let first_bot_id = if !bot_ids_min_matches.is_empty()
-            && rng.gen::<f64>() < self.matchmaking_config.min_matches_preference
-        {
-            bot_ids_min_matches[rng.gen_range(0..bot_ids_min_matches.len())]
-        } else {
-            bot_ids[rng.gen_range(0..bot_ids.len())]
-        };
-
-        let n_players =
-            rng.gen_range(self.game_config.min_players..=self.game_config.max_players) as usize;
-        let mut players = Vec::with_capacity(n_players);
-        players.push(first_bot_id);
-        while players.len() < n_players {
-            let next_bot_id = loop {
-                let candidate_id = bot_ids[rng.gen_range(0..bot_ids.len())];
-                if !players.contains(&candidate_id) {
-                    break candidate_id;
-                }
-            };
-
-            players.push(next_bot_id);
-        }
-        players.shuffle(&mut rng);
-        let scheduled_match = PlayMatchInput {
-            seed: rng.gen(),
-            bots: players
-                .into_iter()
-                .map(|id| PlayMatchBot {
-                    bot_id: id,
-                    language: self
-                        .bots
-                        .iter()
-                        .find(|b| b.id == id)
-                        .unwrap()
-                        .language
-                        .clone(),
-                })
-                .collect(),
-        };
-
-        let res = if self.game_config.symmetric {
-            vec![scheduled_match]
-        } else {
-            let n = scheduled_match.bots.len();
-            scheduled_match
-                .bots
-                .into_iter()
-                .permutations(n)
-                .map(|p| PlayMatchInput {
-                    seed: scheduled_match.seed,
-                    bots: p,
-                })
-                .collect()
-        };
-        Some(res)
+        matches
+            .into_iter()
+            .map(|m| PlayMatchInput {
+                bots: m
+                    .bot_ids
+                    .into_iter()
+                    .map(|id| PlayMatchBot {
+                        bot_id: id,
+                        language: self
+                            .bots
+                            .iter()
+                            .find(|b| b.id == id)
+                            .unwrap()
+                            .language
+                            .clone(),
+                    })
+                    .collect_vec(),
+                seed: m.seed,
+            })
+            .collect_vec()
     }
 
     #[instrument(skip(self))]
@@ -588,7 +548,7 @@ impl Arena {
             .unwrap_or_else(|| self.ranker.default_rating())
     }
 
-    fn matches_played(&self, id: BotId) -> usize {
+    fn matches_played(&self, id: BotId) -> u64 {
         self.computed_stats
             .matches_played
             .get(&id)
@@ -596,7 +556,7 @@ impl Arena {
             .unwrap_or_default()
     }
 
-    fn matches_with_error(&self, id: BotId) -> usize {
+    fn matches_with_error(&self, id: BotId) -> u64 {
         self.computed_stats
             .matches_with_error
             .get(&id)
@@ -608,8 +568,8 @@ impl Arena {
 #[derive(Default)]
 struct ComputedStats {
     ratings: HashMap<BotId, Rating>,
-    matches_played: HashMap<BotId, usize>,
-    matches_with_error: HashMap<BotId, usize>,
+    matches_played: HashMap<BotId, u64>,
+    matches_with_error: HashMap<BotId, u64>,
 }
 
 impl ComputedStats {

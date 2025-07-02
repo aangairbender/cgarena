@@ -5,6 +5,7 @@ mod config;
 mod db;
 mod domain;
 mod embedded_worker;
+mod matchmaking;
 mod ranking;
 
 use clap::{command, Parser, Subcommand};

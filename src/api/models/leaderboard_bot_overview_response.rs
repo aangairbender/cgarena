@@ -9,8 +9,8 @@ pub struct LeaderboardBotOverviewResponse {
     pub language: String,
     pub rating_mu: f64,
     pub rating_sigma: f64,
-    pub matches_played: usize,
-    pub matches_with_error: usize,
+    pub matches_played: u64,
+    pub matches_with_error: u64,
     pub builds: Vec<BuildResponse>,
 }
 
