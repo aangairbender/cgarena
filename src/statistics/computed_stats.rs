@@ -14,7 +14,7 @@ impl ComputedStats {
         *self = Default::default();
     }
 
-    pub fn recalc_after_match<'a>(&mut self, ranker: &Ranker, m: &'a Match) {
+    pub fn recalc_after_match(&mut self, ranker: &Ranker, m: &Match) {
         // rating
         ranker.recalc_rating(&mut self.ratings, m);
 

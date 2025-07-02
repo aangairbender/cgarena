@@ -21,7 +21,7 @@ impl Ranker {
         self.algorithm.default_rating()
     }
 
-    pub fn recalc_rating<'a>(&self, ratings: &mut HashMap<BotId, Rating>, m: &'a Match) {
+    pub fn recalc_rating(&self, ratings: &mut HashMap<BotId, Rating>, m: &Match) {
         let ps = m
             .participants
             .iter()
