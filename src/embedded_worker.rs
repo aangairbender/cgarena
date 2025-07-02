@@ -1,7 +1,8 @@
 use crate::config::EmbeddedWorkerConfig;
-use crate::domain::{BotId, BuildResult, Language, Participant, SourceCode, WorkerName};
+use crate::domain::{BotId, BuildResult, Language, MatchAttributeValue, MatchAttributeValueKind, MatchAttributes, Participant, SourceCode, TargetMatchAttributes, WorkerName};
 use itertools::Itertools;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -219,6 +220,7 @@ async fn spawn_play_match_command(
                 error: e == 1,
             })
             .collect(),
+        attributes: result.attributes.into(),
     };
 
     match_result_tx
@@ -256,10 +258,73 @@ pub struct PlayMatchBot {
 pub struct PlayMatchOutput {
     pub seed: i64,
     pub participants: Vec<Participant>,
+    pub attributes: MatchAttributes,
 }
 
 #[derive(Deserialize)]
 pub struct CmdPlayMatchStdout {
     pub ranks: Vec<u8>,
     pub errors: Vec<u8>,
+    #[serde(default)]
+    pub attributes: CmdMatchAttributes,
+}
+
+#[derive(Deserialize, Default)]
+pub struct CmdMatchAttributes {
+    pub common: CmdTargetMatchAttributes,
+    pub participants: Vec<CmdTargetMatchAttributes>, 
+}
+
+#[derive(Deserialize, Default)]
+pub struct CmdTargetMatchAttributes {
+    pub global: HashMap<String, String>,
+    // turn -> key -> value
+    pub turns: HashMap<String, HashMap<String, String>>,
+}
+
+impl From<CmdMatchAttributes> for MatchAttributes {
+    fn from(val: CmdMatchAttributes) -> Self {
+        MatchAttributes {
+            common: val.common.into(),
+            participants: val.participants.into_iter().map(|p| p.into()).collect_vec(),
+        }
+    }
+}
+
+impl From<CmdTargetMatchAttributes> for TargetMatchAttributes {
+    fn from(val: CmdTargetMatchAttributes) -> Self {
+        let max_turn: usize = val.turns.keys().map(|k| k.parse::<usize>().unwrap()).max().unwrap_or(0);
+
+        let mut turns = Vec::with_capacity(max_turn + 1);
+        for _ in 0..max_turn + 1 {
+            turns.push(HashMap::new());
+        }
+
+        for (turn, data) in val.turns {
+            let index: usize = turn.parse().unwrap();
+            let attrs = data.into_iter().map(|(k, v)| (k, deduct_attribute_value(v))).collect();
+            turns[index] = attrs;
+        }
+
+        TargetMatchAttributes {
+            global: val.global.into_iter().map(|(k, v)| (k, deduct_attribute_value(v))).collect(),
+            turns,
+        }
+    }
+}
+
+fn deduct_attribute_value(s: String) -> MatchAttributeValue {
+    if let Ok(x) = s.parse::<f64>() {
+        MatchAttributeValue {
+            kind: MatchAttributeValueKind::Number,
+            str_value: s,
+            f64_value: x,
+        }
+    } else {
+        MatchAttributeValue {
+            kind: MatchAttributeValueKind::String,
+            str_value: s,
+            f64_value: 0.0,
+        }
+    }
 }

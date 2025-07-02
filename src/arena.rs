@@ -470,7 +470,7 @@ impl Arena {
                 continue;
             }
 
-            let mut new_match = Match::new(output.seed, output.participants);
+            let mut new_match = Match::new(output.seed, output.participants, output.attributes);
             self.db.persist_match(&mut new_match).await;
             self.matches.push(new_match);
 

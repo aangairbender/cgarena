@@ -22,6 +22,7 @@ struct MatchesRow {
     pub id: i64,
     pub seed: i64,
     pub participant_cnt: u8,
+    pub attributes: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -102,6 +103,9 @@ impl TryFrom<(MatchesRow, Vec<ParticipationsRow>)> for Match {
             id: m.id.into(),
             seed: m.seed,
             participants: ps.into_iter().map(|p| p.into()).collect(),
+            attributes: m.attributes
+                .map(|a| serde_json::from_str(&a).unwrap())
+                .unwrap_or_default()
         })
     }
 }
@@ -254,9 +258,10 @@ impl Database {
         let mut tx = self.conn.begin().await.expect("cannot start a transaction");
 
         let match_id: MatchId =
-            sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)")
+            sqlx::query("INSERT INTO matches (seed, participant_cnt, attributes) VALUES ($1, $2, $3)")
                 .bind::<i64>(m.seed)
                 .bind::<u8>(m.participants.len() as _)
+                .bind::<&str>(&serde_json::to_string(&m.attributes).unwrap())
                 .execute(&mut *tx)
                 .await
                 .expect("Cannot create match in db")
