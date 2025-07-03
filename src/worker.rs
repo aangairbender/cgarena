@@ -1,5 +1,8 @@
 use crate::config::EmbeddedWorkerConfig;
-use crate::domain::{BotId, BuildResult, Language, MatchAttributeValue, MatchAttributeValueKind, MatchAttributes, Participant, SourceCode, TargetMatchAttributes, WorkerName};
+use crate::domain::{
+    BotId, BuildResult, Language, MatchAttributeValue, MatchAttributeValueKind, MatchAttributes,
+    Participant, SourceCode, TargetMatchAttributes, WorkerName,
+};
 use itertools::Itertools;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -34,9 +37,13 @@ pub struct BuildCmd {
 
 const DIR_BOTS: &str = "bots";
 
-pub fn run_embedded_worker(worker_path: &Path, config: EmbeddedWorkerConfig, token: CancellationToken) -> WorkerHandle {
+pub fn run_embedded_worker(
+    worker_path: &Path,
+    config: EmbeddedWorkerConfig,
+    token: CancellationToken,
+) -> WorkerHandle {
     let config = Arc::new(config);
-    
+
     let known_bot_ids = known_bot_ids(worker_path);
 
     let (match_result_tx, match_result_rx) = channel(100);
@@ -49,7 +56,6 @@ pub fn run_embedded_worker(worker_path: &Path, config: EmbeddedWorkerConfig, tok
         token.clone(),
     ));
 
-    
     let (build_tx, build_rx) = channel(1);
     tokio::spawn(run_build_bots(worker_path.to_path_buf(), config, build_rx));
 
@@ -87,7 +93,11 @@ fn known_bot_ids(worker_path: &Path) -> Vec<BotId> {
     res
 }
 
-async fn run_build_bots(worker_path: PathBuf, config: Arc<EmbeddedWorkerConfig>, mut rx: Receiver<BuildCmd>) {
+async fn run_build_bots(
+    worker_path: PathBuf,
+    config: Arc<EmbeddedWorkerConfig>,
+    mut rx: Receiver<BuildCmd>,
+) {
     while let Some(cmd) = rx.recv().await {
         let bot_id = cmd.input.bot_id;
         let worker_name = cmd.input.worker_name.clone();
@@ -311,7 +321,7 @@ pub struct CmdPlayMatchStdout {
 #[derive(Deserialize, Default)]
 pub struct CmdMatchAttributes {
     pub common: CmdTargetMatchAttributes,
-    pub participants: Vec<CmdTargetMatchAttributes>, 
+    pub participants: Vec<CmdTargetMatchAttributes>,
 }
 
 #[derive(Deserialize, Default)]
@@ -332,7 +342,12 @@ impl From<CmdMatchAttributes> for MatchAttributes {
 
 impl From<CmdTargetMatchAttributes> for TargetMatchAttributes {
     fn from(val: CmdTargetMatchAttributes) -> Self {
-        let max_turn: usize = val.turns.keys().map(|k| k.parse::<usize>().unwrap()).max().unwrap_or(0);
+        let max_turn: usize = val
+            .turns
+            .keys()
+            .map(|k| k.parse::<usize>().unwrap())
+            .max()
+            .unwrap_or(0);
 
         let mut turns = Vec::with_capacity(max_turn + 1);
         for _ in 0..max_turn + 1 {
@@ -341,12 +356,19 @@ impl From<CmdTargetMatchAttributes> for TargetMatchAttributes {
 
         for (turn, data) in val.turns {
             let index: usize = turn.parse().unwrap();
-            let attrs = data.into_iter().map(|(k, v)| (k, deduct_attribute_value(v))).collect();
+            let attrs = data
+                .into_iter()
+                .map(|(k, v)| (k, deduct_attribute_value(v)))
+                .collect();
             turns[index] = attrs;
         }
 
         TargetMatchAttributes {
-            global: val.global.into_iter().map(|(k, v)| (k, deduct_attribute_value(v))).collect(),
+            global: val
+                .global
+                .into_iter()
+                .map(|(k, v)| (k, deduct_attribute_value(v)))
+                .collect(),
             turns,
         }
     }

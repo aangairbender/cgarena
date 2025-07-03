@@ -19,10 +19,7 @@ pub async fn rename_bot(
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
 
-    let res = app_state
-        .arena_handle
-        .rename_bot(id, new_name)
-        .await;
+    let res = app_state.arena_handle.rename_bot(id, new_name).await;
 
     match res {
         RenameBotResult::Renamed(bot_minimal) => Ok(Json(BotMinimalResponse::from(bot_minimal))),

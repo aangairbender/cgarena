@@ -11,10 +11,7 @@ pub async fn delete_bot(
 ) -> Result<impl IntoResponse, ApiError> {
     let bot_id: BotId = id.into();
 
-    app_state
-        .arena_handle
-        .delete_bot(bot_id)
-        .await;
+    app_state.arena_handle.delete_bot(bot_id).await;
 
     Ok(StatusCode::OK)
 }

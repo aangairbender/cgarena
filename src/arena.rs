@@ -1,10 +1,10 @@
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
 use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceCode, WorkerName};
-use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
 use crate::matchmaking;
 use crate::ranking::Ranker;
 use crate::statistics::Statistic;
+use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use std::cmp::Ordering;
@@ -40,6 +40,7 @@ pub enum RenameBotResult {
     NotFound,
 }
 
+#[derive(PartialEq, Eq, Debug)]
 pub struct BotMinimal {
     pub id: BotId,
     pub name: BotName,

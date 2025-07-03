@@ -11,10 +11,7 @@ pub async fn fetch_bot_leaderboard(
 ) -> Result<impl IntoResponse, ApiError> {
     let bot_id = id.into();
 
-    let res = app_state
-        .arena_handle
-        .fetch_leaderboard(bot_id)
-        .await;
+    let res = app_state.arena_handle.fetch_leaderboard(bot_id).await;
 
     let Some(res) = res else {
         return Err(ApiError::NotFound);

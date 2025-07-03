@@ -1,5 +1,7 @@
 use crate::arena::{
-    ArenaCommand, BotMinimal, CreateBotCommand, CreateBotResult, DeleteBotCommand, FetchBotsCommand, FetchLeaderboardCommand, FetchLeaderboardResult, RenameBotCommand, RenameBotResult
+    ArenaCommand, BotMinimal, CreateBotCommand, CreateBotResult, DeleteBotCommand,
+    FetchBotsCommand, FetchLeaderboardCommand, FetchLeaderboardResult, RenameBotCommand,
+    RenameBotResult,
 };
 use crate::domain::{BotId, BotName, Language, SourceCode};
 use tokio::sync::{mpsc, oneshot};
@@ -27,7 +29,8 @@ impl ArenaHandle {
                 language,
                 response: tx,
             })
-        }).await
+        })
+        .await
     }
 
     pub async fn rename_bot(&self, id: BotId, new_name: BotName) -> RenameBotResult {
@@ -37,13 +40,15 @@ impl ArenaHandle {
                 new_name,
                 response: tx,
             })
-        }).await
+        })
+        .await
     }
 
     pub async fn delete_bot(&self, id: BotId) {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::DeleteBot(DeleteBotCommand { id, response: tx })
-        }).await
+        })
+        .await
     }
 
     pub async fn fetch_leaderboard(&self, id: BotId) -> Option<FetchLeaderboardResult> {
@@ -52,13 +57,15 @@ impl ArenaHandle {
                 bot_id: id,
                 response: tx,
             })
-        }).await
+        })
+        .await
     }
 
     pub async fn fetch_all_bots(&self) -> Vec<BotMinimal> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::FetchBots(FetchBotsCommand { response: tx })
-        }).await
+        })
+        .await
     }
 
     async fn send_command_and_await_for_result<R, F: FnOnce(oneshot::Sender<R>) -> ArenaCommand>(

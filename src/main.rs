@@ -2,13 +2,15 @@ mod api;
 mod arena;
 mod arena_handle;
 mod arena_server;
+#[cfg(test)]
+mod arena_tests;
 mod config;
 mod db;
 mod domain;
-mod worker;
 mod matchmaking;
 mod ranking;
 mod statistics;
+mod worker;
 
 use clap::{command, Parser, Subcommand};
 use std::path::PathBuf;

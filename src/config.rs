@@ -63,6 +63,12 @@ pub struct LogConfig {
     pub file: Option<String>,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        toml::from_str(DEFAULT_CONFIG_CONTENT).unwrap()
+    }
+}
+
 impl Config {
     pub fn load(arena_path: &Path) -> Result<Config, anyhow::Error> {
         let path = arena_path.join(CONFIG_FILE_NAME);

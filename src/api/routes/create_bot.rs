@@ -1,7 +1,7 @@
 use crate::api::errors::ApiError;
 use crate::api::models::{BotMinimalResponse, CreateBotRequest};
 use crate::api::AppState;
-use crate::arena::{CreateBotResult};
+use crate::arena::CreateBotResult;
 use crate::domain::{BotName, Language, SourceCode};
 use anyhow::anyhow;
 use axum::extract::State;

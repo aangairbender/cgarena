@@ -2,8 +2,9 @@ use crate::domain::{Bot, BotId, Build, BuildResult, BuildStatus, Match, MatchId,
 use anyhow::bail;
 use chrono::{DateTime, Utc};
 use indoc::indoc;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{migrate::MigrateDatabase, ConnectOptions, Connection, Sqlite, SqliteConnection};
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
+use sqlx::{migrate::MigrateDatabase, Sqlite};
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::warn;
@@ -103,15 +104,16 @@ impl TryFrom<(MatchesRow, Vec<ParticipationsRow>)> for Match {
             id: m.id.into(),
             seed: m.seed,
             participants: ps.into_iter().map(|p| p.into()).collect(),
-            attributes: m.attributes
+            attributes: m
+                .attributes
                 .map(|a| serde_json::from_str(&a).unwrap())
-                .unwrap_or_default()
+                .unwrap_or_default(),
         })
     }
 }
 
 pub struct Database {
-    conn: SqliteConnection,
+    pool: SqlitePool,
 }
 
 const DB_FILE_NAME: &str = "cgarena.db";
@@ -126,34 +128,33 @@ impl Database {
                 .await
                 .expect("cannot create database");
         }
-        let mut conn = SqliteConnectOptions::new()
-            .filename(&db_path)
-            .connect()
+        let pool = SqlitePoolOptions::new()
+            .connect(&db_url)
             .await
             .expect("cannot connect to database");
 
         sqlx::migrate!()
-            .run(&mut conn)
+            .run(&pool)
             .await
             .expect("can't run migrations");
 
-        Self { conn }
+        Self { pool }
     }
 
     /// for tests
-    pub async fn in_memory() -> Self {
-        let mut conn = SqliteConnectOptions::new()
-            .in_memory(true)
-            .connect()
+    pub async fn in_memory() -> (Self, SqlitePool) {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
             .await
             .unwrap();
-        
+
         sqlx::migrate!()
-            .run(&mut conn)
+            .run(&pool)
             .await
             .expect("can't run migrations");
 
-        Self { conn }
+        (Self { pool: pool.clone() }, pool)
     }
 
     pub async fn persist_bot(&mut self, bot: &mut Bot) {
@@ -176,7 +177,7 @@ impl Database {
             .bind::<&str>(&bot.source_code)
             .bind::<&str>(&bot.language)
             .bind::<DateTime<Utc>>(bot.created_at)
-            .execute(&mut self.conn)
+            .execute(&self.pool)
             .await
             .expect("Cannot insert bot to db");
 
@@ -194,7 +195,7 @@ impl Database {
         let res = sqlx::query(SQL)
             .bind::<&str>(&bot.name)
             .bind::<i64>(bot.id.into())
-            .execute(&mut self.conn)
+            .execute(&self.pool)
             .await
             .expect("Cannot update bot in db");
 
@@ -204,14 +205,14 @@ impl Database {
     pub async fn delete_bot(&mut self, id: BotId) {
         sqlx::query("DELETE FROM bots WHERE id = $1")
             .bind::<i64>(id.into())
-            .execute(&mut self.conn)
+            .execute(&self.pool)
             .await
             .expect("Cannot delete bot from db");
     }
 
     pub async fn fetch_bots(&mut self) -> Vec<Bot> {
         sqlx::query_as::<_, BotsRow>("SELECT * from bots")
-            .fetch_all(&mut self.conn)
+            .fetch_all(&self.pool)
             .await
             .expect("Cannot fetch all bots")
             .into_iter()
@@ -226,7 +227,7 @@ impl Database {
 
     pub async fn fetch_builds(&mut self) -> Vec<Build> {
         sqlx::query_as::<_, BuildsRow>("SELECT * from builds")
-            .fetch_all(&mut self.conn)
+            .fetch_all(&self.pool)
             .await
             .expect("Cannot fetch all builds")
             .into_iter()
@@ -260,7 +261,7 @@ impl Database {
             .bind::<u8>(status)
             .bind::<Option<u8>>(result)
             .bind::<Option<&str>>(error)
-            .execute(&mut self.conn)
+            .execute(&self.pool)
             .await
             .expect("Cannot upsert build to db");
     }
@@ -271,18 +272,19 @@ impl Database {
     }
 
     pub async fn create_match(&mut self, m: &Match) -> MatchId {
-        let mut tx = self.conn.begin().await.expect("cannot start a transaction");
+        let mut tx = self.pool.begin().await.expect("cannot start a transaction");
 
-        let match_id: MatchId =
-            sqlx::query("INSERT INTO matches (seed, participant_cnt, attributes) VALUES ($1, $2, $3)")
-                .bind::<i64>(m.seed)
-                .bind::<u8>(m.participants.len() as _)
-                .bind::<&str>(&serde_json::to_string(&m.attributes).unwrap())
-                .execute(&mut *tx)
-                .await
-                .expect("Cannot create match in db")
-                .last_insert_rowid()
-                .into();
+        let match_id: MatchId = sqlx::query(
+            "INSERT INTO matches (seed, participant_cnt, attributes) VALUES ($1, $2, $3)",
+        )
+        .bind::<i64>(m.seed)
+        .bind::<u8>(m.participants.len() as _)
+        .bind::<&str>(&serde_json::to_string(&m.attributes).unwrap())
+        .execute(&mut *tx)
+        .await
+        .expect("Cannot create match in db")
+        .last_insert_rowid()
+        .into();
 
         for (index, p) in m.participants.iter().enumerate() {
             const SQL: &str = indoc! {
@@ -307,12 +309,12 @@ impl Database {
 
     pub async fn fetch_matches(&mut self) -> Vec<Match> {
         let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
-            .fetch_all(&mut self.conn)
+            .fetch_all(&self.pool)
             .await
             .expect("Cannot query matches from db");
 
         let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
-            .fetch_all(&mut self.conn)
+            .fetch_all(&self.pool)
             .await
             .expect("Cannot query matches from db");
 
