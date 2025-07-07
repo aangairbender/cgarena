@@ -4,9 +4,8 @@ use crate::domain::{
 use anyhow::bail;
 use chrono::{DateTime, Utc};
 use indoc::indoc;
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
-use sqlx::{migrate::MigrateDatabase, Sqlite};
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions};
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::warn;
@@ -143,17 +142,14 @@ const DB_FILE_NAME: &str = "cgarena.db";
 impl Database {
     pub async fn connect(arena_path: &Path) -> Self {
         let db_path = arena_path.join(DB_FILE_NAME);
-        let db_url = format!("sqlite://{}", db_path.display());
 
-        if !Sqlite::database_exists(&db_url).await.unwrap_or(false) {
-            Sqlite::create_database(&db_url)
-                .await
-                .expect("cannot create database");
-        }
-        let pool = SqlitePoolOptions::new()
-            .connect(&db_url)
+        let opts = SqliteConnectOptions::new()
+            .filename(db_path)
+            .create_if_missing(true);
+
+        let pool = SqlitePool::connect_with(opts)
             .await
-            .expect("cannot connect to database");
+            .expect("cannot connect to db");
 
         sqlx::migrate!()
             .run(&pool)
@@ -163,9 +159,26 @@ impl Database {
         Self { pool }
     }
 
+    pub async fn vacuum_db(arena_path: &Path) {
+        let db_path = arena_path.join(DB_FILE_NAME);
+
+        let mut conn = SqliteConnectOptions::new()
+            .filename(db_path)
+            .connect()
+            .await
+            .expect("cannot connect to database");
+
+        sqlx::query("VACUUM")
+            .execute(&mut conn)
+            .await
+            .expect("can't vacuum the db");
+    }
+
     /// for tests
     #[cfg(test)]
     pub async fn in_memory() -> (Self, SqlitePool) {
+        use sqlx::sqlite::SqlitePoolOptions;
+
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -297,16 +310,15 @@ impl Database {
     pub async fn create_match(&mut self, m: &Match) -> MatchId {
         let mut tx = self.pool.begin().await.expect("cannot start a transaction");
 
-        let match_id: MatchId = sqlx::query(
-            "INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)",
-        )
-        .bind::<i64>(m.seed)
-        .bind::<u8>(m.participants.len() as _)
-        .execute(&mut *tx)
-        .await
-        .expect("Cannot create match in db")
-        .last_insert_rowid()
-        .into();
+        let match_id: MatchId =
+            sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)")
+                .bind::<i64>(m.seed)
+                .bind::<u8>(m.participants.len() as _)
+                .execute(&mut *tx)
+                .await
+                .expect("Cannot create match in db")
+                .last_insert_rowid()
+                .into();
 
         for (index, p) in m.participants.iter().enumerate() {
             const SQL: &str = indoc! {

@@ -38,6 +38,12 @@ enum Commands {
         /// If omitted the current working directory is used.
         path: Option<String>,
     },
+    /// Vacuum DB - clean up space taken by deleted data (e.g. matches).
+    VacuumDB {
+        /// Path to the arena directory.
+        /// If omitted the current working directory is used.
+        path: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -51,6 +57,10 @@ async fn main() {
         Commands::Run { path } => {
             let path = unwrap_or_current_dir(path);
             arena_server::start(&path).await;
+        }
+        Commands::VacuumDB { path } => {
+            let path = unwrap_or_current_dir(path);
+            db::Database::vacuum_db(&path).await;
         }
     }
 }

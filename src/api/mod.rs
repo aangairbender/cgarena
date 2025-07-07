@@ -36,9 +36,9 @@ async fn create_router(app_state: AppState) -> Router {
     let api_router = Router::new()
         .route("/bots", post(create_bot))
         .route("/bots", get(fetch_bots))
-        .route("/bots/:id", delete(delete_bot))
-        .route("/bots/:id", get(fetch_bot_leaderboard))
-        .route("/bots/:id", patch(rename_bot))
+        .route("/bots/{id}", delete(delete_bot))
+        .route("/bots/{id}", get(fetch_bot_leaderboard))
+        .route("/bots/{id}", patch(rename_bot))
         .with_state(app_state);
 
     create_web_router()

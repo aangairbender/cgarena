@@ -1,7 +1,12 @@
 use std::time::Duration;
 
 use crate::{
-    arena_handle::ArenaHandle, attribute_index::AttributeKind, config::Config, db::Database, domain::*, worker::{BuildBotInput, BuildBotOutput, PlayMatchOutput, WorkerHandle}
+    arena_handle::ArenaHandle,
+    attribute_index::AttributeKind,
+    config::Config,
+    db::Database,
+    domain::*,
+    worker::{BuildBotInput, BuildBotOutput, PlayMatchOutput, WorkerHandle},
 };
 use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool};
@@ -18,7 +23,7 @@ struct TestArena {
 
 async fn create_test_arena<F1>(config: Config, builder: F1) -> TestArena
 where
-    F1: Fn(BuildBotInput) -> BuildResult + Send + 'static
+    F1: Fn(BuildBotInput) -> BuildResult + Send + 'static,
 {
     let (db, pool) = Database::in_memory().await;
     let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(16);
@@ -419,7 +424,6 @@ async fn cmd_fetch_leaderboard_works() {
     check_item(&res3.items[1], bot2, 1);
 }
 
-
 #[tokio::test]
 async fn cmd_fetch_leaderboard_e2e() {
     let config = Config::default();
@@ -463,22 +467,70 @@ async fn cmd_fetch_leaderboard_e2e() {
     let fake_match_result = PlayMatchOutput {
         seed: 1234,
         participants: vec![
-            Participant { bot_id: b1, rank: 0, error: false },
-            Participant { bot_id: b2, rank: 1, error: false },
+            Participant {
+                bot_id: b1,
+                rank: 0,
+                error: false,
+            },
+            Participant {
+                bot_id: b2,
+                rank: 1,
+                error: false,
+            },
         ],
         attributes: {
             let mut initial = vec![
-                MatchAttribute { name: "seed".to_string(), bot_id: None, turn: None, value: "1234".to_string() },
-                MatchAttribute { name: "map_type".to_string(), bot_id: None, turn: None, value: "small".to_string() },
-                MatchAttribute { name: "stones_percentage".to_string(), bot_id: None, turn: None, value: "0.75".to_string() },
-                MatchAttribute { name: "final_score".to_string(), bot_id: Some(b1), turn: None, value: "75".to_string() },
-                MatchAttribute { name: "final_score".to_string(), bot_id: Some(b2), turn: None, value: "50".to_string() },
+                MatchAttribute {
+                    name: "seed".to_string(),
+                    bot_id: None,
+                    turn: None,
+                    value: "1234".to_string(),
+                },
+                MatchAttribute {
+                    name: "map_type".to_string(),
+                    bot_id: None,
+                    turn: None,
+                    value: "small".to_string(),
+                },
+                MatchAttribute {
+                    name: "stones_percentage".to_string(),
+                    bot_id: None,
+                    turn: None,
+                    value: "0.75".to_string(),
+                },
+                MatchAttribute {
+                    name: "final_score".to_string(),
+                    bot_id: Some(b1),
+                    turn: None,
+                    value: "75".to_string(),
+                },
+                MatchAttribute {
+                    name: "final_score".to_string(),
+                    bot_id: Some(b2),
+                    turn: None,
+                    value: "50".to_string(),
+                },
             ];
 
             for turn in 0..=5 {
-                initial.push(MatchAttribute { name: "bombs_revealed".to_string(), bot_id: None, turn: Some(turn), value: (3 * turn).to_string() });
-                initial.push(MatchAttribute { name: "score".to_string(), bot_id: Some(b1), turn: Some(turn), value: (15 * turn).to_string() });
-                initial.push(MatchAttribute { name: "score".to_string(), bot_id: Some(b2), turn: Some(turn), value: (10 * turn).to_string() });
+                initial.push(MatchAttribute {
+                    name: "bombs_revealed".to_string(),
+                    bot_id: None,
+                    turn: Some(turn),
+                    value: (3 * turn).to_string(),
+                });
+                initial.push(MatchAttribute {
+                    name: "score".to_string(),
+                    bot_id: Some(b1),
+                    turn: Some(turn),
+                    value: (15 * turn).to_string(),
+                });
+                initial.push(MatchAttribute {
+                    name: "score".to_string(),
+                    bot_id: Some(b2),
+                    turn: Some(turn),
+                    value: (10 * turn).to_string(),
+                });
             }
 
             initial
@@ -513,10 +565,52 @@ async fn cmd_fetch_leaderboard_e2e() {
 
     assert!(item1.rating.score() > item2.rating.score());
 
-    assert_eq!(*res3.attribute_index.common_global_attributes.get("seed").unwrap(), AttributeKind::Integer);
-    assert_eq!(*res3.attribute_index.common_global_attributes.get("map_type").unwrap(), AttributeKind::String);
-    assert_eq!(*res3.attribute_index.common_global_attributes.get("stones_percentage").unwrap(), AttributeKind::Float);
-    assert_eq!(*res3.attribute_index.common_turn_attributes.get("bombs_revealed").unwrap(), AttributeKind::Integer);
-    assert_eq!(*res3.attribute_index.player_global_attributes.get("final_score").unwrap(), AttributeKind::Integer);
-    assert_eq!(*res3.attribute_index.player_turn_attributes.get("score").unwrap(), AttributeKind::Integer);
+    assert_eq!(
+        *res3
+            .attribute_index
+            .common_global_attributes
+            .get("seed")
+            .unwrap(),
+        AttributeKind::Integer
+    );
+    assert_eq!(
+        *res3
+            .attribute_index
+            .common_global_attributes
+            .get("map_type")
+            .unwrap(),
+        AttributeKind::String
+    );
+    assert_eq!(
+        *res3
+            .attribute_index
+            .common_global_attributes
+            .get("stones_percentage")
+            .unwrap(),
+        AttributeKind::Float
+    );
+    assert_eq!(
+        *res3
+            .attribute_index
+            .common_turn_attributes
+            .get("bombs_revealed")
+            .unwrap(),
+        AttributeKind::Integer
+    );
+    assert_eq!(
+        *res3
+            .attribute_index
+            .player_global_attributes
+            .get("final_score")
+            .unwrap(),
+        AttributeKind::Integer
+    );
+    assert_eq!(
+        *res3
+            .attribute_index
+            .player_turn_attributes
+            .get("score")
+            .unwrap(),
+        AttributeKind::Integer
+    );
 }

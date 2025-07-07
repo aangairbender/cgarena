@@ -69,6 +69,10 @@ fn known_bot_ids(worker_path: &Path) -> Vec<BotId> {
     let bots_folder = worker_path.join(DIR_BOTS);
     let mut res = vec![];
 
+    if !bots_folder.exists() {
+        return vec![];
+    }
+
     for entry in std::fs::read_dir(bots_folder).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
