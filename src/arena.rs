@@ -1,3 +1,4 @@
+use crate::attribute_index::AttributeIndex;
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
 use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceCode, WorkerName};
@@ -71,6 +72,7 @@ pub struct FetchLeaderboardCommand {
 pub struct FetchLeaderboardResult {
     pub bot_overview: LeaderboardBotOverview,
     pub items: Vec<LeaderboardItem>,
+    pub attribute_index: AttributeIndex,
 }
 
 pub struct LeaderboardBotOverview {
@@ -146,6 +148,7 @@ struct Arena {
     builds: Vec<Build>,
     worker_handle: WorkerHandle,
     stats: Statistic,
+    attribute_index: AttributeIndex,
     match_queue: VecDeque<PlayMatchInput>,
 }
 
@@ -166,6 +169,7 @@ impl Arena {
             matches: Default::default(),
             builds: Default::default(),
             stats: Statistic::new_without_filter(ranker),
+            attribute_index: Default::default(),
             match_queue: Default::default(),
         }
     }
@@ -396,6 +400,7 @@ impl Arena {
         Some(FetchLeaderboardResult {
             bot_overview,
             items,
+            attribute_index: self.attribute_index.clone(),
         })
     }
 
@@ -482,6 +487,7 @@ impl Arena {
             self.matches.push(new_match);
 
             self.stats.process(self.matches.last().unwrap());
+            self.attribute_index.process(self.matches.last().unwrap());
         }
     }
 
@@ -541,8 +547,10 @@ impl Arena {
     #[instrument(skip(self))]
     fn recalculate_computed_full(&mut self) {
         self.stats.reset();
+        self.attribute_index.reset();
         for m in &self.matches {
             self.stats.process(m);
+            self.attribute_index.process(m);
         }
     }
 }

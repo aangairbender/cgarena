@@ -1,4 +1,6 @@
-use crate::domain::{Bot, BotId, Build, BuildResult, BuildStatus, Match, MatchId, Participant};
+use crate::domain::{
+    Bot, BotId, Build, BuildResult, BuildStatus, Match, MatchAttribute, MatchId, Participant,
+};
 use anyhow::bail;
 use chrono::{DateTime, Utc};
 use indoc::indoc;
@@ -23,7 +25,6 @@ struct MatchesRow {
     pub id: i64,
     pub seed: i64,
     pub participant_cnt: u8,
-    pub attributes: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -42,6 +43,28 @@ pub struct BuildsRow {
     pub status: u8,
     pub result: Option<u8>,
     pub error: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct MatchAttributesRow {
+    #[allow(unused)]
+    pub id: i64,
+    pub name: String,
+    pub match_id: i64,
+    pub bot_id: Option<i64>,
+    pub turn: Option<u16>,
+    pub value: String,
+}
+
+impl From<MatchAttributesRow> for MatchAttribute {
+    fn from(row: MatchAttributesRow) -> Self {
+        MatchAttribute {
+            name: row.name,
+            bot_id: row.bot_id.map(|id| id.into()),
+            turn: row.turn,
+            value: row.value,
+        }
+    }
 }
 
 impl TryFrom<BuildsRow> for Build {
@@ -87,10 +110,12 @@ impl From<ParticipationsRow> for Participant {
     }
 }
 
-impl TryFrom<(MatchesRow, Vec<ParticipationsRow>)> for Match {
+impl TryFrom<(MatchesRow, Vec<ParticipationsRow>, Vec<MatchAttributesRow>)> for Match {
     type Error = anyhow::Error;
 
-    fn try_from((m, mut ps): (MatchesRow, Vec<ParticipationsRow>)) -> Result<Self, Self::Error> {
+    fn try_from(
+        (m, mut ps, ar): (MatchesRow, Vec<ParticipationsRow>, Vec<MatchAttributesRow>),
+    ) -> Result<Self, Self::Error> {
         if m.participant_cnt as usize != ps.len() {
             bail!("participant count mismatch");
         }
@@ -104,10 +129,7 @@ impl TryFrom<(MatchesRow, Vec<ParticipationsRow>)> for Match {
             id: m.id.into(),
             seed: m.seed,
             participants: ps.into_iter().map(|p| p.into()).collect(),
-            attributes: m
-                .attributes
-                .map(|a| serde_json::from_str(&a).unwrap())
-                .unwrap_or_default(),
+            attributes: ar.into_iter().map(|p| p.into()).collect(),
         })
     }
 }
@@ -142,6 +164,7 @@ impl Database {
     }
 
     /// for tests
+    #[cfg(test)]
     pub async fn in_memory() -> (Self, SqlitePool) {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -275,11 +298,10 @@ impl Database {
         let mut tx = self.pool.begin().await.expect("cannot start a transaction");
 
         let match_id: MatchId = sqlx::query(
-            "INSERT INTO matches (seed, participant_cnt, attributes) VALUES ($1, $2, $3)",
+            "INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)",
         )
         .bind::<i64>(m.seed)
         .bind::<u8>(m.participants.len() as _)
-        .bind::<&str>(&serde_json::to_string(&m.attributes).unwrap())
         .execute(&mut *tx)
         .await
         .expect("Cannot create match in db")
@@ -303,6 +325,23 @@ impl Database {
                 .expect("Cannot create participation in db");
         }
 
+        for attr in &m.attributes {
+            const SQL: &str = indoc! {
+                "INSERT INTO match_attributes (name, match_id, bot_id, turn, value) \
+                VALUES ($1, $2, $3, $4, $5)"
+            };
+
+            sqlx::query(SQL)
+                .bind::<&str>(&attr.name)
+                .bind::<i64>(match_id.into())
+                .bind::<Option<i64>>(attr.bot_id.map(|id| id.into()))
+                .bind::<Option<u16>>(attr.turn)
+                .bind::<&str>(&attr.value)
+                .execute(&mut *tx)
+                .await
+                .expect("Cannot create match attribute in db");
+        }
+
         tx.commit().await.expect("cannot commit transaction");
         match_id
     }
@@ -316,11 +355,16 @@ impl Database {
         let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
             .fetch_all(&self.pool)
             .await
-            .expect("Cannot query matches from db");
+            .expect("Cannot query match participations from db");
+
+        let attributes: Vec<MatchAttributesRow> = sqlx::query_as("SELECT * from match_attributes")
+            .fetch_all(&self.pool)
+            .await
+            .expect("Cannot query match attributes from db");
 
         let mut combined = HashMap::with_capacity(matches.len());
         for m in matches {
-            combined.insert(m.id, (m, vec![]));
+            combined.insert(m.id, (m, vec![], vec![]));
         }
         for p in participations {
             combined
@@ -328,6 +372,13 @@ impl Database {
                 .expect("Participation does not match any match in db")
                 .1
                 .push(p);
+        }
+        for attr in attributes {
+            combined
+                .get_mut(&attr.match_id)
+                .expect("Match attribute does not match any match in db")
+                .2
+                .push(attr);
         }
 
         combined

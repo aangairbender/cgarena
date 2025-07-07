@@ -1,12 +1,9 @@
+use std::time::Duration;
+
 use crate::{
-    arena_handle::ArenaHandle,
-    config::Config,
-    db::Database,
-    domain::*,
-    worker::{BuildBotInput, BuildBotOutput, PlayMatchInput, PlayMatchOutput, WorkerHandle},
+    arena_handle::ArenaHandle, attribute_index::AttributeKind, config::Config, db::Database, domain::*, worker::{BuildBotInput, BuildBotOutput, PlayMatchOutput, WorkerHandle}
 };
-use chrono::{DateTime, Duration, Utc};
-use itertools::Itertools;
+use chrono::{DateTime, Utc};
 use sqlx::{Row, SqlitePool};
 use tokio_util::sync::CancellationToken;
 
@@ -16,18 +13,18 @@ struct TestArena {
     handle: ArenaHandle,
     cancellation_token: CancellationToken,
     pool: SqlitePool,
+    match_result_tx: tokio::sync::mpsc::Sender<PlayMatchOutput>,
 }
 
-async fn create_test_arena<F1, F2>(config: Config, builder: F1, runner: F2) -> TestArena
+async fn create_test_arena<F1>(config: Config, builder: F1) -> TestArena
 where
-    F1: Fn(BuildBotInput) -> BuildResult + Send + 'static,
-    F2: Fn(PlayMatchInput) -> PlayMatchOutput + Send + 'static,
+    F1: Fn(BuildBotInput) -> BuildResult + Send + 'static
 {
     let (db, pool) = Database::in_memory().await;
     let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(16);
     let cancellation_token = CancellationToken::new();
     let (match_result_tx, match_result_rx) = tokio::sync::mpsc::channel(100);
-    let (match_tx, mut match_rx) = tokio::sync::mpsc::channel(16);
+    let (match_tx, _match_rx) = tokio::sync::mpsc::channel(16);
     let (build_tx, mut build_rx) = tokio::sync::mpsc::channel(1);
     let worker_handle = WorkerHandle {
         match_tx,
@@ -47,12 +44,15 @@ where
         }
     });
 
-    tokio::spawn(async move {
-        while let Some(input) = match_rx.recv().await {
-            let output = runner(input);
-            match_result_tx.send(output).await.unwrap();
-        }
-    });
+    // if let Some(runner) = runner {
+    //     let match_result_tx_2 = match_result_tx.clone();
+    //     tokio::spawn(async move {
+    //         while let Some(input) = match_rx.recv().await {
+    //             let output = runner(input);
+    //             match_result_tx_2.send(output).await.unwrap();
+    //         }
+    //     });
+    // }
 
     let handle = ArenaHandle::new(commands_tx);
     tokio::spawn(run(
@@ -69,31 +69,14 @@ where
         handle,
         cancellation_token,
         pool,
-    }
-}
-
-fn lowest_id_wins(input: PlayMatchInput) -> PlayMatchOutput {
-    PlayMatchOutput {
-        seed: input.seed,
-        participants: input
-            .bots
-            .into_iter()
-            .sorted_by_key(|b| Into::<i64>::into(b.bot_id))
-            .enumerate()
-            .map(|(i, b)| Participant {
-                bot_id: b.bot_id,
-                rank: i as u8,
-                error: false,
-            })
-            .collect_vec(),
-        attributes: MatchAttributes::default(),
+        match_result_tx,
     }
 }
 
 #[tokio::test]
 async fn cmd_create_bot_should_create_record_in_db() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
@@ -137,7 +120,7 @@ async fn cmd_create_bot_should_create_record_in_db() {
 
     let db_created_at: DateTime<Utc> = row.get("created_at");
     assert!(db_created_at > now);
-    assert!(now < db_created_at + Duration::seconds(1));
+    assert!(now < db_created_at + Duration::from_secs(1));
 
     arena.cancellation_token.cancel();
 }
@@ -145,7 +128,7 @@ async fn cmd_create_bot_should_create_record_in_db() {
 #[tokio::test]
 async fn cmd_create_bot_should_fail_on_duplicate_name() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
@@ -181,7 +164,7 @@ async fn cmd_create_bot_should_fail_on_duplicate_name() {
 #[tokio::test]
 async fn cmd_rename_bot_works() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
@@ -223,7 +206,7 @@ async fn cmd_rename_bot_works() {
 #[tokio::test]
 async fn cmd_rename_bot_fails_on_duplicate_name() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
@@ -266,7 +249,7 @@ async fn cmd_rename_bot_fails_on_duplicate_name() {
 #[tokio::test]
 async fn cmd_rename_bot_fails_if_no_bot_with_id() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_id: BotId = 1i64.into();
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
@@ -281,7 +264,7 @@ async fn cmd_rename_bot_fails_if_no_bot_with_id() {
 #[tokio::test]
 async fn cmd_delete_bot_works() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
@@ -314,7 +297,7 @@ async fn cmd_delete_bot_works() {
 #[tokio::test]
 async fn cmd_fetch_all_bots_works() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
@@ -366,7 +349,7 @@ async fn cmd_fetch_all_bots_works() {
 #[tokio::test]
 async fn cmd_fetch_leaderboard_works() {
     let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success, lowest_id_wins).await;
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
 
     let bot_name_1: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
@@ -434,4 +417,106 @@ async fn cmd_fetch_leaderboard_works() {
 
     check_item(&res3.items[0], bot1, 1);
     check_item(&res3.items[1], bot2, 1);
+}
+
+
+#[tokio::test]
+async fn cmd_fetch_leaderboard_e2e() {
+    let config = Config::default();
+
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
+
+    let bot_name_1: BotName = String::from("Bot1").try_into().unwrap();
+    let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_language: Language = String::from("rust").try_into().unwrap();
+
+    let res = arena
+        .handle
+        .create_bot(
+            bot_name_1.clone(),
+            bot_source_code.clone(),
+            bot_language.clone(),
+        )
+        .await;
+
+    let CreateBotResult::Created(bot1) = res else {
+        panic!("Bot creation should succeed");
+    };
+
+    let res2 = arena
+        .handle
+        .create_bot(
+            bot_name_2.clone(),
+            bot_source_code.clone(),
+            bot_language.clone(),
+        )
+        .await;
+
+    let CreateBotResult::Created(bot2) = res2 else {
+        panic!("Bot creation should succeed");
+    };
+
+    let b1 = bot1.id;
+    let b2 = bot2.id;
+
+    let fake_match_result = PlayMatchOutput {
+        seed: 1234,
+        participants: vec![
+            Participant { bot_id: b1, rank: 0, error: false },
+            Participant { bot_id: b2, rank: 1, error: false },
+        ],
+        attributes: {
+            let mut initial = vec![
+                MatchAttribute { name: "seed".to_string(), bot_id: None, turn: None, value: "1234".to_string() },
+                MatchAttribute { name: "map_type".to_string(), bot_id: None, turn: None, value: "small".to_string() },
+                MatchAttribute { name: "stones_percentage".to_string(), bot_id: None, turn: None, value: "0.75".to_string() },
+                MatchAttribute { name: "final_score".to_string(), bot_id: Some(b1), turn: None, value: "75".to_string() },
+                MatchAttribute { name: "final_score".to_string(), bot_id: Some(b2), turn: None, value: "50".to_string() },
+            ];
+
+            for turn in 0..=5 {
+                initial.push(MatchAttribute { name: "bombs_revealed".to_string(), bot_id: None, turn: Some(turn), value: (3 * turn).to_string() });
+                initial.push(MatchAttribute { name: "score".to_string(), bot_id: Some(b1), turn: Some(turn), value: (15 * turn).to_string() });
+                initial.push(MatchAttribute { name: "score".to_string(), bot_id: Some(b2), turn: Some(turn), value: (10 * turn).to_string() });
+            }
+
+            initial
+        },
+    };
+    arena.match_result_tx.send(fake_match_result).await.unwrap();
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let res3 = arena.handle.fetch_leaderboard(bot1.id).await;
+
+    let Some(res3) = res3 else {
+        panic!("Should return a leaderboard");
+    };
+
+    assert_eq!(res3.bot_overview.matches_played, 1);
+    assert_eq!(res3.bot_overview.matches_with_error, 0);
+    assert_eq!(res3.items.len(), 2);
+
+    let item1 = res3.items.iter().find(|w| w.id == b1).unwrap();
+    let item2 = res3.items.iter().find(|w| w.id == b2).unwrap();
+
+    assert_eq!(item1.rank, 1);
+    assert_eq!(item1.wins, 0);
+    assert_eq!(item1.loses, 0);
+    assert_eq!(item1.draws, 0);
+
+    assert_eq!(item2.rank, 2);
+    assert_eq!(item2.wins, 1);
+    assert_eq!(item2.loses, 0);
+    assert_eq!(item2.draws, 0);
+
+    assert!(item1.rating.score() > item2.rating.score());
+
+    assert_eq!(*res3.attribute_index.common_global_attributes.get("seed").unwrap(), AttributeKind::Integer);
+    assert_eq!(*res3.attribute_index.common_global_attributes.get("map_type").unwrap(), AttributeKind::String);
+    assert_eq!(*res3.attribute_index.common_global_attributes.get("stones_percentage").unwrap(), AttributeKind::Float);
+    assert_eq!(*res3.attribute_index.common_turn_attributes.get("bombs_revealed").unwrap(), AttributeKind::Integer);
+    assert_eq!(*res3.attribute_index.player_global_attributes.get("final_score").unwrap(), AttributeKind::Integer);
+    assert_eq!(*res3.attribute_index.player_turn_attributes.get("score").unwrap(), AttributeKind::Integer);
 }

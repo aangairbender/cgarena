@@ -1,15 +1,11 @@
-use std::collections::HashMap;
-
-use serde::{Deserialize, Serialize};
-
-use crate::domain::{BotId, MatchId};
+use crate::domain::{BotId, MatchAttribute, MatchId};
 
 // only successfully finished matches would be stored in DB
 pub struct Match {
     pub id: MatchId,
     pub seed: i64,
     pub participants: Vec<Participant>,
-    pub attributes: MatchAttributes,
+    pub attributes: Vec<MatchAttribute>,
 }
 
 pub struct Participant {
@@ -19,7 +15,11 @@ pub struct Participant {
 }
 
 impl Match {
-    pub fn new(seed: i64, participants: Vec<Participant>, attributes: MatchAttributes) -> Match {
+    pub fn new(
+        seed: i64,
+        participants: Vec<Participant>,
+        attributes: Vec<MatchAttribute>,
+    ) -> Match {
         Self {
             id: MatchId::UNINITIALIZED,
             seed,
@@ -27,29 +27,4 @@ impl Match {
             attributes,
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct MatchAttributes {
-    pub common: TargetMatchAttributes,
-    pub participants: Vec<TargetMatchAttributes>,
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct TargetMatchAttributes {
-    pub global: HashMap<String, MatchAttributeValue>,
-    pub turns: Vec<HashMap<String, MatchAttributeValue>>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MatchAttributeValue {
-    pub kind: MatchAttributeValueKind,
-    pub str_value: String,
-    pub f64_value: f64,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum MatchAttributeValueKind {
-    Number,
-    String,
 }
