@@ -1,6 +1,6 @@
 [package]
 name = "cgarena"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Yevhen Kazmin <gvoin16@gmail.com>"]
 repository = "https://github.com/aangairbender/cgarena"
