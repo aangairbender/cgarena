@@ -10,29 +10,29 @@ description = "Local bot arena with matchmaking, rating calculation and web ui."
 include = ["/assets", "/cg-arena-ui/dist", "/migrations", "/src"]
 
 [dependencies]
-tokio = { version = "1.28.1", features = ["full"] }
-tokio-util = { version = "0.7.13", features = ["rt"] }
+tokio = { version = "1.46", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
-anyhow = "1.0.89"
+anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "std"] }
-clap = { version = "4.2.7", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 serde_json = "1.0"
-chrono = { version = "0.4.38", features = ["serde"] }
-sqlx = { version = "0.8.2", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
-thiserror = "2.0.7"
-axum = "0.7.5"
+chrono = { version = "0.4", features = ["serde"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+thiserror = "2.0"
+axum = "0.8"
 mime = "0.3.17"
-rand = "0.8.5"
-tower-http = { version = "0.6.1", features = ["trace", "cors"] }
-indoc = "2.0.5"
-toml = "0.8.19"
-itertools = "0.13.0"
+rand = "0.9"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+indoc = "2.0"
+toml = "0.8"
+itertools = "0.14"
 skillratings = "0.27.1"
-rust-embed = "8.5.0"
+rust-embed = "8.7"
 mime_guess = "2.0.5"
-local-ip-address = "0.6.3"
+local-ip-address = "0.6.5"
 
 [dev-dependencies]
-tempfile = "3.12.0"
+tempfile = "3.20"
 assert_float_eq = "1.1.4"

@@ -2,7 +2,7 @@ use crate::config::{GameConfig, MatchmakingConfig};
 use crate::domain::BotId;
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
-use rand::{random, thread_rng, Rng};
+use rand::{random, rng, Rng};
 
 #[derive(Copy, Clone)]
 pub struct Candidate {
@@ -49,7 +49,7 @@ fn pick_participants(
 ) -> Vec<BotId> {
     assert!(candidates.len() >= game_config.min_players as usize);
 
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     let bot_ids = candidates.iter().map(|c| c.id).collect_vec();
 
@@ -61,19 +61,19 @@ fn pick_participants(
         .collect::<Vec<_>>();
 
     let first_bot_id = if !bot_ids_min_matches.is_empty()
-        && rng.gen::<f64>() < matchmaking_config.min_matches_preference
+        && rng.random::<f64>() < matchmaking_config.min_matches_preference
     {
-        bot_ids_min_matches[rng.gen_range(0..bot_ids_min_matches.len())]
+        bot_ids_min_matches[rng.random_range(0..bot_ids_min_matches.len())]
     } else {
-        bot_ids[rng.gen_range(0..bot_ids.len())]
+        bot_ids[rng.random_range(0..bot_ids.len())]
     };
 
-    let n_players = rng.gen_range(game_config.min_players..=game_config.max_players) as usize;
+    let n_players = rng.random_range(game_config.min_players..=game_config.max_players) as usize;
     let mut players = Vec::with_capacity(n_players);
     players.push(first_bot_id);
     while players.len() < n_players {
         let next_bot_id = loop {
-            let candidate_id = bot_ids[rng.gen_range(0..bot_ids.len())];
+            let candidate_id = bot_ids[rng.random_range(0..bot_ids.len())];
             if !players.contains(&candidate_id) {
                 break candidate_id;
             }
