@@ -2,12 +2,22 @@ body {
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
-.table > thead > tr > th {
+/* .table > thead > tr > th {
   background-color: #d9edf7;
   color: #333;
 }
 
 [data-bs-theme=dark] .table > thead > tr > th {
+  background-color: rgb(14, 48, 65);
+  color: rgb(200, 195, 188);
+} */
+
+.card-header {
+  background-color: #d9edf7;
+  color: #333;
+}
+
+[data-bs-theme=dark] .card-header {
   background-color: rgb(14, 48, 65);
   color: rgb(200, 195, 188);
 }
@@ -18,4 +28,14 @@ body {
 
 .table th, .table td {
   vertical-align: middle;
+}
+
+.table > tbody > tr:last-child > td {
+  border-bottom-width: 0;
+}
+
+.bi {
+  vertical-align: -.125em;
+  pointer-events: none;
+  fill: currentColor;
 }

@@ -14,7 +14,7 @@ interface LeaderboardProps {
 
 const Leaderboard = ({ data, selectBot }: LeaderboardProps) => {
   return (
-    <Table bordered hover>
+    <Table hover className="mb-0">
       <thead>
         <tr>
           <th style={{ width: "4%" }}>Rank</th>

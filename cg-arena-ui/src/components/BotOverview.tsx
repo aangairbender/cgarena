@@ -22,7 +22,7 @@ const BotOverview: React.FC<BotOverviewProps> = ({
   renameBot,
 }) => {
   return (
-    <Table bordered hover>
+    <Table hover className="mb-0">
       <thead>
         <tr>
           <th>Name</th>
