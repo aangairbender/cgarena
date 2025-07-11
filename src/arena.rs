@@ -1,10 +1,12 @@
 use crate::attribute_index::AttributeIndex;
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
-use crate::domain::{Bot, BotId, BotName, Build, Language, Match, Rating, SourceCode, WorkerName};
+use crate::domain::{
+    Bot, BotId, BotName, Build, Language, Leaderboard, LeaderboardId, LeaderboardName, Match,
+    MatchFilter, Rating, SourceCode, WorkerName,
+};
 use crate::matchmaking;
 use crate::ranking::Ranker;
-use crate::statistics::Statistic;
 use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
@@ -23,6 +25,31 @@ pub enum ArenaCommand {
     RenameBot(RenameBotCommand),
     FetchLeaderboard(FetchLeaderboardCommand),
     FetchBots(FetchBotsCommand),
+    CreateLeaderboard(CreateLeaderboardCommand),
+    DeleteLeaderboard(DeleteLeaderboardCommand),
+    RenameLeaderboard(RenameLeaderboardCommand),
+}
+
+pub struct CreateLeaderboardCommand {
+    pub name: LeaderboardName,
+    pub filter: MatchFilter,
+    pub response: oneshot::Sender<LeaderboardId>,
+}
+
+pub struct RenameLeaderboardCommand {
+    pub id: LeaderboardId,
+    pub new_name: LeaderboardName,
+    pub response: oneshot::Sender<RenameLeaderboardResult>,
+}
+
+pub enum RenameLeaderboardResult {
+    Renamed,
+    NotFound,
+}
+
+pub struct DeleteLeaderboardCommand {
+    pub id: LeaderboardId,
+    pub response: oneshot::Sender<()>,
 }
 
 pub struct FetchBotsCommand {
@@ -147,7 +174,9 @@ struct Arena {
     matches: Vec<Match>,
     builds: Vec<Build>,
     worker_handle: WorkerHandle,
-    stats: Statistic,
+    ranker: Ranker,
+    global_leaderboard: Leaderboard,
+    custom_leaderboards: Vec<Leaderboard>,
     attribute_index: AttributeIndex,
     match_queue: VecDeque<PlayMatchInput>,
 }
@@ -165,10 +194,12 @@ impl Arena {
             matchmaking_config,
             db,
             worker_handle,
+            ranker,
             bots: Default::default(),
             matches: Default::default(),
             builds: Default::default(),
-            stats: Statistic::new_without_filter(ranker),
+            global_leaderboard: Leaderboard::global(),
+            custom_leaderboards: Default::default(),
             attribute_index: Default::default(),
             match_queue: Default::default(),
         }
@@ -193,6 +224,7 @@ impl Arena {
         self.bots = self.db.fetch_bots().await;
         self.matches = self.db.fetch_matches().await;
         self.builds = self.db.fetch_builds().await;
+        self.custom_leaderboards = self.db.fetch_leaderboards().await;
     }
 
     pub async fn reset_stale_builds(&mut self) {
@@ -342,9 +374,9 @@ impl Arena {
             id: target.id,
             name: target.name.clone(),
             language: target.language.clone(),
-            rating: self.stats.rating(target.id),
-            matches_played: self.stats.matches_played(target.id),
-            matches_with_error: self.stats.matches_with_error(target.id),
+            rating: self.rating(target.id),
+            matches_played: self.global_leaderboard.stats.matches_played(target.id),
+            matches_with_error: self.global_leaderboard.stats.matches_with_error(target.id),
             builds: self
                 .builds
                 .iter()
@@ -355,11 +387,11 @@ impl Arena {
 
         let mut items = Vec::with_capacity(self.bots.len());
         for bot in &self.bots {
-            let rating = self.stats.rating(bot.id);
+            let rating = self.rating(bot.id);
             let stronger_bots_cnt = self
                 .bots
                 .iter()
-                .filter(|b| rating.score() < self.stats.rating(b.id).score())
+                .filter(|b| rating.score() < self.rating(b.id).score())
                 .count();
 
             let mut wins = 0;
@@ -404,6 +436,44 @@ impl Arena {
         })
     }
 
+    async fn cmd_create_leaderboard(
+        &mut self,
+        name: LeaderboardName,
+        filter: MatchFilter,
+    ) -> LeaderboardId {
+        let mut leaderboard = Leaderboard::new(name, filter);
+        self.db.persist_leaderboard(&mut leaderboard).await;
+        let id = leaderboard.id;
+        self.custom_leaderboards.push(leaderboard);
+        id
+    }
+
+    async fn cmd_rename_leaderboard(
+        &mut self,
+        id: LeaderboardId,
+        new_name: LeaderboardName,
+    ) -> RenameLeaderboardResult {
+        let Some(leaderboard) = self.custom_leaderboards.iter_mut().find(|w| w.id == id) else {
+            return RenameLeaderboardResult::NotFound;
+        };
+
+        leaderboard.name = new_name;
+        self.db.persist_leaderboard(leaderboard).await;
+        RenameLeaderboardResult::Renamed
+    }
+
+    async fn cmd_delete_leaderboard(&mut self, id: LeaderboardId) {
+        self.db.delete_leaderboard(id).await;
+        self.custom_leaderboards.retain(|w| w.id != id);
+    }
+
+    fn rating(&self, id: BotId) -> Rating {
+        self.global_leaderboard
+            .stats
+            .rating(id)
+            .unwrap_or_else(|| self.ranker.default_rating())
+    }
+
     pub async fn handle_command(&mut self, command: ArenaCommand) {
         match command {
             ArenaCommand::CreateBot(command) => {
@@ -434,6 +504,28 @@ impl Arena {
             }
             ArenaCommand::FetchLeaderboard(command) => {
                 let res = self.cmd_fetch_leaderboard(command.bot_id).await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::CreateLeaderboard(command) => {
+                let res = self
+                    .cmd_create_leaderboard(command.name, command.filter)
+                    .await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::DeleteLeaderboard(command) => {
+                let res = self.cmd_delete_leaderboard(command.id).await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::RenameLeaderboard(command) => {
+                let res = self
+                    .cmd_rename_leaderboard(command.id, command.new_name)
+                    .await;
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }
@@ -486,7 +578,11 @@ impl Arena {
             self.db.persist_match(&mut new_match).await;
             self.matches.push(new_match);
 
-            self.stats.process(self.matches.last().unwrap());
+            self.global_leaderboard
+                .process(&self.ranker, self.matches.last().unwrap());
+            for leaderboard in &mut self.custom_leaderboards {
+                leaderboard.process(&self.ranker, self.matches.last().unwrap());
+            }
             self.attribute_index.process(self.matches.last().unwrap());
         }
     }
@@ -515,7 +611,7 @@ impl Arena {
             .filter(|id| self.is_bot_ready_for_playing(*id))
             .map(|id| matchmaking::Candidate {
                 id,
-                matches_played: self.stats.matches_played(id),
+                matches_played: self.global_leaderboard.stats.matches_played(id),
             })
             .collect_vec();
 
@@ -546,10 +642,13 @@ impl Arena {
 
     #[instrument(skip(self))]
     fn recalculate_computed_full(&mut self) {
-        self.stats.reset();
+        self.global_leaderboard.reset();
         self.attribute_index.reset();
         for m in &self.matches {
-            self.stats.process(m);
+            self.global_leaderboard.process(&self.ranker, m);
+            for leaderboard in &mut self.custom_leaderboards {
+                leaderboard.process(&self.ranker, m);
+            }
             self.attribute_index.process(m);
         }
     }

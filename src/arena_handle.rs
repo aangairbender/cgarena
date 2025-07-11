@@ -1,9 +1,12 @@
 use crate::arena::{
-    ArenaCommand, BotMinimal, CreateBotCommand, CreateBotResult, DeleteBotCommand,
-    FetchBotsCommand, FetchLeaderboardCommand, FetchLeaderboardResult, RenameBotCommand,
-    RenameBotResult,
+    ArenaCommand, BotMinimal, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand,
+    DeleteBotCommand, DeleteLeaderboardCommand, FetchBotsCommand, FetchLeaderboardCommand,
+    FetchLeaderboardResult, RenameBotCommand, RenameBotResult, RenameLeaderboardCommand,
+    RenameLeaderboardResult,
 };
-use crate::domain::{BotId, BotName, Language, SourceCode};
+use crate::domain::{
+    BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
+};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Clone)]
@@ -64,6 +67,43 @@ impl ArenaHandle {
     pub async fn fetch_all_bots(&self) -> Vec<BotMinimal> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::FetchBots(FetchBotsCommand { response: tx })
+        })
+        .await
+    }
+
+    pub async fn create_leaderboard(
+        &self,
+        name: LeaderboardName,
+        filter: MatchFilter,
+    ) -> LeaderboardId {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::CreateLeaderboard(CreateLeaderboardCommand {
+                name,
+                filter,
+                response: tx,
+            })
+        })
+        .await
+    }
+
+    pub async fn rename_leaderboard(
+        &self,
+        id: LeaderboardId,
+        new_name: LeaderboardName,
+    ) -> RenameLeaderboardResult {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::RenameLeaderboard(RenameLeaderboardCommand {
+                id,
+                new_name,
+                response: tx,
+            })
+        })
+        .await
+    }
+
+    pub async fn delete_leaderboard(&self, id: LeaderboardId) {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::DeleteLeaderboard(DeleteLeaderboardCommand { id, response: tx })
         })
         .await
     }

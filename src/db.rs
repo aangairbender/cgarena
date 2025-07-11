@@ -1,5 +1,6 @@
 use crate::domain::{
-    Bot, BotId, Build, BuildResult, BuildStatus, Match, MatchAttribute, MatchId, Participant,
+    Bot, BotId, Build, BuildResult, BuildStatus, Leaderboard, LeaderboardId, Match, MatchAttribute,
+    MatchId, Participant,
 };
 use anyhow::bail;
 use chrono::{DateTime, Utc};
@@ -53,6 +54,24 @@ pub struct MatchAttributesRow {
     pub bot_id: Option<i64>,
     pub turn: Option<u16>,
     pub value: String,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct LeaderboardsRow {
+    pub id: i64,
+    pub name: String,
+    pub filter_json: String,
+}
+
+impl From<LeaderboardsRow> for Leaderboard {
+    fn from(row: LeaderboardsRow) -> Self {
+        Leaderboard {
+            id: row.id.into(),
+            name: row.name.try_into().expect("Invalid leaderboard name in db"),
+            filter: serde_json::from_str(&row.filter_json).expect("Invalid match filter in db"),
+            stats: Default::default(),
+        }
+    }
 }
 
 impl From<MatchAttributesRow> for MatchAttribute {
@@ -401,6 +420,70 @@ impl Database {
                     .inspect_err(|e| warn!("Invalid db data (match {}): {}. Skipping.", id, e))
                     .ok()
             })
+            .collect()
+    }
+
+    pub async fn persist_leaderboard(&mut self, leaderboard: &mut Leaderboard) {
+        if leaderboard.id == LeaderboardId::UNINITIALIZED {
+            leaderboard.id = self.insert_leaderboard(leaderboard).await;
+        } else {
+            self.update_leaderboard(leaderboard).await;
+        }
+    }
+
+    async fn insert_leaderboard(&mut self, leaderboard: &Leaderboard) -> LeaderboardId {
+        assert_eq!(leaderboard.id, LeaderboardId::UNINITIALIZED);
+        const SQL: &str = indoc! {"
+            INSERT INTO leaderboards (name, filter_json) \
+            VALUES ($1, $2) \
+        "};
+
+        let res = sqlx::query(SQL)
+            .bind::<&str>(&leaderboard.name)
+            .bind::<&str>(
+                &serde_json::to_string(&leaderboard.filter)
+                    .expect("Cannot serialize leaderboard filter"),
+            )
+            .execute(&self.pool)
+            .await
+            .expect("Cannot insert leaderboard to db");
+
+        LeaderboardId::from(res.last_insert_rowid())
+    }
+
+    /// only updates mutable fields
+    async fn update_leaderboard(&mut self, leaderboard: &Leaderboard) {
+        assert_ne!(leaderboard.id, LeaderboardId::UNINITIALIZED);
+        const SQL: &str = indoc! {"
+            UPDATE leaderboards SET name = $1 \
+            WHERE id = $2"
+        };
+
+        let res = sqlx::query(SQL)
+            .bind::<&str>(&leaderboard.name)
+            .bind::<i64>(leaderboard.id.into())
+            .execute(&self.pool)
+            .await
+            .expect("Cannot update leaderboard in db");
+
+        assert_eq!(res.rows_affected(), 1);
+    }
+
+    pub async fn delete_leaderboard(&mut self, id: LeaderboardId) {
+        sqlx::query("DELETE FROM leaderboards WHERE id = $1")
+            .bind::<i64>(id.into())
+            .execute(&self.pool)
+            .await
+            .expect("Cannot delete leaderboard from db");
+    }
+
+    pub async fn fetch_leaderboards(&mut self) -> Vec<Leaderboard> {
+        sqlx::query_as::<_, LeaderboardsRow>("SELECT * from leaderboards")
+            .fetch_all(&self.pool)
+            .await
+            .expect("Cannot fetch all leaderboards")
+            .into_iter()
+            .map(|item| item.into())
             .collect()
     }
 }

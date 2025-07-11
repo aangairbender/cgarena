@@ -10,7 +10,6 @@ mod db;
 mod domain;
 mod matchmaking;
 mod ranking;
-mod statistics;
 mod worker;
 
 use clap::{command, Parser, Subcommand};

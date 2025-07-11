@@ -33,4 +33,19 @@ impl ComputedStats {
             }
         }
     }
+
+    pub fn rating(&self, id: BotId) -> Option<Rating> {
+        self.ratings.get(&id).cloned()
+    }
+
+    pub fn matches_played(&self, id: BotId) -> u64 {
+        self.matches_played.get(&id).copied().unwrap_or_default()
+    }
+
+    pub fn matches_with_error(&self, id: BotId) -> u64 {
+        self.matches_with_error
+            .get(&id)
+            .copied()
+            .unwrap_or_default()
+    }
 }
