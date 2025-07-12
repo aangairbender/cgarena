@@ -1,5 +1,5 @@
 import "./App.css";
-import { Button, Card, Container } from "react-bootstrap";
+import { Button, Card, Container, OverlayTrigger, Tooltip } from "react-bootstrap";
 
 import SubmitBotDialog, { SubmitBotDialogData } from "@components/SubmitBotDialog";
 import AppNavbar from "@components/AppNavbar";
@@ -78,10 +78,25 @@ function App() {
           </Card.Body>
         </Card>
 
-        {leaderboards.map(lb => (
-          <Card className="mt-4" key={lb.id}>
+        {leaderboards.map(lb => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const renderTooltip = (props: any) => (
+            <Tooltip
+              id={`lb-${lb.id}-tooltip`}
+              {...props}
+            >
+              <div>
+                <div>{`Matches: ${lb.total_matches}`}</div>
+                {lb.id != GLOBAL_LEADERBOARD_ID && <div>{`Filter: ${lb.filter}`}</div>}
+              </div>
+            </Tooltip>
+          );
+
+          return <Card className="mt-4" key={lb.id}>
             <Card.Header className="d-flex justify-content-between align-items-center">
-              <div>{lb.name}</div>
+              <OverlayTrigger overlay={renderTooltip} placement="right">
+                <div>{lb.name}</div>
+              </OverlayTrigger>
               <div className="d-flex gap-2">
                 {lb.id != GLOBAL_LEADERBOARD_ID && (
                   <>
@@ -107,8 +122,8 @@ function App() {
             <Card.Body>
               <Leaderboard bots={bots} data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
             </Card.Body>
-          </Card>
-        ))}
+          </Card>;
+        })}
 
         <Container className="mt-4 d-flex justify-content-center">
           <Button

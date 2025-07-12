@@ -499,9 +499,9 @@ mod tests {
 
     #[test]
     fn filtering() {
-        let bot_id1: BotId = 1i64.into(); 
-        let bot_id2: BotId = 2i64.into(); 
-        let bot_id3: BotId = 3i64.into(); 
+        let bot_id1: BotId = 1i64.into();
+        let bot_id2: BotId = 2i64.into();
+        let bot_id3: BotId = 3i64.into();
 
         let attributes = vec![
             MatchAttribute {
@@ -561,20 +561,29 @@ mod tests {
 
         let filter = MatchFilter::from_str("match.map_type == \"small\"").unwrap();
         assert!(filter.matches(&m));
-        
+
         let filter = MatchFilter::from_str("match.stones_percentage == 0.75").unwrap();
         assert!(filter.matches(&m));
 
-        let filter = MatchFilter::from_str("match.stones_percentage > 0.7 AND match.stones_percentage < 0.8").unwrap();
+        let filter = MatchFilter::from_str(
+            "match.stones_percentage > 0.7 AND match.stones_percentage < 0.8",
+        )
+        .unwrap();
         assert!(filter.matches(&m));
 
         let filter = MatchFilter::from_str(&format!("bot({bot_id1}).final_score >= 75")).unwrap();
         assert!(filter.matches(&m));
-        
-        let filter = MatchFilter::from_str(&format!("bot({bot_id1}).final_score > bot({bot_id2}).final_score")).unwrap();
+
+        let filter = MatchFilter::from_str(&format!(
+            "bot({bot_id1}).final_score > bot({bot_id2}).final_score"
+        ))
+        .unwrap();
         assert!(filter.matches(&m));
 
-        let filter = MatchFilter::from_str(&format!("bot({bot_id1}).final_score < bot({bot_id2}).final_score")).unwrap();
+        let filter = MatchFilter::from_str(&format!(
+            "bot({bot_id1}).final_score < bot({bot_id2}).final_score"
+        ))
+        .unwrap();
         assert!(!filter.matches(&m));
 
         let filter = MatchFilter::from_str(&format!("bot({bot_id1})[50].score == 30")).unwrap();
@@ -585,7 +594,7 @@ mod tests {
 
         let filter = MatchFilter::from_str(&format!("bot({bot_id3}).final_score == 75")).unwrap();
         assert!(!filter.matches(&m));
-        
+
         let filter = MatchFilter::from_str("match.invalid_attr == 24").unwrap();
         assert!(!filter.matches(&m));
     }

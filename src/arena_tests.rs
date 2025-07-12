@@ -375,6 +375,7 @@ async fn cmd_fetch_leaderboard_works() {
     check_item(&leaderboard.items[1], bot2);
 
     assert_eq!(leaderboard.winrate_stats.len(), 0);
+    assert_eq!(leaderboard.total_matches, 0);
 }
 
 #[tokio::test]
@@ -521,4 +522,6 @@ async fn cmd_fetch_leaderboard_e2e() {
     assert_eq!(leaderboard.winrate_stats[&(bot2.id, bot1.id)].wins, 0);
     assert_eq!(leaderboard.winrate_stats[&(bot2.id, bot1.id)].draws, 0);
     assert_eq!(leaderboard.winrate_stats[&(bot2.id, bot1.id)].loses, 1);
+
+    assert_eq!(leaderboard.total_matches, 1);
 }

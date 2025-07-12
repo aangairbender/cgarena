@@ -23,10 +23,12 @@ export interface FetchStatusResponse {
 }
 
 export interface LeaderboardOverviewResponse {
-  id: LeaderboardId,
-  name: string,
+  id: LeaderboardId;
+  name: string;
+  filter: string;
   items: LeaderboardItemResponse[];
   winrate_stats: WinrateStatsResponse[];
+  total_matches: number;
 }
 
 export interface WinrateStatsResponse {

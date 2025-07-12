@@ -9,6 +9,7 @@ pub struct ComputedStats {
     ratings: HashMap<BotId, Rating>,
     winrate_stats: HashMap<(BotId, BotId), WinrateStats>,
     matches_with_error: HashMap<BotId, u64>,
+    total_matches: u64,
 }
 
 #[derive(Default, Clone)]
@@ -29,9 +30,12 @@ impl ComputedStats {
         self.ratings.clear();
         self.winrate_stats.clear();
         self.matches_with_error.clear();
+        self.total_matches = 0;
     }
 
     pub fn recalc_after_match(&mut self, ranker: &Ranker, m: &Match) {
+        self.total_matches += 1;
+
         // rating
         ranker.recalc_rating(&mut self.ratings, m);
 
@@ -87,5 +91,9 @@ impl ComputedStats {
             .get(&id)
             .copied()
             .unwrap_or_default()
+    }
+
+    pub fn total_matches(&self) -> u64 {
+        self.total_matches
     }
 }

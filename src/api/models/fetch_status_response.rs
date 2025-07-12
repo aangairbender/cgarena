@@ -28,8 +28,10 @@ impl From<FetchStatusResult> for FetchStatusResponse {
 pub struct LeaderboardOverviewResponse {
     pub id: i64,
     pub name: String,
+    pub filter: String,
     pub items: Vec<LeaderboardItemResponse>,
     pub winrate_stats: Vec<WinrateStatsResponse>,
+    pub total_matches: u64,
 }
 
 impl From<LeaderboardOverview> for LeaderboardOverviewResponse {
@@ -37,8 +39,10 @@ impl From<LeaderboardOverview> for LeaderboardOverviewResponse {
         LeaderboardOverviewResponse {
             id: value.id.into(),
             name: value.name.into(),
+            filter: value.filter,
             items: value.items.into_iter().map(Into::into).collect(),
             winrate_stats: value.winrate_stats.into_iter().map(Into::into).collect(),
+            total_matches: value.total_matches,
         }
     }
 }

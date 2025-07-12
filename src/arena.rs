@@ -101,8 +101,10 @@ pub struct BotOverview {
 pub struct LeaderboardOverview {
     pub id: LeaderboardId,
     pub name: LeaderboardName,
+    pub filter: String,
     pub items: Vec<LeaderboardItem>,
     pub winrate_stats: HashMap<(BotId, BotId), WinrateStats>,
+    pub total_matches: u64,
 }
 
 pub struct LeaderboardItem {
@@ -374,8 +376,8 @@ impl Arena {
             .iter()
             .map(|bot| LeaderboardItem {
                 id: bot.id,
-                rank: self.rank(bot.id),
-                rating: self.rating(bot.id),
+                rank: self.rank(leaderboard, bot.id),
+                rating: self.rating(leaderboard, bot.id),
             })
             .sorted_by_key(|item| item.rank)
             .collect_vec();
@@ -385,8 +387,10 @@ impl Arena {
         LeaderboardOverview {
             id: leaderboard.id,
             name: leaderboard.name.clone(),
+            filter: leaderboard.filter.to_string(),
             items,
             winrate_stats,
+            total_matches: leaderboard.stats.total_matches(),
         }
     }
 
@@ -422,19 +426,19 @@ impl Arena {
         self.custom_leaderboards.retain(|w| w.id != id);
     }
 
-    fn rating(&self, id: BotId) -> Rating {
-        self.global_leaderboard
+    fn rating(&self, leaderboard: &Leaderboard, id: BotId) -> Rating {
+        leaderboard
             .stats
             .rating(id)
             .unwrap_or_else(|| self.ranker.default_rating())
     }
 
-    fn rank(&self, id: BotId) -> usize {
-        let my_rating = self.rating(id);
+    fn rank(&self, leaderboard: &Leaderboard, id: BotId) -> usize {
+        let my_rating = self.rating(leaderboard, id);
         let stronger_bots_cnt = self
             .bots
             .iter()
-            .filter(|b| my_rating.score() < self.rating(b.id).score())
+            .filter(|b| my_rating.score() < self.rating(leaderboard, b.id).score())
             .count();
         stronger_bots_cnt
     }
