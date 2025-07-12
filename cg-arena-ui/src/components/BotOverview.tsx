@@ -4,8 +4,7 @@ import {
 } from "@models";
 import React from "react";
 import { Badge, Button, Stack, Table } from "react-bootstrap";
-import { FaTrash } from "react-icons/fa";
-import { FaPencil } from "react-icons/fa6";
+import { FaPencil, FaTrash } from "react-icons/fa6";
 
 interface BotOverviewProps {
   bot: BotOverviewResponse;
@@ -46,10 +45,10 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <td>
             <Stack direction="horizontal" gap={2}>
               <Button variant="outline-warning" size="sm" onClick={renameBot}>
-                <FaPencil />
+                <FaPencil className="bi"/>
               </Button>
               <Button variant="outline-danger" size="sm" onClick={deleteBot}>
-                <FaTrash />
+                <FaTrash className="bi"/>
               </Button>
             </Stack>
           </td>

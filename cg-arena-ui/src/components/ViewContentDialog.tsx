@@ -1,19 +1,22 @@
 import { DialogProps } from "@hooks/useDialog";
 import { Modal } from "react-bootstrap";
 
-interface Data {
+export interface ViewContentDialogData {
   title: string;
   content: string;
 }
 
-const ViewContentDialog = (dialog: DialogProps<Data>) => {
+const ViewContentDialog = (dialog: DialogProps<ViewContentDialogData>) => {
+  const data = dialog.data;
+  if (data === undefined) return null;
+
   return (
     <Modal show={dialog.isOpen} onHide={dialog.hide} scrollable fullscreen>
       <Modal.Header closeButton>
-        <Modal.Title>{dialog.data.title}</Modal.Title>
+        <Modal.Title>{data.title}</Modal.Title>
       </Modal.Header>
       <Modal.Body className="bg-secondary text-light">
-        {dialog.data.content}
+        {data.content}
       </Modal.Body>
     </Modal>
   );

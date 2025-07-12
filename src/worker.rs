@@ -10,7 +10,6 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::{oneshot, Semaphore};
 use tokio::{fs, process::Command};
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
 
 pub struct WorkerHandle {
     pub match_tx: Sender<PlayMatchInput>,
@@ -122,10 +121,6 @@ async fn build_bot(
 ) -> BuildResult {
     let bot_folder_relative = PathBuf::from(DIR_BOTS).join(i64::from(input.bot_id).to_string());
     let bot_folder = worker_path.join(&bot_folder_relative);
-    if bot_folder.exists() {
-        warn!("bot folder already exists, skipping build");
-        return BuildResult::Success;
-    }
 
     fs::create_dir_all(&bot_folder)
         .await

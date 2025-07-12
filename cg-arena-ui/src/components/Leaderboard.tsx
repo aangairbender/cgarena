@@ -1,6 +1,8 @@
 import Identicon from "@components/Identicon";
 import { useTheme } from "@hooks/useTheme";
 import {
+  BotId,
+  BotOverviewResponse,
   LeaderboardItemResponse,
   LeaderboardOverviewResponse,
   rating_score,
@@ -8,12 +10,13 @@ import {
 import { OverlayTrigger, Stack, Table, Tooltip } from "react-bootstrap";
 
 interface LeaderboardProps {
+  bots: BotOverviewResponse[];
   data: LeaderboardOverviewResponse;
-  selectedBotId: string | undefined;
-  selectBot: (botId: string) => void;
+  selectedBotId: BotId | undefined;
+  selectBot: (botId: BotId) => void;
 }
 
-const Leaderboard = ({ data, selectedBotId, selectBot }: LeaderboardProps) => {
+const Leaderboard = ({ bots, data, selectedBotId, selectBot }: LeaderboardProps) => {
   return (
     <Table hover className="mb-0">
       <thead>
@@ -34,6 +37,7 @@ const Leaderboard = ({ data, selectedBotId, selectBot }: LeaderboardProps) => {
           return (<Row
             key={item.id}
             item={item}
+            bot={bots.find(b => b.id == item.id)}
             stats={stats}
             selected={item.id == selectedBotId}
             select={() => selectBot(item.id)}
@@ -53,11 +57,16 @@ interface WinrateStats {
 interface RowProps {
   item: LeaderboardItemResponse;
   stats: WinrateStats | undefined;
+  bot: BotOverviewResponse | undefined;
   selected: boolean;
   select: () => void;
 }
 
-const Row = ({ item, stats, selected, select }: RowProps) => {
+const Row = ({ item, stats, bot, selected, select }: RowProps) => {
+  if (!bot) {
+    return null;
+  }
+
   return (
     <tr className={selected ? "highlighted-row" : ""}>
       <td>{item.rank + 1}</td>
@@ -65,7 +74,7 @@ const Row = ({ item, stats, selected, select }: RowProps) => {
         <Stack direction="horizontal">
           <Identicon input={item.id + ""} size={24} />
           <a href="#" style={{ marginLeft: "8px" }} onClick={select}>
-            {item.name}
+            {bot.name}
           </a>
         </Stack>
       </td>

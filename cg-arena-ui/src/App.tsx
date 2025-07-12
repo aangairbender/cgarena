@@ -1,17 +1,19 @@
 import "./App.css";
 import { Button, Card, Container } from "react-bootstrap";
 
-import SubmitBotDialog from "@components/SubmitBotDialog";
+import SubmitBotDialog, { SubmitBotDialogData } from "@components/SubmitBotDialog";
 import AppNavbar from "@components/AppNavbar";
 import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
-import ViewContentDialog from "@components/ViewContentDialog";
-import ConfirmDialog from "@components/ConfirmDialog";
-import RenameBotDialog from "@components/RenameBotDialog";
+import ViewContentDialog, { ViewContentDialogData } from "@components/ViewContentDialog";
+import ConfirmDialog, { ConfirmDialogData } from "@components/ConfirmDialog";
+import RenameBotDialog, { RenameBotDialogData } from "@components/RenameBotDialog";
 import { useAppLogic } from "@hooks/useAppLogic";
 import { useDialog } from "@hooks/useDialog";
-import { FaPlus } from "react-icons/fa6";
-import CreateLeaderboardDialog from "@components/CreateLeaderboardDialog";
+import { FaPencil, FaPlus, FaTrash } from "react-icons/fa6";
+import CreateLeaderboardDialog, { CreateLeaderboardDialogData } from "@components/CreateLeaderboardDialog";
+import RenameLeaderboardDialog, { RenameLeaderboardDialogData } from "@components/RenameLeaderboardDialog";
+import { GLOBAL_LEADERBOARD_ID } from "@models";
 
 function App() {
   const {
@@ -25,16 +27,16 @@ function App() {
     renameBot,
     autoRefresh,
     setAutoRefresh,
+    createLeaderboard,
+    renameLeaderboard,
+    deleteLeaderboard,
   } = useAppLogic();
-  const submitBotDialog = useDialog({ onSubmit: submitNewBot });
-  const viewContentDialog = useDialog({ title: "", content: "" });
-  const confirmDialog = useDialog({ prompt: "", action: () => {} });
-  const renameBotDialog = useDialog({
-    botId: "",
-    currentName: "",
-    onSubmit: renameBot,
-  });
-  const createLeaderboardDialog = useDialog({ onCreate: async () => {} });
+  const submitBotDialog = useDialog<SubmitBotDialogData>();
+  const viewContentDialog = useDialog<ViewContentDialogData>();
+  const confirmDialog = useDialog<ConfirmDialogData>();
+  const renameBotDialog = useDialog<RenameBotDialogData>();
+  const createLeaderboardDialog = useDialog<CreateLeaderboardDialogData>();
+  const renameLeaderboardDialog = useDialog<RenameLeaderboardDialogData>();
 
   const selectedBot = bots.find(b => b.id == selectedBotId);
 
@@ -78,9 +80,32 @@ function App() {
 
         {leaderboards.map(lb => (
           <Card className="mt-4" key={lb.id}>
-            <Card.Header>{lb.id == "0" ? "Global Leaderboard" : lb.name}</Card.Header>
+            <Card.Header className="d-flex justify-content-between align-items-center">
+              <div>{lb.name}</div>
+              <div className="d-flex gap-2">
+                {lb.id != GLOBAL_LEADERBOARD_ID && (
+                  <>
+                    <Button
+                      variant="outline-warning"
+                      size="sm"
+                      onClick={() => renameLeaderboardDialog.show({leaderboardId: lb.id, currentName: lb.name, onSubmit: renameLeaderboard})}
+                    >
+                      <FaPencil className="bi"/>
+                    </Button>
+
+                    <Button
+                      variant="outline-danger"
+                      size="sm"
+                      onClick={() => confirmDialog.show({ prompt: `Do you really want to delete leaderboard {lb.name}?`, action: () => deleteLeaderboard(lb.id)})}
+                    >
+                      <FaTrash className="bi"/>
+                    </Button>
+                  </>
+                )}
+              </div>
+            </Card.Header>
             <Card.Body>
-              <Leaderboard data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
+              <Leaderboard bots={bots} data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
             </Card.Body>
           </Card>
         ))}
@@ -89,7 +114,7 @@ function App() {
           <Button
             className="mx-1"
             variant="outline-secondary"
-            onClick={() => createLeaderboardDialog.show({ onCreate: async () => {} })}
+            onClick={() => createLeaderboardDialog.show({ onCreate: createLeaderboard })}
           >
             <FaPlus className="bi me-2" size={16} />
             New leaderboard
@@ -102,6 +127,7 @@ function App() {
       <ConfirmDialog {...confirmDialog} />
       <RenameBotDialog {...renameBotDialog} />
       <CreateLeaderboardDialog {...createLeaderboardDialog} />
+      <RenameLeaderboardDialog {...renameLeaderboardDialog} />
     </>
   );
 }

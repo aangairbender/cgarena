@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
+import { CreateLeaderboardRequest } from "@models";
 
-interface Data {
-  onCreate: () => Promise<void>;
+export interface CreateLeaderboardDialogData {
+  onCreate: (req: CreateLeaderboardRequest) => Promise<void>;
 }
 
-const CreateLeaderboardDialog = (dialog: DialogProps<Data>) => {
+const CreateLeaderboardDialog = (dialog: DialogProps<CreateLeaderboardDialogData>) => {
   const [name, setName] = useState("");
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
+
+  const data = dialog.data;
+  if (data === undefined) return null;
 
   const canCreate = name.length > 0;
 
@@ -20,8 +24,9 @@ const CreateLeaderboardDialog = (dialog: DialogProps<Data>) => {
   };
 
   const handleCreate = async () => {
+    const req: CreateLeaderboardRequest = { name, filter };
     try {
-      await dialog.data.onCreate();
+      await data.onCreate(req);
       closeDialog();
     } catch (e) {
       if (e instanceof Error) {

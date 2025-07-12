@@ -1,8 +1,13 @@
 import {
+  BotId,
   BotOverviewResponse,
   CreateBotRequest,
+  CreateLeaderboardRequest,
   FetchStatusResponse,
+  LeaderboardId,
+  LeaderboardOverviewResponse,
   RenameBotRequest,
+  RenameLeaderboardRequest,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -28,7 +33,7 @@ export const submitNewBot = async (
 };
 
 export const renameBot = async (
-  id: string,
+  id: BotId,
   payload: RenameBotRequest
 ) => {
   const req = new Request(`${host}/api/bots/${id}`, {
@@ -43,13 +48,54 @@ export const renameBot = async (
   await checkForErrors(response);
 };
 
-export const deleteBot = async (id: string) => {
+export const deleteBot = async (id: BotId) => {
   const req = new Request(`${host}/api/bots/${id}`, {
       method: "DELETE"
   });
   const response = await fetch(req);
   await checkForErrors(response);
 };
+
+
+export const createLeaderboard = async (
+  payload: CreateLeaderboardRequest
+): Promise<LeaderboardOverviewResponse> => {
+  const req = new Request(`${host}/api/leaderboards`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const response = await fetch(req);
+  return await parseResponse<LeaderboardOverviewResponse>(response);
+};
+
+export const renameLeaderboard = async (
+  id: LeaderboardId,
+  payload: RenameLeaderboardRequest,
+) => {
+  const req = new Request(`${host}/api/leaderboards/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const response = await fetch(req);
+  await checkForErrors(response);
+};
+
+export const deleteLeaderboard = async (id: LeaderboardId) => {
+  const req = new Request(`${host}/api/leaderboards/${id}`, {
+      method: "DELETE"
+  });
+  const response = await fetch(req);
+  await checkForErrors(response);
+};
+
 
 async function checkForErrors(response: Response) {
   if (response.status >= 500) {

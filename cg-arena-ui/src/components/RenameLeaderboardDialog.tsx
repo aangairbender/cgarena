@@ -1,22 +1,23 @@
 import { useState } from "react";
-import { BotId, RenameBotRequest } from "@models";
+import { LeaderboardId, RenameLeaderboardRequest } from "@models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
 
-export interface RenameBotDialogData {
-  botId: BotId;
+export interface RenameLeaderboardDialogData {
+  leaderboardId: LeaderboardId;
   currentName: string;
-  onSubmit: (id: BotId, req: RenameBotRequest) => Promise<void>;
+  onSubmit: (id: LeaderboardId, req: RenameLeaderboardRequest) => Promise<void>;
 }
 
-const RenameBotDialog = (dialog: DialogProps<RenameBotDialogData>) => {
+const RenameLeaderboardDialog = (dialog: DialogProps<RenameLeaderboardDialogData>) => {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
 
   const data = dialog.data;
   if (data === undefined) return null;
 
-  const canSubmit = name.length > 0 && name != data.currentName;
+
+  const canSubmit = name.length > 0;
 
   const closeDialog = () => {
     setName("");
@@ -25,9 +26,9 @@ const RenameBotDialog = (dialog: DialogProps<RenameBotDialogData>) => {
   };
 
   const handleSubmit = async () => {
-    const req: RenameBotRequest = { name };
+    const req: RenameLeaderboardRequest = { name };
     try {
-      await data.onSubmit(data.botId, req);
+      await data.onSubmit(data.leaderboardId, req);
       closeDialog();
     } catch (e) {
       if (e instanceof Error) {
@@ -41,18 +42,18 @@ const RenameBotDialog = (dialog: DialogProps<RenameBotDialogData>) => {
   return (
     <Modal show={dialog.isOpen} onHide={closeDialog} centered>
       <Modal.Header closeButton>
-        <Modal.Title>Rename bot</Modal.Title>
+        <Modal.Title>Rename leaderboard</Modal.Title>
       </Modal.Header>
       <Modal.Body>
         <Form.Group controlId="formName" className="mb-3">
           <Form.Label>Name</Form.Label>
           <Form.Control
-            placeholder="Bot's name"
+            placeholder="Leaderboard's name"
             defaultValue={data.currentName}
             onChange={(e) => setName(e.target.value)}
           />
           <Form.Text className="text-muted">
-            Non-empty string up to 32 characters long.
+            Non-empty string up to 64 characters long.
           </Form.Text>
         </Form.Group>
 
@@ -70,4 +71,4 @@ const RenameBotDialog = (dialog: DialogProps<RenameBotDialogData>) => {
   );
 };
 
-export default RenameBotDialog;
+export default RenameLeaderboardDialog;

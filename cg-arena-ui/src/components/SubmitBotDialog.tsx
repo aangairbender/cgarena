@@ -3,15 +3,18 @@ import { CreateBotRequest } from "@models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
 
-interface Data {
+export interface SubmitBotDialogData {
   onSubmit: (req: CreateBotRequest) => Promise<void>;
 }
 
-const SubmitBotDialog = (dialog: DialogProps<Data>) => {
+const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("");
   const [sourceCode, setSourceCode] = useState("");
   const [error, setError] = useState("");
+
+  const data = dialog.data;
+  if (data === undefined) return null;
 
   const canSubmit = name.length > 0 && sourceCode.length > 0 && language.length > 0;
 
@@ -30,7 +33,7 @@ const SubmitBotDialog = (dialog: DialogProps<Data>) => {
       source_code: sourceCode,
     };
     try {
-      await dialog.data.onSubmit(req);
+      await data.onSubmit(req);
       closeDialog();
     } catch (e) {
       if (e instanceof Error) {

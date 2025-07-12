@@ -1,14 +1,17 @@
 import { DialogProps } from "@hooks/useDialog";
 import { Button, Modal } from "react-bootstrap";
 
-interface Data {
+export interface ConfirmDialogData {
   prompt: string;
   action: () => void;
 }
 
-const ConfirmDialog = (dialog: DialogProps<Data>) => {
+const ConfirmDialog = (dialog: DialogProps<ConfirmDialogData>) => {
+  const data = dialog.data;
+  if (data === undefined) return null;
+
   const handleConfirm = () => {
-    dialog.data.action();
+    data.action();
     dialog.hide();
   };
 
@@ -17,7 +20,7 @@ const ConfirmDialog = (dialog: DialogProps<Data>) => {
       <Modal.Header closeButton>
         <Modal.Title>Confirmation</Modal.Title>
       </Modal.Header>
-      <Modal.Body>{dialog.data.prompt}</Modal.Body>
+      <Modal.Body>{data.prompt}</Modal.Body>
       <Modal.Footer>
         <Button variant="secondary" onClick={dialog.hide}>
           Cancel

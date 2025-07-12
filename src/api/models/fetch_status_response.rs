@@ -68,7 +68,6 @@ impl From<((BotId, BotId), WinrateStats)> for WinrateStatsResponse {
 pub struct LeaderboardItemResponse {
     pub id: i64,
     pub rank: usize,
-    pub name: String,
     pub rating_mu: f64,
     pub rating_sigma: f64,
 }
@@ -78,7 +77,6 @@ impl From<LeaderboardItem> for LeaderboardItemResponse {
         LeaderboardItemResponse {
             id: item.id.into(),
             rank: item.rank,
-            name: item.name.into(),
             rating_mu: item.rating.mu,
             rating_sigma: item.rating.sigma,
         }

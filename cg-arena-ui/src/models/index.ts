@@ -8,28 +8,37 @@ export interface RenameBotRequest {
   name: string;
 }
 
+export interface CreateLeaderboardRequest {
+  name: string;
+  filter: string;
+}
+
+export interface RenameLeaderboardRequest {
+  name: string;
+}
+
 export interface FetchStatusResponse {
   bots: BotOverviewResponse[];
   leaderboards: LeaderboardOverviewResponse[];
 }
 
 export interface LeaderboardOverviewResponse {
-  id: string,
+  id: LeaderboardId,
   name: string,
   items: LeaderboardItemResponse[];
   winrate_stats: WinrateStatsResponse[];
 }
 
 export interface WinrateStatsResponse {
-  bot_id: string;
-  opponent_bot_id: string;
+  bot_id: BotId;
+  opponent_bot_id: BotId;
   wins: number;
   loses: number;
   draws: number;
 }
 
 export interface BotOverviewResponse {
-  id: string;
+  id: BotId;
   name: string;
   language: string;
   matches_played: number;
@@ -39,8 +48,7 @@ export interface BotOverviewResponse {
 }
 
 export interface LeaderboardItemResponse {
-  id: string;
-  name: string;
+  id: BotId;
   rank: number,
   rating_mu: number;
   rating_sigma: number;
@@ -55,3 +63,8 @@ export interface BuildResponse {
 export function rating_score(item: LeaderboardItemResponse): number {
   return Number((item.rating_mu - item.rating_sigma * 3).toFixed(2));
 }
+
+export type BotId = number;
+export type LeaderboardId = number;
+
+export const GLOBAL_LEADERBOARD_ID = 0 as LeaderboardId;

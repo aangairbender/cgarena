@@ -1,9 +1,7 @@
-use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 use crate::domain::Match;
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum MatchFilter {
     Empty,
     Eq(String, String),
@@ -16,8 +14,18 @@ impl MatchFilter {
             _ => unimplemented!(),
         }
     }
+}
 
-    pub fn parse(_filter: &str) -> Result<MatchFilter, anyhow::Error> {
-        unimplemented!()
+impl FromStr for MatchFilter {
+    type Err = anyhow::Error;
+
+    fn from_str(_s: &str) -> Result<Self, Self::Err> {
+        Ok(MatchFilter::Empty)
+    }
+}
+
+impl ToString for MatchFilter {
+    fn to_string(&self) -> String {
+        "".to_string()
     }
 }

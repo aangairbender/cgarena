@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    api::{errors::ApiError, AppState},
+    api::{errors::ApiError, models::LeaderboardOverviewResponse, AppState},
     domain::{LeaderboardId, LeaderboardName, MatchFilter},
 };
 
@@ -18,7 +18,7 @@ pub struct CreateLeaderboardRequest {
 
 #[derive(Deserialize)]
 pub struct RenameLeaderboardRequest {
-    pub new_name: String,
+    pub name: String,
 }
 
 pub async fn create_leaderboard(
@@ -29,15 +29,14 @@ pub async fn create_leaderboard(
         .name
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
-    let filter: MatchFilter =
-        MatchFilter::parse(&payload.filter).map_err(ApiError::ValidationFailed)?;
+    let filter: MatchFilter = payload.filter.parse().map_err(ApiError::ValidationFailed)?;
 
-    app_state
+    let res = app_state
         .arena_handle
         .create_leaderboard(name, filter)
         .await;
 
-    Ok(())
+    Ok(Json(LeaderboardOverviewResponse::from(res)))
 }
 
 pub async fn rename_leaderboard(
@@ -47,7 +46,7 @@ pub async fn rename_leaderboard(
 ) -> Result<impl IntoResponse, ApiError> {
     let id: LeaderboardId = id.into();
     let new_name: LeaderboardName = payload
-        .new_name
+        .name
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
 

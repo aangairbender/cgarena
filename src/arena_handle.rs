@@ -1,7 +1,7 @@
 use crate::arena::{
     ArenaCommand, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand, DeleteBotCommand,
-    DeleteLeaderboardCommand, FetchStatusCommand, FetchStatusResult, RenameBotCommand,
-    RenameBotResult, RenameLeaderboardCommand, RenameLeaderboardResult,
+    DeleteLeaderboardCommand, FetchStatusCommand, FetchStatusResult, LeaderboardOverview,
+    RenameBotCommand, RenameBotResult, RenameLeaderboardCommand, RenameLeaderboardResult,
 };
 use crate::domain::{
     BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
@@ -64,7 +64,7 @@ impl ArenaHandle {
         &self,
         name: LeaderboardName,
         filter: MatchFilter,
-    ) -> LeaderboardId {
+    ) -> LeaderboardOverview {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::CreateLeaderboard(CreateLeaderboardCommand {
                 name,

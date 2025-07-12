@@ -60,7 +60,7 @@ pub struct MatchAttributesJoinedRow {
 pub struct LeaderboardsRow {
     pub id: i64,
     pub name: String,
-    pub filter_json: String,
+    pub filter: String,
 }
 
 impl From<LeaderboardsRow> for Leaderboard {
@@ -68,7 +68,7 @@ impl From<LeaderboardsRow> for Leaderboard {
         Leaderboard {
             id: row.id.into(),
             name: row.name.try_into().expect("Invalid leaderboard name in db"),
-            filter: serde_json::from_str(&row.filter_json).expect("Invalid match filter in db"),
+            filter: row.filter.parse().expect("Invalid match filter in db"),
             stats: Default::default(),
         }
     }
@@ -501,16 +501,13 @@ impl Database {
     async fn insert_leaderboard(&mut self, leaderboard: &Leaderboard) -> LeaderboardId {
         assert_eq!(leaderboard.id, LeaderboardId::UNINITIALIZED);
         const SQL: &str = indoc! {"
-            INSERT INTO leaderboards (name, filter_json) \
+            INSERT INTO leaderboards (name, filter) \
             VALUES ($1, $2) \
         "};
 
         let res = sqlx::query(SQL)
             .bind::<&str>(&leaderboard.name)
-            .bind::<&str>(
-                &serde_json::to_string(&leaderboard.filter)
-                    .expect("Cannot serialize leaderboard filter"),
-            )
+            .bind::<&str>(&leaderboard.filter.to_string())
             .execute(&self.pool)
             .await
             .expect("Cannot insert leaderboard to db");

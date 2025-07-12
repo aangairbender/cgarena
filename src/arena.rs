@@ -31,7 +31,7 @@ pub enum ArenaCommand {
 pub struct CreateLeaderboardCommand {
     pub name: LeaderboardName,
     pub filter: MatchFilter,
-    pub response: oneshot::Sender<LeaderboardId>,
+    pub response: oneshot::Sender<LeaderboardOverview>,
 }
 
 pub struct RenameLeaderboardCommand {
@@ -108,7 +108,6 @@ pub struct LeaderboardOverview {
 pub struct LeaderboardItem {
     pub id: BotId,
     pub rank: usize,
-    pub name: BotName,
     pub rating: Rating,
 }
 
@@ -340,13 +339,14 @@ impl Arena {
             .map(|bot| self.render_bot_overview(bot))
             .collect_vec();
 
-        let leaderboards = std::iter::once(self.render_leaderboard(&self.global_leaderboard))
-            .chain(
-                self.custom_leaderboards
-                    .iter()
-                    .map(|lb| self.render_leaderboard(lb)),
-            )
-            .collect_vec();
+        let leaderboards =
+            std::iter::once(self.render_leaderboard_overview(&self.global_leaderboard))
+                .chain(
+                    self.custom_leaderboards
+                        .iter()
+                        .map(|lb| self.render_leaderboard_overview(lb)),
+                )
+                .collect_vec();
 
         FetchStatusResult { bots, leaderboards }
     }
@@ -368,13 +368,12 @@ impl Arena {
         }
     }
 
-    fn render_leaderboard(&self, leaderboard: &Leaderboard) -> LeaderboardOverview {
+    fn render_leaderboard_overview(&self, leaderboard: &Leaderboard) -> LeaderboardOverview {
         let items = self
             .bots
             .iter()
             .map(|bot| LeaderboardItem {
                 id: bot.id,
-                name: bot.name.clone(),
                 rank: self.rank(bot.id),
                 rating: self.rating(bot.id),
             })
@@ -395,13 +394,13 @@ impl Arena {
         &mut self,
         name: LeaderboardName,
         filter: MatchFilter,
-    ) -> LeaderboardId {
+    ) -> LeaderboardOverview {
         let mut leaderboard = Leaderboard::new(name, filter);
         self.db.persist_leaderboard(&mut leaderboard).await;
         self.recalculate_single_leaderboard(&mut leaderboard);
-        let id = leaderboard.id;
+        let overview = self.render_leaderboard_overview(&leaderboard);
         self.custom_leaderboards.push(leaderboard);
-        id
+        overview
     }
 
     async fn cmd_rename_leaderboard(

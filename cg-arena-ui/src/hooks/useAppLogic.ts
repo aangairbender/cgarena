@@ -1,15 +1,19 @@
 import {
+  BotId,
   BotOverviewResponse,
   CreateBotRequest,
+  CreateLeaderboardRequest,
+  LeaderboardId,
   LeaderboardOverviewResponse,
   RenameBotRequest,
+  RenameLeaderboardRequest,
 } from "@models";
 import { useCallback, useEffect, useState } from "react";
 import * as api from "@api";
 
 export const useAppLogic = () => {
   const [loading, setLoading] = useState(false);
-  const [selectedBotId, setSelectedBotId] = useState<string | undefined>();
+  const [selectedBotId, setSelectedBotId] = useState<BotId | undefined>();
   const [bots, setBots] = useState<BotOverviewResponse[]>([]);
   const [leaderboards, setLeaderboards] = useState<LeaderboardOverviewResponse[]>([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -57,7 +61,7 @@ export const useAppLogic = () => {
   }, [fetchStatus]);
 
   const selectBot = useCallback(
-    (botId: string) => {
+    (botId: BotId) => {
       setSelectedBotId(botId);
     },
     [setSelectedBotId]
@@ -72,12 +76,15 @@ export const useAppLogic = () => {
       setBots((cur) => [bot, ...cur]);
       setSelectedBotId(bot.id);
       setLoading(false);
+
+      // not awaiting intentionally to not block dialog
+      fetchStatus();
     },
-    [setBots, setSelectedBotId, setLoading]
+    [setBots, setSelectedBotId, setLoading, fetchStatus]
   );
 
   const renameBot = useCallback(
-    async (id: string, req: RenameBotRequest) => {
+    async (id: BotId, req: RenameBotRequest) => {
       setLoading(true);
       await api.renameBot(id, req);
       setBots((bots) => {
@@ -95,15 +102,57 @@ export const useAppLogic = () => {
   );
 
   const deleteBot = useCallback(
-    async (botId: string) => {
+    async (botId: BotId) => {
       setLoading(true);
       setBots((bots) => bots.filter((b) => b.id != botId));
       if (selectedBotId == botId) setSelectedBotId(undefined);
 
       await api.deleteBot(botId);
       setLoading(false);
+
+      // not awaiting intentionally to not block dialog
+      fetchStatus();
     },
-    [setBots, selectedBotId, setSelectedBotId]
+    [setBots, selectedBotId, setSelectedBotId, setLoading, fetchStatus]
+  );
+
+  
+  const createLeaderboard = useCallback(
+    async (req: CreateLeaderboardRequest) => {
+      setLoading(true);
+      const leaderboard = await api.createLeaderboard(req);
+      setLeaderboards((cur) => [...cur, leaderboard]);
+      setLoading(false);
+    },
+    [setLeaderboards, setLoading]
+  );
+
+  const renameLeaderboard = useCallback(
+    async (id: LeaderboardId, req: RenameLeaderboardRequest) => {
+      setLoading(true);
+      await api.renameLeaderboard(id, req);
+      setLeaderboards((leaderboards) => {
+        const existing = leaderboards.find((lb) => lb.id == id);
+        if (existing) {
+          existing.name = req.name;
+          return leaderboards;
+        } else {
+          throw new Error("Bot does not exist anymore");
+        }
+      });
+      setLoading(false);
+    },
+    [setLeaderboards]
+  );
+
+  const deleteLeaderboard = useCallback(
+    async (leaderboardId: LeaderboardId) => {
+      setLoading(true);
+      setLeaderboards((leaderboards) => leaderboards.filter((lb) => lb.id != leaderboardId));
+      await api.deleteLeaderboard(leaderboardId);
+      setLoading(false);
+    },
+    [setLeaderboards, setLoading]
   );
 
   return {
@@ -117,5 +166,8 @@ export const useAppLogic = () => {
     submitNewBot,
     deleteBot,
     renameBot,
+    createLeaderboard,
+    renameLeaderboard,
+    deleteLeaderboard,
   };
 };

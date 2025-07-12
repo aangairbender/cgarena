@@ -366,7 +366,6 @@ async fn cmd_fetch_leaderboard_works() {
 
     fn check_item(item: &LeaderboardItem, bot: BotOverview) {
         assert_eq!(item.id, bot.id);
-        assert_eq!(item.name, bot.name);
         assert_eq!(item.rank, 0);
         assert!((item.rating.mu - 25.0).abs() < 0.001);
         assert!((item.rating.sigma - 8.3333).abs() < 0.001);
