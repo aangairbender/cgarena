@@ -1,4 +1,3 @@
-use crate::api::models::LeaderboardAttributeIndex;
 use crate::arena::FetchLeaderboardResult;
 
 use crate::api::models::LeaderboardBotOverviewResponse;
@@ -9,7 +8,6 @@ use serde::Serialize;
 pub struct FetchLeaderboardResponse {
     pub bot_overview: LeaderboardBotOverviewResponse,
     pub items: Vec<LeaderboardItemResponse>,
-    pub attribute_index: LeaderboardAttributeIndex,
 }
 
 impl From<FetchLeaderboardResult> for FetchLeaderboardResponse {
@@ -17,7 +15,6 @@ impl From<FetchLeaderboardResult> for FetchLeaderboardResponse {
         FetchLeaderboardResponse {
             bot_overview: value.bot_overview.into(),
             items: value.items.into_iter().map(Into::into).collect(),
-            attribute_index: value.attribute_index.into(),
         }
     }
 }

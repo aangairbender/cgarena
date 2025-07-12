@@ -99,7 +99,6 @@ pub struct FetchLeaderboardCommand {
 pub struct FetchLeaderboardResult {
     pub bot_overview: LeaderboardBotOverview,
     pub items: Vec<LeaderboardItem>,
-    pub attribute_index: AttributeIndex,
 }
 
 pub struct LeaderboardBotOverview {
@@ -432,7 +431,6 @@ impl Arena {
         Some(FetchLeaderboardResult {
             bot_overview,
             items,
-            attribute_index: self.attribute_index.clone(),
         })
     }
 
