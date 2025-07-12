@@ -19,6 +19,7 @@ const CreateLeaderboardDialog = (dialog: DialogProps<CreateLeaderboardDialogData
 
   const closeDialog = () => {
     setName("");
+    setFilter("");
     setError("");
     dialog.hide();
   };

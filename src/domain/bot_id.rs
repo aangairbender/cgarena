@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct BotId(i64);
 
@@ -15,5 +17,11 @@ impl From<i64> for BotId {
 impl From<BotId> for i64 {
     fn from(id: BotId) -> i64 {
         id.0
+    }
+}
+
+impl Display for BotId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

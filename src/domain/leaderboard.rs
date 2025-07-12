@@ -24,7 +24,7 @@ impl Leaderboard {
         Leaderboard {
             id: LeaderboardId::UNINITIALIZED,
             name: LeaderboardName::global(),
-            filter: MatchFilter::Empty,
+            filter: MatchFilter::accept_all(),
             stats: Default::default(),
         }
     }
