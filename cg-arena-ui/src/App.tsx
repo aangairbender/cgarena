@@ -15,7 +15,9 @@ import CreateLeaderboardDialog from "@components/CreateLeaderboardDialog";
 
 function App() {
   const {
-    leaderboardData,
+    bots,
+    leaderboards,
+    selectedBotId,
     selectBot,
     submitNewBot,
     loading,
@@ -34,6 +36,8 @@ function App() {
   });
   const createLeaderboardDialog = useDialog({ onCreate: async () => {} });
 
+  const selectedBot = bots.find(b => b.id == selectedBotId);
+
   return (
     <>
       <AppNavbar
@@ -48,22 +52,22 @@ function App() {
         <Card className="mt-4">
           <Card.Header>Selected bot</Card.Header>
           <Card.Body>
-            {leaderboardData && (
+            {selectedBot && (
               <BotOverview
-                bot={leaderboardData.bot_overview}
+                bot={selectedBot}
                 showContentDialog={viewContentDialog.show}
                 deleteBot={() =>
                   confirmDialog.show({
-                    prompt: `Are you sure you want to delete bot '${leaderboardData.bot_overview.name}'?`,
+                    prompt: `Are you sure you want to delete bot '${selectedBot.name}'?`,
                     action: () => {
-                      deleteBot(leaderboardData.bot_overview.id);
+                      deleteBot(selectedBot.id);
                     },
                   })
                 }
                 renameBot={() =>
                   renameBotDialog.show({
-                    botId: leaderboardData.bot_overview.id,
-                    currentName: leaderboardData.bot_overview.name,
+                    botId: selectedBot.id,
+                    currentName: selectedBot.name,
                     onSubmit: renameBot,
                   })
                 }
@@ -72,14 +76,14 @@ function App() {
           </Card.Body>
         </Card>
 
-        <Card className="mt-4">
-          <Card.Header>Global Leaderboard</Card.Header>
-          <Card.Body>
-            {leaderboardData && (
-              <Leaderboard data={leaderboardData} selectBot={selectBot} />
-            )}
-          </Card.Body>
-        </Card>
+        {leaderboards.map(lb => (
+          <Card className="mt-4" key={lb.id}>
+            <Card.Header>{lb.id == "0" ? "Global Leaderboard" : lb.name}</Card.Header>
+            <Card.Body>
+              <Leaderboard data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
+            </Card.Body>
+          </Card>
+        ))}
 
         <Container className="mt-4 d-flex justify-content-center">
           <Button

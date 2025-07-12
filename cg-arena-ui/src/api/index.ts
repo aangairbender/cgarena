@@ -1,28 +1,20 @@
 import {
-  BotMinimalResponse,
+  BotOverviewResponse,
   CreateBotRequest,
-  FetchLeaderboardResponse,
+  FetchStatusResponse,
   RenameBotRequest,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
 
-export const fetchBots = async (): Promise<BotMinimalResponse[]> => {
-  const response = await fetch(`${host}/api/bots`);
-  return await parseResponse<BotMinimalResponse[]>(response);
-};
-
-export const fetchLeaderboard = async (
-  id: string
-): Promise<FetchLeaderboardResponse | undefined> => {
-  const response = await fetch(`${host}/api/bots/${id}`);
-  if (response.status == 404) return undefined;
-  return await parseResponse<FetchLeaderboardResponse>(response);
+export const fetchStatus = async (): Promise<FetchStatusResponse> => {
+  const response = await fetch(`${host}/api/status`);
+  return await parseResponse<FetchStatusResponse>(response);
 };
 
 export const submitNewBot = async (
   payload: CreateBotRequest
-): Promise<BotMinimalResponse> => {
+): Promise<BotOverviewResponse> => {
   const req = new Request(`${host}/api/bots`, {
     method: "POST",
     body: JSON.stringify(payload),
@@ -32,13 +24,13 @@ export const submitNewBot = async (
   });
 
   const response = await fetch(req);
-  return await parseResponse<BotMinimalResponse>(response);
+  return await parseResponse<BotOverviewResponse>(response);
 };
 
 export const renameBot = async (
   id: string,
   payload: RenameBotRequest
-): Promise<BotMinimalResponse> => {
+) => {
   const req = new Request(`${host}/api/bots/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
@@ -48,7 +40,7 @@ export const renameBot = async (
   });
 
   const response = await fetch(req);
-  return await parseResponse<BotMinimalResponse>(response);
+  await checkForErrors(response);
 };
 
 export const deleteBot = async (id: string) => {
@@ -56,21 +48,21 @@ export const deleteBot = async (id: string) => {
       method: "DELETE"
   });
   const response = await fetch(req);
-  if (!response.ok) {
-    throw new Error("Internal server error");
-  }
+  await checkForErrors(response);
 };
 
-
-async function parseResponse<T>(response: Response): Promise<T> {
-  if (response.ok) {
-    return (await response.json()) as T;
-  } else if (response.status >= 500) {
+async function checkForErrors(response: Response) {
+  if (response.status >= 500) {
     throw new Error("Internal server error");
-  } else {
+  } else if (!response.ok) {
     const body = (await response.json()) as ApiErrorResponse;
     throw new Error(body.message ?? body.error_code);
   }
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  await checkForErrors(response);
+  return (await response.json()) as T;
 }
 
 interface ApiErrorResponse {

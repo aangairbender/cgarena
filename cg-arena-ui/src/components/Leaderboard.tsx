@@ -1,18 +1,19 @@
 import Identicon from "@components/Identicon";
 import { useTheme } from "@hooks/useTheme";
 import {
-  FetchLeaderboardResponse,
   LeaderboardItemResponse,
+  LeaderboardOverviewResponse,
   rating_score,
 } from "@models";
 import { OverlayTrigger, Stack, Table, Tooltip } from "react-bootstrap";
 
 interface LeaderboardProps {
-  data: FetchLeaderboardResponse;
+  data: LeaderboardOverviewResponse;
+  selectedBotId: string | undefined;
   selectBot: (botId: string) => void;
 }
 
-const Leaderboard = ({ data, selectBot }: LeaderboardProps) => {
+const Leaderboard = ({ data, selectedBotId, selectBot }: LeaderboardProps) => {
   return (
     <Table hover className="mb-0">
       <thead>
@@ -23,33 +24,43 @@ const Leaderboard = ({ data, selectBot }: LeaderboardProps) => {
           <th style={{ width: "15%" }}>Winrate</th>
           <th style={{ width: "15%" }}>Wins / Loses / Draws</th>
           <th style={{ width: "7%" }}>Total</th>
-          <th style={{ width: "16%" }}>Submitted</th>
         </tr>
       </thead>
       <tbody>
-        {data.items.map((item) => (
-          <Row
+        {data.items.map((item) => {
+          const stats: WinrateStats | undefined = data.winrate_stats
+            .find(s => s.bot_id == selectedBotId && s.opponent_bot_id == item.id);
+
+          return (<Row
             key={item.id}
             item={item}
-            selected={item.id == data.bot_overview.id}
+            stats={stats}
+            selected={item.id == selectedBotId}
             select={() => selectBot(item.id)}
-          />
-        ))}
+          />);
+        })}
       </tbody>
     </Table>
   );
 };
 
+interface WinrateStats {
+  wins: number;
+  draws: number;
+  loses: number;
+}
+
 interface RowProps {
   item: LeaderboardItemResponse;
+  stats: WinrateStats | undefined;
   selected: boolean;
   select: () => void;
 }
 
-const Row = ({ item, selected, select }: RowProps) => {
+const Row = ({ item, stats, selected, select }: RowProps) => {
   return (
     <tr className={selected ? "highlighted-row" : ""}>
-      <td>{item.rank}</td>
+      <td>{item.rank + 1}</td>
       <td>
         <Stack direction="horizontal">
           <Identicon input={item.id + ""} size={24} />
@@ -59,21 +70,19 @@ const Row = ({ item, selected, select }: RowProps) => {
         </Stack>
       </td>
       <RatingCell item={item} />
-      {/* <td>{rating_score(item)}</td> */}
-      {<WinrateCell item={item} />}
-      {selected ? (
-        <td></td>
+      {stats ? <WinrateCell stats={stats} /> : <td></td>}
+      {stats ? (
+        <td>{`${stats.wins} / ${stats.loses} / ${stats.draws}`}</td>
       ) : (
-        <td>{`${item.wins} / ${item.loses} / ${item.draws}`}</td>
+        <td></td>
       )}
-      {selected ? <td></td> : <td>{item.wins + item.loses + item.draws}</td>}
-      <td>{item.created_at}</td>
+      {stats ? <td>{stats.wins + stats.loses + stats.draws}</td> : <td></td>}
     </tr>
   );
 };
 
 interface WinrateCellProps {
-  item: LeaderboardItemResponse;
+  stats: WinrateStats;
 }
 
 const RatingCell = ({ item }: { item: LeaderboardItemResponse }) => {
@@ -92,17 +101,17 @@ const RatingCell = ({ item }: { item: LeaderboardItemResponse }) => {
   );
 };
 
-const WinrateCell = ({ item }: WinrateCellProps) => {
+const WinrateCell = ({ stats }: WinrateCellProps) => {
   const { theme } = useTheme();
 
-  if (item.wins + item.loses + item.draws == 0) {
+  if (stats.wins + stats.loses + stats.draws == 0) {
     return <td></td>;
   }
 
   const wr = Number(
     (
-      (100 * (item.wins + item.draws * 0.5)) /
-      (item.wins + item.loses + item.draws)
+      (100 * (stats.wins + stats.draws * 0.5)) /
+      (stats.wins + stats.loses + stats.draws)
     ).toFixed()
   );
 

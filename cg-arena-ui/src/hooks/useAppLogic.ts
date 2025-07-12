@@ -1,7 +1,7 @@
 import {
-  BotMinimalResponse,
+  BotOverviewResponse,
   CreateBotRequest,
-  FetchLeaderboardResponse,
+  LeaderboardOverviewResponse,
   RenameBotRequest,
 } from "@models";
 import { useCallback, useEffect, useState } from "react";
@@ -10,40 +10,29 @@ import * as api from "@api";
 export const useAppLogic = () => {
   const [loading, setLoading] = useState(false);
   const [selectedBotId, setSelectedBotId] = useState<string | undefined>();
-  const [bots, setBots] = useState<BotMinimalResponse[]>([]);
-  const [leaderboardData, setLeaderboardData] = useState<
-    FetchLeaderboardResponse | undefined
-  >();
+  const [bots, setBots] = useState<BotOverviewResponse[]>([]);
+  const [leaderboards, setLeaderboards] = useState<LeaderboardOverviewResponse[]>([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  const fetchInitialBots = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await api.fetchBots();
-      setBots(res);
-    } finally {
-      setLoading(false);
-    }
-  }, [setLoading, setBots]);
-
-  const fetchLeaderboard = useCallback(
-    async (botId: string) => {
+  const fetchStatus = useCallback(
+    async () => {
       setLoading(true);
       try {
-        const res = await api.fetchLeaderboard(botId);
-        setLeaderboardData(res);
+        const res = await api.fetchStatus();
+        setBots(res.bots)
+        setLeaderboards(res.leaderboards);
       } finally {
         setLoading(false);
       }
     },
-    [setLoading, setLeaderboardData]
+    [setLoading, setBots, setLeaderboards]
   );
 
   const refreshLeaderboard = useCallback(() => {
-    if (selectedBotId && !loading) {
-      fetchLeaderboard(selectedBotId);
+    if (!loading) {
+      fetchStatus();
     }
-  }, [selectedBotId, loading, fetchLeaderboard]);
+  }, [loading, fetchStatus]);
 
   // effects
 
@@ -64,16 +53,8 @@ export const useAppLogic = () => {
 
   // load bots initially
   useEffect(() => {
-    fetchInitialBots();
-  }, [fetchInitialBots]);
-
-  // handle selection change
-  useEffect(() => {
-    setLeaderboardData(undefined);
-    if (selectedBotId) {
-      fetchLeaderboard(selectedBotId);
-    }
-  }, [selectedBotId, fetchLeaderboard]);
+    fetchStatus();
+  }, [fetchStatus]);
 
   const selectBot = useCallback(
     (botId: string) => {
@@ -86,35 +67,41 @@ export const useAppLogic = () => {
 
   const submitNewBot = useCallback(
     async (req: CreateBotRequest) => {
+      setLoading(true);
       const bot = await api.submitNewBot(req);
       setBots((cur) => [bot, ...cur]);
       setSelectedBotId(bot.id);
+      setLoading(false);
     },
-    [setBots, setSelectedBotId]
+    [setBots, setSelectedBotId, setLoading]
   );
 
   const renameBot = useCallback(
     async (id: string, req: RenameBotRequest) => {
-      const newBot = await api.renameBot(id, req);
+      setLoading(true);
+      await api.renameBot(id, req);
       setBots((bots) => {
-        const existingBot = bots.find((b) => b.id == newBot.id);
+        const existingBot = bots.find((b) => b.id == id);
         if (existingBot) {
-          existingBot.name = newBot.name;
+          existingBot.name = req.name;
           return bots;
         } else {
           throw new Error("Bot does not exist anymore");
         }
       });
+      setLoading(false);
     },
     [setBots]
   );
 
   const deleteBot = useCallback(
     async (botId: string) => {
+      setLoading(true);
       setBots((bots) => bots.filter((b) => b.id != botId));
       if (selectedBotId == botId) setSelectedBotId(undefined);
 
       await api.deleteBot(botId);
+      setLoading(false);
     },
     [setBots, selectedBotId, setSelectedBotId]
   );
@@ -122,7 +109,7 @@ export const useAppLogic = () => {
   return {
     selectedBotId,
     bots,
-    leaderboardData,
+    leaderboards,
     loading,
     autoRefresh,
     setAutoRefresh,

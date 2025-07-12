@@ -3,10 +3,7 @@ mod models;
 mod routes;
 mod web_router;
 
-use crate::api::routes::leaderboards::{
-    create_leaderboard, delete_leaderboard, rename_leaderboard,
-};
-use crate::api::routes::{bots, fetch_bot_leaderboard};
+use crate::api::routes::{bots, fetch_status, leaderboards};
 use crate::api::web_router::create_web_router;
 use crate::arena_handle::ArenaHandle;
 use axum::routing::{delete, get, patch, post};
@@ -37,13 +34,18 @@ pub async fn start(
 async fn create_router(app_state: AppState) -> Router {
     let api_router = Router::new()
         .route("/bots", post(bots::create_bot))
-        .route("/bots", get(bots::fetch_bots))
         .route("/bots/{id}", delete(bots::delete_bot))
         .route("/bots/{id}", patch(bots::rename_bot))
-        .route("/bots/{id}", get(fetch_bot_leaderboard))
-        .route("/leaderboards/", post(create_leaderboard))
-        .route("/leaderboards/{id}", patch(rename_leaderboard))
-        .route("/leaderboards/{id}", delete(delete_leaderboard))
+        .route("/leaderboards/", post(leaderboards::create_leaderboard))
+        .route(
+            "/leaderboards/{id}",
+            patch(leaderboards::rename_leaderboard),
+        )
+        .route(
+            "/leaderboards/{id}",
+            delete(leaderboards::delete_leaderboard),
+        )
+        .route("/status", get(fetch_status::fetch_status))
         .with_state(app_state);
 
     create_web_router()

@@ -1,8 +1,7 @@
 use crate::arena::{
-    ArenaCommand, BotMinimal, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand,
-    DeleteBotCommand, DeleteLeaderboardCommand, FetchBotsCommand, FetchLeaderboardCommand,
-    FetchLeaderboardResult, RenameBotCommand, RenameBotResult, RenameLeaderboardCommand,
-    RenameLeaderboardResult,
+    ArenaCommand, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand, DeleteBotCommand,
+    DeleteLeaderboardCommand, FetchStatusCommand, FetchStatusResult, RenameBotCommand,
+    RenameBotResult, RenameLeaderboardCommand, RenameLeaderboardResult,
 };
 use crate::domain::{
     BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
@@ -54,19 +53,9 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn fetch_leaderboard(&self, id: BotId) -> Option<FetchLeaderboardResult> {
+    pub async fn fetch_status(&self) -> FetchStatusResult {
         self.send_command_and_await_for_result(move |tx| {
-            ArenaCommand::FetchLeaderboard(FetchLeaderboardCommand {
-                bot_id: id,
-                response: tx,
-            })
-        })
-        .await
-    }
-
-    pub async fn fetch_all_bots(&self) -> Vec<BotMinimal> {
-        self.send_command_and_await_for_result(move |tx| {
-            ArenaCommand::FetchBots(FetchBotsCommand { response: tx })
+            ArenaCommand::FetchStatus(FetchStatusCommand { response: tx })
         })
         .await
     }

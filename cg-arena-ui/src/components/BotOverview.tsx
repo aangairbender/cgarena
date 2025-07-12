@@ -1,7 +1,6 @@
 import {
   BuildResponse,
-  LeaderboardBotOverviewResponse,
-  rating_score,
+  BotOverviewResponse,
 } from "@models";
 import React from "react";
 import { Badge, Button, Stack, Table } from "react-bootstrap";
@@ -9,7 +8,7 @@ import { FaTrash } from "react-icons/fa";
 import { FaPencil } from "react-icons/fa6";
 
 interface BotOverviewProps {
-  bot: LeaderboardBotOverviewResponse;
+  bot: BotOverviewResponse;
   showContentDialog: (data: { title: string; content: string }) => void;
   deleteBot: () => void;
   renameBot: () => void;
@@ -27,10 +26,10 @@ const BotOverview: React.FC<BotOverviewProps> = ({
         <tr>
           <th>Name</th>
           <th>Language</th>
-          <th>Rating</th>
           <th>Matches played</th>
           <th>Matches with error</th>
           <th>Build</th>
+          <th>Submitted</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -38,12 +37,12 @@ const BotOverview: React.FC<BotOverviewProps> = ({
         <tr key={bot.id}>
           <td>{bot.name}</td>
           <td>{bot.language}</td>
-          <td>{rating_score(bot)}</td>
           <td>{bot.matches_played}</td>
           <td>{bot.matches_with_error}</td>
           <td>
             <Builds builds={bot.builds} showContentDialog={showContentDialog} />
           </td>
+          <td>{bot.created_at}</td>
           <td>
             <Stack direction="horizontal" gap={2}>
               <Button variant="outline-warning" size="sm" onClick={renameBot}>

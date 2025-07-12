@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use crate::{
     arena_handle::ArenaHandle,
-    attribute_index::AttributeKind,
     config::Config,
     db::Database,
     domain::*,
@@ -191,12 +190,9 @@ async fn cmd_rename_bot_works() {
 
     let res2 = arena.handle.rename_bot(bot.id, bot_name_2.clone()).await;
 
-    let RenameBotResult::Renamed(bot2) = res2 else {
+    let RenameBotResult::Renamed = res2 else {
         panic!("Bot renaming should succeed")
     };
-
-    assert_eq!(bot2.id, bot.id);
-    assert_eq!(bot2.name, bot_name_2);
 
     let row = sqlx::query("SELECT * FROM bots WHERE id = $1")
         .bind::<i64>(bot.id.into())
@@ -300,58 +296,6 @@ async fn cmd_delete_bot_works() {
 }
 
 #[tokio::test]
-async fn cmd_fetch_all_bots_works() {
-    let config = Config::default();
-    let arena = create_test_arena(config, |_| BuildResult::Success).await;
-
-    let bot_name: BotName = String::from("Bot1").try_into().unwrap();
-    let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
-    let bot_language: Language = String::from("rust").try_into().unwrap();
-
-    let res = arena
-        .handle
-        .create_bot(
-            bot_name.clone(),
-            bot_source_code.clone(),
-            bot_language.clone(),
-        )
-        .await;
-
-    let CreateBotResult::Created(bot1) = res else {
-        panic!("Bot creation should succeed");
-    };
-
-    let res2 = arena
-        .handle
-        .create_bot(
-            bot_name_2.clone(),
-            bot_source_code.clone(),
-            bot_language.clone(),
-        )
-        .await;
-
-    let CreateBotResult::Created(bot2) = res2 else {
-        panic!("Bot creation should succeed");
-    };
-
-    let res3 = arena.handle.fetch_all_bots().await;
-
-    let expected = vec![
-        BotMinimal {
-            id: bot2.id,
-            name: bot_name_2,
-        },
-        BotMinimal {
-            id: bot1.id,
-            name: bot_name,
-        },
-    ];
-
-    assert_eq!(expected, res3);
-}
-
-#[tokio::test]
 async fn cmd_fetch_leaderboard_works() {
     let config = Config::default();
     let arena = create_test_arena(config, |_| BuildResult::Success).await;
@@ -387,41 +331,51 @@ async fn cmd_fetch_leaderboard_works() {
         panic!("Bot creation should succeed");
     };
 
-    let res3 = arena.handle.fetch_leaderboard(bot1.id).await;
+    let res3 = arena.handle.fetch_status().await;
 
-    let Some(res3) = res3 else {
-        panic!("Should return a leaderboard");
-    };
+    assert_eq!(res3.bots.len(), 2);
 
-    assert_eq!(res3.bot_overview.id, bot1.id);
-    assert_eq!(res3.bot_overview.name, bot_name_1);
-    assert_eq!(res3.bot_overview.language, bot_language);
-    assert!((res3.bot_overview.rating.mu - 25.0).abs() < 0.001);
-    assert!((res3.bot_overview.rating.sigma - 8.3333).abs() < 0.001);
-    assert_eq!(res3.bot_overview.matches_played, 0);
-    assert_eq!(res3.bot_overview.matches_with_error, 0);
-    assert!(res3.bot_overview.builds.len() == 1);
+    assert_eq!(res3.bots[0].id, bot1.id);
+    assert_eq!(res3.bots[0].name, bot_name_1);
+    assert_eq!(res3.bots[0].language, bot_language);
+    assert_eq!(res3.bots[0].matches_played, 0);
+    assert_eq!(res3.bots[0].matches_with_error, 0);
+    assert!(res3.bots[0].builds.len() == 1);
 
-    let build = &res3.bot_overview.builds[0];
+    let build = &res3.bots[0].builds[0];
     assert_eq!(build.bot_id, bot1.id);
     assert_eq!(build.worker_name, WorkerName::embedded());
     assert!(build.was_finished_successfully());
 
-    assert_eq!(res3.items.len(), 2);
+    assert_eq!(res3.bots[1].id, bot2.id);
+    assert_eq!(res3.bots[1].name, bot_name_2);
+    assert_eq!(res3.bots[1].language, bot_language);
+    assert_eq!(res3.bots[1].matches_played, 0);
+    assert_eq!(res3.bots[1].matches_with_error, 0);
+    assert!(res3.bots[1].builds.len() == 1);
 
-    fn check_item(item: &LeaderboardItem, bot: BotMinimal, rank: usize) {
+    let build = &res3.bots[1].builds[0];
+    assert_eq!(build.bot_id, bot2.id);
+    assert_eq!(build.worker_name, WorkerName::embedded());
+    assert!(build.was_finished_successfully());
+
+    assert_eq!(res3.leaderboards.len(), 1);
+    let leaderboard = &res3.leaderboards[0];
+
+    assert_eq!(leaderboard.items.len(), 2);
+
+    fn check_item(item: &LeaderboardItem, bot: BotOverview) {
         assert_eq!(item.id, bot.id);
         assert_eq!(item.name, bot.name);
-        assert_eq!(item.rank, rank);
+        assert_eq!(item.rank, 0);
         assert!((item.rating.mu - 25.0).abs() < 0.001);
         assert!((item.rating.sigma - 8.3333).abs() < 0.001);
-        assert_eq!(item.wins, 0);
-        assert_eq!(item.loses, 0);
-        assert_eq!(item.draws, 0);
     }
 
-    check_item(&res3.items[0], bot1, 1);
-    check_item(&res3.items[1], bot2, 1);
+    check_item(&leaderboard.items[0], bot1);
+    check_item(&leaderboard.items[1], bot2);
+
+    assert_eq!(leaderboard.winrate_stats.len(), 0);
 }
 
 #[tokio::test]
@@ -540,28 +494,32 @@ async fn cmd_fetch_leaderboard_e2e() {
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let res3 = arena.handle.fetch_leaderboard(bot1.id).await;
+    let res3 = arena.handle.fetch_status().await;
 
-    let Some(res3) = res3 else {
-        panic!("Should return a leaderboard");
-    };
+    assert_eq!(res3.bots.len(), 2);
+    assert_eq!(res3.bots[0].id, bot1.id);
+    assert_eq!(res3.bots[0].matches_played, 1);
+    assert_eq!(res3.bots[0].matches_with_error, 0);
+    assert_eq!(res3.bots[1].id, bot2.id);
+    assert_eq!(res3.bots[1].matches_played, 1);
+    assert_eq!(res3.bots[1].matches_with_error, 0);
 
-    assert_eq!(res3.bot_overview.matches_played, 1);
-    assert_eq!(res3.bot_overview.matches_with_error, 0);
-    assert_eq!(res3.items.len(), 2);
+    let leaderboard = &res3.leaderboards[0];
 
-    let item1 = res3.items.iter().find(|w| w.id == b1).unwrap();
-    let item2 = res3.items.iter().find(|w| w.id == b2).unwrap();
+    assert_eq!(leaderboard.items.len(), 2);
 
-    assert_eq!(item1.rank, 1);
-    assert_eq!(item1.wins, 0);
-    assert_eq!(item1.loses, 0);
-    assert_eq!(item1.draws, 0);
+    let item1 = leaderboard.items.iter().find(|w| w.id == b1).unwrap();
+    let item2 = leaderboard.items.iter().find(|w| w.id == b2).unwrap();
 
-    assert_eq!(item2.rank, 2);
-    assert_eq!(item2.wins, 1);
-    assert_eq!(item2.loses, 0);
-    assert_eq!(item2.draws, 0);
+    assert_eq!(item1.rank, 0);
+    assert_eq!(item2.rank, 1);
 
     assert!(item1.rating.score() > item2.rating.score());
+
+    assert_eq!(leaderboard.winrate_stats[&(bot1.id, bot2.id)].wins, 1);
+    assert_eq!(leaderboard.winrate_stats[&(bot1.id, bot2.id)].draws, 0);
+    assert_eq!(leaderboard.winrate_stats[&(bot1.id, bot2.id)].loses, 0);
+    assert_eq!(leaderboard.winrate_stats[&(bot2.id, bot1.id)].wins, 0);
+    assert_eq!(leaderboard.winrate_stats[&(bot2.id, bot1.id)].draws, 0);
+    assert_eq!(leaderboard.winrate_stats[&(bot2.id, bot1.id)].loses, 1);
 }

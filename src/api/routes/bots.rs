@@ -5,12 +5,11 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use itertools::Itertools;
 
 use crate::{
     api::{
         errors::ApiError,
-        models::{BotMinimalResponse, CreateBotRequest, RenameBotRequest},
+        models::{BotOverviewResponse, CreateBotRequest, RenameBotRequest},
         AppState,
     },
     arena::{CreateBotResult, RenameBotResult},
@@ -40,7 +39,7 @@ pub async fn create_bot(
         .await;
 
     match res {
-        CreateBotResult::Created(bot_minimal) => Ok(Json(BotMinimalResponse::from(bot_minimal))),
+        CreateBotResult::Created(bot_overview) => Ok(Json(BotOverviewResponse::from(bot_overview))),
         CreateBotResult::DuplicateName => Err(ApiError::Conflict(anyhow!(
             "Bot with the same name already exists"
         ))),
@@ -72,18 +71,10 @@ pub async fn rename_bot(
     let res = app_state.arena_handle.rename_bot(id, new_name).await;
 
     match res {
-        RenameBotResult::Renamed(bot_minimal) => Ok(Json(BotMinimalResponse::from(bot_minimal))),
+        RenameBotResult::Renamed => Ok(()),
         RenameBotResult::DuplicateName => Err(ApiError::Conflict(anyhow!(
             "Bot with the same name already exists"
         ))),
         RenameBotResult::NotFound => Err(ApiError::NotFound),
     }
-}
-
-pub async fn fetch_bots(State(app_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let res = app_state.arena_handle.fetch_all_bots().await;
-
-    Ok(Json(
-        res.into_iter().map(BotMinimalResponse::from).collect_vec(),
-    ))
 }
