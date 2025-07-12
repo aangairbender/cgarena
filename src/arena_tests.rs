@@ -481,10 +481,10 @@ async fn cmd_fetch_leaderboard_e2e() {
         attributes: {
             let mut initial = vec![
                 MatchAttribute {
-                    name: "seed".to_string(),
+                    name: "initial_stones".to_string(),
                     bot_id: None,
                     turn: None,
-                    value: "1234".to_string().into(),
+                    value: "25".to_string().into(),
                 },
                 MatchAttribute {
                     name: "map_type".to_string(),

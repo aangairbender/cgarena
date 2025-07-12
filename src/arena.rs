@@ -3,7 +3,7 @@ use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
 use crate::domain::{
     Bot, BotId, BotName, Build, Language, Leaderboard, LeaderboardId, LeaderboardName, Match,
-    MatchFilter, Rating, SourceCode, WorkerName,
+    MatchAttribute, MatchAttributeValue, MatchFilter, Rating, SourceCode, WorkerName,
 };
 use crate::matchmaking;
 use crate::ranking::Ranker;
@@ -575,6 +575,27 @@ impl Arena {
             }
 
             let mut new_match = Match::new(output.seed, output.participants, output.attributes);
+
+            new_match.attributes.retain(|attr| attr.name != "seed");
+            new_match.attributes.push(MatchAttribute {
+                name: "seed".to_string(),
+                bot_id: None,
+                turn: None,
+                value: MatchAttributeValue::Integer(output.seed),
+            });
+
+            if self.game_config.min_players != self.game_config.max_players {
+                new_match
+                    .attributes
+                    .retain(|attr| attr.name != "player_count");
+                new_match.attributes.push(MatchAttribute {
+                    name: "player_count".to_string(),
+                    bot_id: None,
+                    turn: None,
+                    value: MatchAttributeValue::Integer(new_match.participants.len() as _),
+                });
+            }
+
             self.db.persist_match(&mut new_match).await;
             self.matches.push(new_match);
 

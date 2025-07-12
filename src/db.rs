@@ -378,26 +378,31 @@ impl Database {
                 .await
                 .expect("Cannot insert attribute name");
 
-            let name_id = sqlx::query_as::<_, (i64,)>("SELECT id FROM match_attribute_names WHERE name = ?")
-                .bind::<&str>(&attr.name)
-                .fetch_one(&mut *tx)
-                .await
-                .expect("Cannot get attribute name")
-                .0;
-
-            let str_value_id = if let Some(str_value) = attr.value.string_value() {
-                sqlx::query("INSERT OR IGNORE INTO match_attribute_string_values (value) VALUES (?)")
-                    .bind::<&str>(str_value)
-                    .execute(&mut *tx)
-                    .await
-                    .expect("Cannot insert attribute string value");
-
-                let str_value_id = sqlx::query_as::<_, (i64,)>("SELECT id FROM match_attribute_string_values WHERE value = ?")
-                    .bind::<&str>(str_value)
+            let name_id =
+                sqlx::query_as::<_, (i64,)>("SELECT id FROM match_attribute_names WHERE name = ?")
+                    .bind::<&str>(&attr.name)
                     .fetch_one(&mut *tx)
                     .await
-                    .expect("Cannot get attribute string value")
+                    .expect("Cannot get attribute name")
                     .0;
+
+            let str_value_id = if let Some(str_value) = attr.value.string_value() {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO match_attribute_string_values (value) VALUES (?)",
+                )
+                .bind::<&str>(str_value)
+                .execute(&mut *tx)
+                .await
+                .expect("Cannot insert attribute string value");
+
+                let str_value_id = sqlx::query_as::<_, (i64,)>(
+                    "SELECT id FROM match_attribute_string_values WHERE value = ?",
+                )
+                .bind::<&str>(str_value)
+                .fetch_one(&mut *tx)
+                .await
+                .expect("Cannot get attribute string value")
+                .0;
                 Some(str_value_id)
             } else {
                 None
