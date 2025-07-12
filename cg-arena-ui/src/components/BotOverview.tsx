@@ -23,6 +23,7 @@ const BotOverview: React.FC<BotOverviewProps> = ({
     <Table hover className="mb-0">
       <thead>
         <tr>
+          <th>Id</th>
           <th>Name</th>
           <th>Language</th>
           <th>Matches played</th>
@@ -34,6 +35,7 @@ const BotOverview: React.FC<BotOverviewProps> = ({
       </thead>
       <tbody>
         <tr key={bot.id}>
+          <td>{bot.id}</td>
           <td>{bot.name}</td>
           <td>{bot.language}</td>
           <td>{bot.matches_played}</td>
