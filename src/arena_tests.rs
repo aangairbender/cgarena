@@ -484,31 +484,31 @@ async fn cmd_fetch_leaderboard_e2e() {
                     name: "seed".to_string(),
                     bot_id: None,
                     turn: None,
-                    value: "1234".to_string(),
+                    value: "1234".to_string().into(),
                 },
                 MatchAttribute {
                     name: "map_type".to_string(),
                     bot_id: None,
                     turn: None,
-                    value: "small".to_string(),
+                    value: "small".to_string().into(),
                 },
                 MatchAttribute {
                     name: "stones_percentage".to_string(),
                     bot_id: None,
                     turn: None,
-                    value: "0.75".to_string(),
+                    value: "0.75".to_string().into(),
                 },
                 MatchAttribute {
                     name: "final_score".to_string(),
                     bot_id: Some(b1),
                     turn: None,
-                    value: "75".to_string(),
+                    value: "75".to_string().into(),
                 },
                 MatchAttribute {
                     name: "final_score".to_string(),
                     bot_id: Some(b2),
                     turn: None,
-                    value: "50".to_string(),
+                    value: "50".to_string().into(),
                 },
             ];
 
@@ -517,19 +517,19 @@ async fn cmd_fetch_leaderboard_e2e() {
                     name: "bombs_revealed".to_string(),
                     bot_id: None,
                     turn: Some(turn),
-                    value: (3 * turn).to_string(),
+                    value: (3 * turn).to_string().into(),
                 });
                 initial.push(MatchAttribute {
                     name: "score".to_string(),
                     bot_id: Some(b1),
                     turn: Some(turn),
-                    value: (15 * turn).to_string(),
+                    value: (15 * turn).to_string().into(),
                 });
                 initial.push(MatchAttribute {
                     name: "score".to_string(),
                     bot_id: Some(b2),
                     turn: Some(turn),
-                    value: (10 * turn).to_string(),
+                    value: (10 * turn).to_string().into(),
                 });
             }
 

@@ -339,6 +339,6 @@ fn to_match_attribute(input: &PlayMatchInput, attr: CmdMatchAttribute) -> MatchA
         name: attr.name,
         bot_id,
         turn: attr.turn,
-        value: attr.value,
+        value: attr.value.into(),
     }
 }

@@ -1,6 +1,6 @@
 use crate::domain::{
     Bot, BotId, Build, BuildResult, BuildStatus, Leaderboard, LeaderboardId, Match, MatchAttribute,
-    MatchId, Participant,
+    MatchAttributeValue, MatchId, Participant,
 };
 use anyhow::bail;
 use chrono::{DateTime, Utc};
@@ -46,14 +46,14 @@ pub struct BuildsRow {
 }
 
 #[derive(sqlx::FromRow)]
-pub struct MatchAttributesRow {
-    #[allow(unused)]
-    pub id: i64,
+pub struct MatchAttributesJoinedRow {
     pub name: String,
     pub match_id: i64,
     pub bot_id: Option<i64>,
     pub turn: Option<u16>,
-    pub value: String,
+    pub value_int: Option<i64>,
+    pub value_float: Option<f64>,
+    pub value_string: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -74,13 +74,18 @@ impl From<LeaderboardsRow> for Leaderboard {
     }
 }
 
-impl From<MatchAttributesRow> for MatchAttribute {
-    fn from(row: MatchAttributesRow) -> Self {
+impl From<MatchAttributesJoinedRow> for MatchAttribute {
+    fn from(row: MatchAttributesJoinedRow) -> Self {
         MatchAttribute {
             name: row.name,
             bot_id: row.bot_id.map(|id| id.into()),
             turn: row.turn,
-            value: row.value,
+            value: match (row.value_int, row.value_float, row.value_string) {
+                (Some(value), None, None) => MatchAttributeValue::Integer(value),
+                (None, Some(value), None) => MatchAttributeValue::Float(value),
+                (None, None, Some(value)) => MatchAttributeValue::String(value),
+                _ => panic!("Ambiguous attribute value type. match id {}", row.match_id),
+            },
         }
     }
 }
@@ -128,11 +133,21 @@ impl From<ParticipationsRow> for Participant {
     }
 }
 
-impl TryFrom<(MatchesRow, Vec<ParticipationsRow>, Vec<MatchAttributesRow>)> for Match {
+impl
+    TryFrom<(
+        MatchesRow,
+        Vec<ParticipationsRow>,
+        Vec<MatchAttributesJoinedRow>,
+    )> for Match
+{
     type Error = anyhow::Error;
 
     fn try_from(
-        (m, mut ps, ar): (MatchesRow, Vec<ParticipationsRow>, Vec<MatchAttributesRow>),
+        (m, mut ps, ar): (
+            MatchesRow,
+            Vec<ParticipationsRow>,
+            Vec<MatchAttributesJoinedRow>,
+        ),
     ) -> Result<Self, Self::Error> {
         if m.participant_cnt as usize != ps.len() {
             bail!("participant count mismatch");
@@ -357,17 +372,50 @@ impl Database {
         }
 
         for attr in &m.attributes {
+            sqlx::query("INSERT OR IGNORE INTO match_attribute_names (name) VALUES (?)")
+                .bind::<&str>(&attr.name)
+                .execute(&mut *tx)
+                .await
+                .expect("Cannot insert attribute name");
+
+            let name_id = sqlx::query_as::<_, (i64,)>("SELECT id FROM match_attribute_names WHERE name = ?")
+                .bind::<&str>(&attr.name)
+                .fetch_one(&mut *tx)
+                .await
+                .expect("Cannot get attribute name")
+                .0;
+
+            let str_value_id = if let Some(str_value) = attr.value.string_value() {
+                sqlx::query("INSERT OR IGNORE INTO match_attribute_string_values (value) VALUES (?)")
+                    .bind::<&str>(str_value)
+                    .execute(&mut *tx)
+                    .await
+                    .expect("Cannot insert attribute string value");
+
+                let str_value_id = sqlx::query_as::<_, (i64,)>("SELECT id FROM match_attribute_string_values WHERE value = ?")
+                    .bind::<&str>(str_value)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("Cannot get attribute string value")
+                    .0;
+                Some(str_value_id)
+            } else {
+                None
+            };
+
             const SQL: &str = indoc! {
-                "INSERT INTO match_attributes (name, match_id, bot_id, turn, value) \
-                VALUES ($1, $2, $3, $4, $5)"
+                "INSERT INTO match_attributes (name_id, match_id, bot_id, turn, value_int, value_float, value_string_id) \
+                VALUES ($1, $2, $3, $4, $5, $6, $7)"
             };
 
             sqlx::query(SQL)
-                .bind::<&str>(&attr.name)
+                .bind::<i64>(name_id)
                 .bind::<i64>(match_id.into())
                 .bind::<Option<i64>>(attr.bot_id.map(|id| id.into()))
                 .bind::<Option<u16>>(attr.turn)
-                .bind::<&str>(&attr.value)
+                .bind::<Option<i64>>(attr.value.integer_value())
+                .bind::<Option<f64>>(attr.value.float_value())
+                .bind::<Option<i64>>(str_value_id)
                 .execute(&mut *tx)
                 .await
                 .expect("Cannot create match attribute in db");
@@ -388,7 +436,21 @@ impl Database {
             .await
             .expect("Cannot query match participations from db");
 
-        let attributes: Vec<MatchAttributesRow> = sqlx::query_as("SELECT * from match_attributes")
+        const SQL: &str = indoc! {
+            "SELECT
+                n.name as name,
+                ma.match_id as match_id,
+                ma.bot_id as bot_id,
+                ma.turn as turn,
+                ma.value_int as value_int,
+                ma.value_float as value_float,
+                v.value as value_string
+            FROM match_attributes ma
+            INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
+            LEFT JOIN match_attribute_string_values v ON (v.id = ma.value_string_id)"
+        };
+
+        let attributes: Vec<MatchAttributesJoinedRow> = sqlx::query_as(SQL)
             .fetch_all(&self.pool)
             .await
             .expect("Cannot query match attributes from db");

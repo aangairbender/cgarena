@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::domain::Match;
+use crate::domain::{Match, MatchAttributeValue};
 
 #[derive(Default, Clone)]
 pub struct AttributeIndex {
@@ -19,9 +19,9 @@ pub enum AttributeKind {
 }
 
 impl AttributeKind {
-    pub fn adjust(&mut self, value: &str) {
-        let can_be_integer = value.parse::<i64>().is_ok();
-        let can_be_float = value.parse::<f64>().is_ok();
+    pub fn adjust(&mut self, value: &MatchAttributeValue) {
+        let can_be_integer = value.integer_value().is_some();
+        let can_be_float = value.float_value().is_some();
 
         let mut cur = *self;
         if cur == AttributeKind::Integer && !can_be_integer {
