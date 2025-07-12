@@ -577,6 +577,14 @@ async fn cmd_fetch_leaderboard_e2e() {
         *res3
             .attribute_index
             .common_global_attributes
+            .get("initial_stones")
+            .unwrap(),
+        AttributeKind::Integer
+    );
+    assert_eq!(
+        *res3
+            .attribute_index
+            .common_global_attributes
             .get("map_type")
             .unwrap(),
         AttributeKind::String
