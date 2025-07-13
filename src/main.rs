@@ -4,7 +4,6 @@ mod arena_handle;
 mod arena_server;
 #[cfg(test)]
 mod arena_tests;
-mod attribute_index;
 mod config;
 mod db;
 mod domain;

@@ -6,7 +6,7 @@ pub struct LeaderboardName(String);
 
 impl LeaderboardName {
     pub fn global() -> LeaderboardName {
-        LeaderboardName("global".to_string())
+        LeaderboardName("Global".to_string())
     }
 }
 

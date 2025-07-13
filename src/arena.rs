@@ -1,4 +1,3 @@
-use crate::attribute_index::AttributeIndex;
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
 use crate::domain::{
@@ -127,7 +126,7 @@ pub async fn run(
 
     arena.load_from_db().await;
     arena.reset_stale_builds().await;
-    arena.recalculate_computed_full();
+    arena.recalculate_computed_full().await;
 
     loop {
         // 0. check cancellation
@@ -161,13 +160,11 @@ struct Arena {
     matchmaking_config: MatchmakingConfig,
     db: Database,
     bots: Vec<Bot>,
-    matches: Vec<Match>,
     builds: Vec<Build>,
     worker_handle: WorkerHandle,
     ranker: Ranker,
     global_leaderboard: Leaderboard,
     custom_leaderboards: Vec<Leaderboard>,
-    attribute_index: AttributeIndex,
     match_queue: VecDeque<PlayMatchInput>,
 }
 
@@ -186,11 +183,9 @@ impl Arena {
             worker_handle,
             ranker,
             bots: Default::default(),
-            matches: Default::default(),
             builds: Default::default(),
             global_leaderboard: Leaderboard::global(),
             custom_leaderboards: Default::default(),
-            attribute_index: Default::default(),
             match_queue: Default::default(),
         }
     }
@@ -212,7 +207,6 @@ impl Arena {
     #[instrument(skip(self))]
     pub async fn load_from_db(&mut self) {
         self.bots = self.db.fetch_bots().await;
-        self.matches = self.db.fetch_matches().await;
         self.builds = self.db.fetch_builds().await;
         self.custom_leaderboards = self.db.fetch_leaderboards().await;
     }
@@ -327,10 +321,8 @@ impl Arena {
         // matches would be automatically delete by db trigger
         self.db.delete_bot(id).await;
         self.bots.retain(|bot| bot.id != id);
-        self.matches
-            .retain(|m| !m.participants.iter().any(|p| p.bot_id == id));
         self.builds.retain(|b| b.bot_id != id);
-        self.recalculate_computed_full();
+        self.recalculate_computed_full().await;
     }
 
     #[instrument(skip(self), level = "debug")]
@@ -401,7 +393,7 @@ impl Arena {
     ) -> LeaderboardOverview {
         let mut leaderboard = Leaderboard::new(name, filter);
         self.db.persist_leaderboard(&mut leaderboard).await;
-        self.recalculate_single_leaderboard(&mut leaderboard);
+        self.recalculate_single_leaderboard(&mut leaderboard).await;
         let overview = self.render_leaderboard_overview(&leaderboard);
         self.custom_leaderboards.push(leaderboard);
         overview
@@ -560,14 +552,11 @@ impl Arena {
             }
 
             self.db.persist_match(&mut new_match).await;
-            self.matches.push(new_match);
 
-            self.global_leaderboard
-                .process(&self.ranker, self.matches.last().unwrap());
+            self.global_leaderboard.process(&self.ranker, &new_match);
             for leaderboard in &mut self.custom_leaderboards {
-                leaderboard.process(&self.ranker, self.matches.last().unwrap());
+                leaderboard.process(&self.ranker, &new_match);
             }
-            self.attribute_index.process(self.matches.last().unwrap());
         }
     }
 
@@ -624,23 +613,34 @@ impl Arena {
             .collect_vec()
     }
 
-    #[instrument(skip(self))]
-    fn recalculate_computed_full(&mut self) {
+    async fn recalculate_computed_full(&mut self) {
         self.global_leaderboard.reset();
-        self.attribute_index.reset();
-        for m in &self.matches {
-            self.global_leaderboard.process(&self.ranker, m);
+        for leaderboard in &mut self.custom_leaderboards {
+            leaderboard.reset();
+        }
+
+        let mut attrs = vec![];
+        for lb in &self.custom_leaderboards {
+            attrs.extend(lb.filter.needed_attributes());
+        }
+
+        let matches = self.db.fetch_matches_with_attrs(&attrs).await;
+        for m in matches {
+            self.global_leaderboard.process(&self.ranker, &m);
             for leaderboard in &mut self.custom_leaderboards {
-                leaderboard.process(&self.ranker, m);
+                leaderboard.process(&self.ranker, &m);
             }
-            self.attribute_index.process(m);
         }
     }
 
-    fn recalculate_single_leaderboard(&self, leaderboard: &mut Leaderboard) {
+    async fn recalculate_single_leaderboard(&self, leaderboard: &mut Leaderboard) {
         leaderboard.reset();
-        for m in &self.matches {
-            leaderboard.process(&self.ranker, m);
+
+        let attrs = leaderboard.filter.needed_attributes();
+
+        let matches = self.db.fetch_matches_with_attrs(&attrs).await;
+        for m in matches {
+            leaderboard.process(&self.ranker, &m);
         }
     }
 }

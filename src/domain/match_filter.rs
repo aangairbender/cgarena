@@ -2,7 +2,7 @@ use std::{fmt::Display, str::FromStr};
 
 use anyhow::{anyhow, bail};
 
-use crate::domain::{Match, MatchAttributeValue};
+use crate::domain::{Match, MatchAttribute, MatchAttributeValue};
 
 pub struct MatchFilter {
     expr: Option<ast::Expr>,
@@ -20,6 +20,59 @@ impl MatchFilter {
                 .unwrap_or(false)
         } else {
             true
+        }
+    }
+
+    pub fn needed_attributes(&self) -> Vec<MatchAttribute> {
+        let mut res = vec![];
+        if let Some(ref expr) = self.expr {
+            collect_needed_attributes(expr, &mut res);
+        }
+        res
+    }
+}
+
+fn collect_needed_attributes(expr: &ast::Expr, res: &mut Vec<MatchAttribute>) {
+    match expr {
+        ast::Expr::Condition(argument1, _, argument2) => {
+            collect_needed_attributes_from_arg(argument1, res);
+            collect_needed_attributes_from_arg(argument2, res);
+        }
+        ast::Expr::Paren(expr) => collect_needed_attributes(expr, res),
+        ast::Expr::And(expr1, expr2) => {
+            collect_needed_attributes(expr1, res);
+            collect_needed_attributes(expr2, res);
+        }
+        ast::Expr::Or(expr1, expr2) => {
+            collect_needed_attributes(expr1, res);
+            collect_needed_attributes(expr2, res);
+        }
+        ast::Expr::Not(expr) => collect_needed_attributes(expr, res),
+    }
+}
+
+fn collect_needed_attributes_from_arg(arg: &ast::Argument, res: &mut Vec<MatchAttribute>) {
+    match arg {
+        ast::Argument::Value(_) => {}
+        ast::Argument::MatchAttr(match_attr) => {
+            let attr = MatchAttribute {
+                name: match_attr.name.clone(),
+                bot_id: None,
+                turn: match_attr.turn,
+                // don't care about value
+                value: MatchAttributeValue::Integer(0),
+            };
+            res.push(attr);
+        }
+        ast::Argument::BotAttr(bot_attr) => {
+            let attr = MatchAttribute {
+                name: bot_attr.name.clone(),
+                bot_id: Some(bot_attr.bot_id),
+                turn: bot_attr.turn,
+                // don't care about value
+                value: MatchAttributeValue::Integer(0),
+            };
+            res.push(attr);
         }
     }
 }

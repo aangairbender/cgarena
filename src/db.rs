@@ -4,7 +4,8 @@ use crate::domain::{
 };
 use anyhow::bail;
 use chrono::{DateTime, Utc};
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
+use itertools::Itertools;
 use sqlx::SqlitePool;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions};
 use std::collections::HashMap;
@@ -430,7 +431,7 @@ impl Database {
         match_id
     }
 
-    pub async fn fetch_matches(&mut self) -> Vec<Match> {
+    pub async fn fetch_matches_with_attrs(&self, attrs: &[MatchAttribute]) -> Vec<Match> {
         let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
             .fetch_all(&self.pool)
             .await
@@ -441,24 +442,42 @@ impl Database {
             .await
             .expect("Cannot query match participations from db");
 
-        const SQL: &str = indoc! {
-            "SELECT
-                n.name as name,
-                ma.match_id as match_id,
-                ma.bot_id as bot_id,
-                ma.turn as turn,
-                ma.value_int as value_int,
-                ma.value_float as value_float,
-                v.value as value_string
-            FROM match_attributes ma
-            INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
-            LEFT JOIN match_attribute_string_values v ON (v.id = ma.value_string_id)"
-        };
+        let attributes: Vec<MatchAttributesJoinedRow> = if attrs.is_empty() {
+            vec![]
+        } else {
+            let names_joined = attrs.iter().map(|a| format!("'{}'", a.name)).join(",");
+            let turns = attrs.iter().flat_map(|a| a.turn).collect_vec();
+            let turns_condition = if turns.is_empty() {
+                "ma.turn IS NULL".to_string()
+            } else {
+                format!("(ma.turn is NULL OR ma.turn IN ({}))", turns.iter().join(","))
+            };
+            let bot_ids: Vec<i64> = attrs.iter().flat_map(|a| a.bot_id).map(|id| id.into()).collect_vec();
+            let bots_condition = if bot_ids.is_empty() {
+                "ma.bot_id IS NULL".to_string()
+            } else {
+                format!("(ma.bot_id is NULL OR ma.bot_id IN ({}))", bot_ids.iter().join(","))
+            };
 
-        let attributes: Vec<MatchAttributesJoinedRow> = sqlx::query_as(SQL)
-            .fetch_all(&self.pool)
-            .await
-            .expect("Cannot query match attributes from db");
+            let sql = formatdoc! {
+                "SELECT
+                    n.name as name,
+                    ma.match_id as match_id,
+                    ma.bot_id as bot_id,
+                    ma.turn as turn,
+                    ma.value_int as value_int,
+                    ma.value_float as value_float,
+                    v.value as value_string
+                FROM match_attributes ma
+                INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
+                LEFT JOIN match_attribute_string_values v ON (v.id = ma.value_string_id)
+                WHERE n.name IN ({names_joined}) AND {turns_condition} AND {bots_condition}"
+            };
+            sqlx::query_as(&sql)
+                .fetch_all(&self.pool)
+                .await
+                .expect("Cannot query match attributes from db")
+        };
 
         let mut combined = HashMap::with_capacity(matches.len());
         for m in matches {
