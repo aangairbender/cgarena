@@ -1,34 +1,34 @@
 import { useState } from "react";
-import { LeaderboardId, RenameLeaderboardRequest } from "@models";
+import { LeaderboardId, LeaderboardOverviewResponse, PatchLeaderboardRequest } from "@models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
 
-export interface RenameLeaderboardDialogData {
-  leaderboardId: LeaderboardId;
-  currentName: string;
-  onSubmit: (id: LeaderboardId, req: RenameLeaderboardRequest) => Promise<void>;
+export interface PatchLeaderboardDialogData {
+  leaderboard: LeaderboardOverviewResponse;
+  onSubmit: (id: LeaderboardId, req: PatchLeaderboardRequest) => Promise<void>;
 }
 
-const RenameLeaderboardDialog = (dialog: DialogProps<RenameLeaderboardDialogData>) => {
+const PatchLeaderboardDialog = (dialog: DialogProps<PatchLeaderboardDialogData>) => {
   const [name, setName] = useState("");
+  const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
 
   const data = dialog.data;
   if (data === undefined) return null;
 
-
   const canSubmit = name.length > 0;
 
   const closeDialog = () => {
     setName("");
+    setFilter("");
     setError("");
     dialog.hide();
   };
 
   const handleSubmit = async () => {
-    const req: RenameLeaderboardRequest = { name };
+    const req: PatchLeaderboardRequest = { name, filter };
     try {
-      await data.onSubmit(data.leaderboardId, req);
+      await data.onSubmit(data.leaderboard.id, req);
       closeDialog();
     } catch (e) {
       if (e instanceof Error) {
@@ -49,11 +49,23 @@ const RenameLeaderboardDialog = (dialog: DialogProps<RenameLeaderboardDialogData
           <Form.Label>Name</Form.Label>
           <Form.Control
             placeholder="Leaderboard's name"
-            defaultValue={data.currentName}
+            defaultValue={data.leaderboard.name}
             onChange={(e) => setName(e.target.value)}
           />
           <Form.Text className="text-muted">
             Non-empty string up to 64 characters long.
+          </Form.Text>
+        </Form.Group>
+
+        <Form.Group controlId="formName" className="mb-3">
+          <Form.Label>Match filter</Form.Label>
+          <Form.Control
+            placeholder=""
+            defaultValue={data.leaderboard.filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <Form.Text className="text-muted">
+            e.g. match.player_count == 2
           </Form.Text>
         </Form.Group>
 
@@ -71,4 +83,4 @@ const RenameLeaderboardDialog = (dialog: DialogProps<RenameLeaderboardDialogData
   );
 };
 
-export default RenameLeaderboardDialog;
+export default PatchLeaderboardDialog;

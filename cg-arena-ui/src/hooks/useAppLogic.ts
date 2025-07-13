@@ -6,7 +6,7 @@ import {
   LeaderboardId,
   LeaderboardOverviewResponse,
   RenameBotRequest,
-  RenameLeaderboardRequest,
+  PatchLeaderboardRequest,
 } from "@models";
 import { useCallback, useEffect, useState } from "react";
 import * as api from "@api";
@@ -127,14 +127,15 @@ export const useAppLogic = () => {
     [setLeaderboards, setLoading]
   );
 
-  const renameLeaderboard = useCallback(
-    async (id: LeaderboardId, req: RenameLeaderboardRequest) => {
+  const patchLeaderboard = useCallback(
+    async (id: LeaderboardId, req: PatchLeaderboardRequest) => {
       setLoading(true);
-      await api.renameLeaderboard(id, req);
+      await api.patchLeaderboard(id, req);
       setLeaderboards((leaderboards) => {
         const existing = leaderboards.find((lb) => lb.id == id);
         if (existing) {
           existing.name = req.name;
+          existing.filter = req.filter;
           return leaderboards;
         } else {
           throw new Error("Bot does not exist anymore");
@@ -167,7 +168,7 @@ export const useAppLogic = () => {
     deleteBot,
     renameBot,
     createLeaderboard,
-    renameLeaderboard,
+    patchLeaderboard,
     deleteLeaderboard,
   };
 };

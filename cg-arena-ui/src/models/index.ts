@@ -13,8 +13,9 @@ export interface CreateLeaderboardRequest {
   filter: string;
 }
 
-export interface RenameLeaderboardRequest {
+export interface PatchLeaderboardRequest {
   name: string;
+  filter: string,
 }
 
 export interface FetchStatusResponse {

@@ -1,7 +1,7 @@
 use crate::arena::{
     ArenaCommand, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand, DeleteBotCommand,
     DeleteLeaderboardCommand, FetchStatusCommand, FetchStatusResult, LeaderboardOverview,
-    RenameBotCommand, RenameBotResult, RenameLeaderboardCommand, RenameLeaderboardResult,
+    PatchLeaderboardCommand, PatchLeaderboardResult, RenameBotCommand, RenameBotResult,
 };
 use crate::domain::{
     BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
@@ -75,15 +75,17 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn rename_leaderboard(
+    pub async fn patch_leaderboard(
         &self,
         id: LeaderboardId,
-        new_name: LeaderboardName,
-    ) -> RenameLeaderboardResult {
+        name: LeaderboardName,
+        filter: MatchFilter,
+    ) -> PatchLeaderboardResult {
         self.send_command_and_await_for_result(move |tx| {
-            ArenaCommand::RenameLeaderboard(RenameLeaderboardCommand {
+            ArenaCommand::PatchLeaderboard(PatchLeaderboardCommand {
                 id,
-                new_name,
+                name,
+                filter,
                 response: tx,
             })
         })

@@ -7,7 +7,7 @@ import {
   LeaderboardId,
   LeaderboardOverviewResponse,
   RenameBotRequest,
-  RenameLeaderboardRequest,
+  PatchLeaderboardRequest,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -72,9 +72,9 @@ export const createLeaderboard = async (
   return await parseResponse<LeaderboardOverviewResponse>(response);
 };
 
-export const renameLeaderboard = async (
+export const patchLeaderboard = async (
   id: LeaderboardId,
-  payload: RenameLeaderboardRequest,
+  payload: PatchLeaderboardRequest,
 ) => {
   const req = new Request(`${host}/api/leaderboards/${id}`, {
     method: "PATCH",

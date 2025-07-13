@@ -450,13 +450,23 @@ impl Database {
             let turns_condition = if turns.is_empty() {
                 "ma.turn IS NULL".to_string()
             } else {
-                format!("(ma.turn is NULL OR ma.turn IN ({}))", turns.iter().join(","))
+                format!(
+                    "(ma.turn is NULL OR ma.turn IN ({}))",
+                    turns.iter().join(",")
+                )
             };
-            let bot_ids: Vec<i64> = attrs.iter().flat_map(|a| a.bot_id).map(|id| id.into()).collect_vec();
+            let bot_ids: Vec<i64> = attrs
+                .iter()
+                .flat_map(|a| a.bot_id)
+                .map(|id| id.into())
+                .collect_vec();
             let bots_condition = if bot_ids.is_empty() {
                 "ma.bot_id IS NULL".to_string()
             } else {
-                format!("(ma.bot_id is NULL OR ma.bot_id IN ({}))", bot_ids.iter().join(","))
+                format!(
+                    "(ma.bot_id is NULL OR ma.bot_id IN ({}))",
+                    bot_ids.iter().join(",")
+                )
             };
 
             let sql = formatdoc! {

@@ -24,7 +24,7 @@ pub enum ArenaCommand {
     FetchStatus(FetchStatusCommand),
     CreateLeaderboard(CreateLeaderboardCommand),
     DeleteLeaderboard(DeleteLeaderboardCommand),
-    RenameLeaderboard(RenameLeaderboardCommand),
+    PatchLeaderboard(PatchLeaderboardCommand),
 }
 
 pub struct CreateLeaderboardCommand {
@@ -33,14 +33,15 @@ pub struct CreateLeaderboardCommand {
     pub response: oneshot::Sender<LeaderboardOverview>,
 }
 
-pub struct RenameLeaderboardCommand {
+pub struct PatchLeaderboardCommand {
     pub id: LeaderboardId,
-    pub new_name: LeaderboardName,
-    pub response: oneshot::Sender<RenameLeaderboardResult>,
+    pub name: LeaderboardName,
+    pub filter: MatchFilter,
+    pub response: oneshot::Sender<PatchLeaderboardResult>,
 }
 
-pub enum RenameLeaderboardResult {
-    Renamed,
+pub enum PatchLeaderboardResult {
+    OK,
     NotFound,
 }
 
@@ -393,24 +394,35 @@ impl Arena {
     ) -> LeaderboardOverview {
         let mut leaderboard = Leaderboard::new(name, filter);
         self.db.persist_leaderboard(&mut leaderboard).await;
-        self.recalculate_single_leaderboard(&mut leaderboard).await;
+        Self::recalculate_single_leaderboard(&self.db, &self.ranker, &mut leaderboard).await;
         let overview = self.render_leaderboard_overview(&leaderboard);
         self.custom_leaderboards.push(leaderboard);
         overview
     }
 
-    async fn cmd_rename_leaderboard(
+    async fn cmd_patch_leaderboard(
         &mut self,
         id: LeaderboardId,
-        new_name: LeaderboardName,
-    ) -> RenameLeaderboardResult {
+        name: LeaderboardName,
+        filter: MatchFilter,
+    ) -> PatchLeaderboardResult {
         let Some(leaderboard) = self.custom_leaderboards.iter_mut().find(|w| w.id == id) else {
-            return RenameLeaderboardResult::NotFound;
+            return PatchLeaderboardResult::NotFound;
         };
 
-        leaderboard.name = new_name;
+        let old_filter_str = leaderboard.filter.to_string();
+        let new_filter_str = filter.to_string();
+
+        leaderboard.name = name;
+        leaderboard.filter = filter;
+
         self.db.persist_leaderboard(leaderboard).await;
-        RenameLeaderboardResult::Renamed
+
+        if old_filter_str != new_filter_str {
+            Self::recalculate_single_leaderboard(&self.db, &self.ranker, leaderboard).await;
+        }
+
+        PatchLeaderboardResult::OK
     }
 
     async fn cmd_delete_leaderboard(&mut self, id: LeaderboardId) {
@@ -477,9 +489,9 @@ impl Arena {
                     warn!("Failed to send response to client");
                 }
             }
-            ArenaCommand::RenameLeaderboard(command) => {
+            ArenaCommand::PatchLeaderboard(command) => {
                 let res = self
-                    .cmd_rename_leaderboard(command.id, command.new_name)
+                    .cmd_patch_leaderboard(command.id, command.name, command.filter)
                     .await;
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
@@ -633,14 +645,18 @@ impl Arena {
         }
     }
 
-    async fn recalculate_single_leaderboard(&self, leaderboard: &mut Leaderboard) {
+    async fn recalculate_single_leaderboard(
+        db: &Database,
+        ranker: &Ranker,
+        leaderboard: &mut Leaderboard,
+    ) {
         leaderboard.reset();
 
         let attrs = leaderboard.filter.needed_attributes();
 
-        let matches = self.db.fetch_matches_with_attrs(&attrs).await;
+        let matches = db.fetch_matches_with_attrs(&attrs).await;
         for m in matches {
-            leaderboard.process(&self.ranker, &m);
+            leaderboard.process(ranker, &m);
         }
     }
 }

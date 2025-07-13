@@ -12,7 +12,7 @@ import { useAppLogic } from "@hooks/useAppLogic";
 import { useDialog } from "@hooks/useDialog";
 import { FaPencil, FaPlus, FaTrash } from "react-icons/fa6";
 import CreateLeaderboardDialog, { CreateLeaderboardDialogData } from "@components/CreateLeaderboardDialog";
-import RenameLeaderboardDialog, { RenameLeaderboardDialogData } from "@components/RenameLeaderboardDialog";
+import PatchLeaderboardDialog, { PatchLeaderboardDialogData } from "@components/PatchLeaderboardDialog";
 import { GLOBAL_LEADERBOARD_ID } from "@models";
 
 function App() {
@@ -28,7 +28,7 @@ function App() {
     autoRefresh,
     setAutoRefresh,
     createLeaderboard,
-    renameLeaderboard,
+    patchLeaderboard,
     deleteLeaderboard,
   } = useAppLogic();
   const submitBotDialog = useDialog<SubmitBotDialogData>();
@@ -36,7 +36,7 @@ function App() {
   const confirmDialog = useDialog<ConfirmDialogData>();
   const renameBotDialog = useDialog<RenameBotDialogData>();
   const createLeaderboardDialog = useDialog<CreateLeaderboardDialogData>();
-  const renameLeaderboardDialog = useDialog<RenameLeaderboardDialogData>();
+  const patchLeaderboardDialog = useDialog<PatchLeaderboardDialogData>();
 
   const selectedBot = bots.find(b => b.id == selectedBotId);
 
@@ -103,7 +103,7 @@ function App() {
                     <Button
                       variant="outline-warning"
                       size="sm"
-                      onClick={() => renameLeaderboardDialog.show({leaderboardId: lb.id, currentName: lb.name, onSubmit: renameLeaderboard})}
+                      onClick={() => patchLeaderboardDialog.show({leaderboard: lb, onSubmit: patchLeaderboard})}
                     >
                       <FaPencil className="bi"/>
                     </Button>
@@ -142,7 +142,7 @@ function App() {
       <ConfirmDialog {...confirmDialog} />
       <RenameBotDialog {...renameBotDialog} />
       <CreateLeaderboardDialog {...createLeaderboardDialog} />
-      <RenameLeaderboardDialog {...renameLeaderboardDialog} />
+      <PatchLeaderboardDialog {...patchLeaderboardDialog} />
     </>
   );
 }

@@ -17,8 +17,9 @@ pub struct CreateLeaderboardRequest {
 }
 
 #[derive(Deserialize)]
-pub struct RenameLeaderboardRequest {
+pub struct PatchLeaderboardRequest {
     pub name: String,
+    pub filter: String,
 }
 
 pub async fn create_leaderboard(
@@ -39,25 +40,26 @@ pub async fn create_leaderboard(
     Ok(Json(LeaderboardOverviewResponse::from(res)))
 }
 
-pub async fn rename_leaderboard(
+pub async fn patch_leaderboard(
     State(app_state): State<AppState>,
     Path(id): Path<i64>,
-    Json(payload): Json<RenameLeaderboardRequest>,
+    Json(payload): Json<PatchLeaderboardRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let id: LeaderboardId = id.into();
-    let new_name: LeaderboardName = payload
+    let name: LeaderboardName = payload
         .name
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
+    let filter: MatchFilter = payload.filter.parse().map_err(ApiError::ValidationFailed)?;
 
     let res = app_state
         .arena_handle
-        .rename_leaderboard(id, new_name)
+        .patch_leaderboard(id, name, filter)
         .await;
 
     match res {
-        crate::arena::RenameLeaderboardResult::Renamed => Ok(()),
-        crate::arena::RenameLeaderboardResult::NotFound => Err(ApiError::NotFound),
+        crate::arena::PatchLeaderboardResult::OK => Ok(()),
+        crate::arena::PatchLeaderboardResult::NotFound => Err(ApiError::NotFound),
     }
 }
 
