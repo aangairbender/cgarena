@@ -34,6 +34,7 @@ pub struct LeaderboardOverviewResponse {
     pub items: Vec<LeaderboardItemResponse>,
     pub winrate_stats: Vec<WinrateStatsResponse>,
     pub total_matches: u64,
+    pub example_seeds: Vec<i64>,
 }
 
 impl From<LeaderboardOverview> for LeaderboardOverviewResponse {
@@ -54,6 +55,7 @@ impl From<LeaderboardOverview> for LeaderboardOverviewResponse {
             items: value.items.into_iter().map(Into::into).collect(),
             winrate_stats: value.winrate_stats.into_iter().map(Into::into).collect(),
             total_matches: value.total_matches,
+            example_seeds: value.example_seeds,
         }
     }
 }

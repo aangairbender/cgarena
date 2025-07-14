@@ -10,10 +10,11 @@ import ConfirmDialog, { ConfirmDialogData } from "@components/ConfirmDialog";
 import RenameBotDialog, { RenameBotDialogData } from "@components/RenameBotDialog";
 import { useAppLogic } from "@hooks/useAppLogic";
 import { useDialog } from "@hooks/useDialog";
-import { FaPencil, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaPencil, FaPlus, FaSeedling, FaTrash } from "react-icons/fa6";
 import CreateLeaderboardDialog, { CreateLeaderboardDialogData } from "@components/CreateLeaderboardDialog";
 import PatchLeaderboardDialog, { PatchLeaderboardDialogData } from "@components/PatchLeaderboardDialog";
 import { GLOBAL_LEADERBOARD_ID } from "@models";
+import ExampleSeedsDialog, { ExampleSeedsDialogData } from "@components/ExampleSeedsDialog";
 
 function App() {
   const {
@@ -37,6 +38,7 @@ function App() {
   const renameBotDialog = useDialog<RenameBotDialogData>();
   const createLeaderboardDialog = useDialog<CreateLeaderboardDialogData>();
   const patchLeaderboardDialog = useDialog<PatchLeaderboardDialogData>();
+  const exampleSeedsDialog = useDialog<ExampleSeedsDialogData>();
 
   const selectedBot = bots.find(b => b.id == selectedBotId);
 
@@ -101,6 +103,14 @@ function App() {
                 {lb.id != GLOBAL_LEADERBOARD_ID && (
                   <>
                     <Button
+                      variant="outline-info"
+                      size="sm"
+                      onClick={() => exampleSeedsDialog.show({example_seeds: lb.example_seeds})}
+                    >
+                      <FaSeedling className="bi"/>
+                    </Button>
+
+                    <Button
                       variant="outline-warning"
                       size="sm"
                       onClick={() => patchLeaderboardDialog.show({leaderboard: lb, onSubmit: patchLeaderboard})}
@@ -143,6 +153,7 @@ function App() {
       <RenameBotDialog {...renameBotDialog} />
       <CreateLeaderboardDialog {...createLeaderboardDialog} />
       <PatchLeaderboardDialog {...patchLeaderboardDialog} />
+      <ExampleSeedsDialog {...exampleSeedsDialog} />
     </>
   );
 }

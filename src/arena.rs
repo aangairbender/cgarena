@@ -112,6 +112,7 @@ pub struct LeaderboardOverview {
     pub items: Vec<LeaderboardItem>,
     pub winrate_stats: HashMap<(BotId, BotId), WinrateStats>,
     pub total_matches: u64,
+    pub example_seeds: Vec<i64>,
 }
 
 pub enum LeaderboardStatus {
@@ -437,6 +438,7 @@ impl Arena {
                 items: Default::default(),
                 winrate_stats: Default::default(),
                 total_matches: 0,
+                example_seeds: vec![],
             };
         };
 
@@ -461,6 +463,7 @@ impl Arena {
             items,
             winrate_stats,
             total_matches: stats.total_matches(),
+            example_seeds: stats.example_seeds().to_vec(),
         }
     }
 

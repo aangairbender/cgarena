@@ -31,6 +31,7 @@ export interface LeaderboardOverviewResponse {
   items: LeaderboardItemResponse[];
   winrate_stats: WinrateStatsResponse[];
   total_matches: number;
+  example_seeds: number[];
 }
 
 export interface WinrateStatsResponse {
