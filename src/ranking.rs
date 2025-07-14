@@ -10,9 +10,9 @@ pub struct Ranker {
 impl Ranker {
     pub fn new(config: RankingConfig) -> Ranker {
         let algorithm: Box<dyn Algorithm + Sync + Send> = match config {
-            RankingConfig::OpenSkill => Box::new(openskill::OpenSkill),
-            RankingConfig::TrueSkill => Box::new(trueskill::Trueskill),
-            RankingConfig::Elo => Box::new(elo::Elo),
+            RankingConfig::OpenSkill(c) => Box::new(openskill::OpenSkill::new(c)),
+            RankingConfig::TrueSkill(c) => Box::new(trueskill::Trueskill::new(c)),
+            RankingConfig::Elo(c) => Box::new(elo::Elo::new(c)),
         };
         Self { algorithm }
     }
@@ -57,10 +57,12 @@ trait Algorithm {
     fn recalc_ratings(&self, input: &[(Rating, u8)]) -> Vec<Rating>;
 }
 
-mod openskill {
+pub mod openskill {
     use crate::domain::Rating;
     use crate::ranking::Algorithm;
     use itertools::Itertools;
+    use serde::Deserialize;
+    use serde::Serialize;
     use skillratings::MultiTeamOutcome;
 
     use skillratings::weng_lin::*;
@@ -83,7 +85,35 @@ mod openskill {
         }
     }
 
-    pub struct OpenSkill;
+    #[derive(Serialize, Deserialize)]
+    pub struct Config {
+        pub beta: Option<f64>,
+        pub uncertainty_tolerance: Option<f64>,
+    }
+
+    impl From<Config> for WengLinConfig {
+        fn from(value: Config) -> Self {
+            let default = WengLinConfig::default();
+            WengLinConfig {
+                beta: value.beta.unwrap_or(default.beta),
+                uncertainty_tolerance: value
+                    .uncertainty_tolerance
+                    .unwrap_or(default.uncertainty_tolerance),
+            }
+        }
+    }
+
+    pub struct OpenSkill {
+        config: WengLinConfig,
+    }
+
+    impl OpenSkill {
+        pub fn new(config: Config) -> Self {
+            Self {
+                config: config.into(),
+            }
+        }
+    }
 
     impl Algorithm for OpenSkill {
         fn default_rating(&self) -> Rating {
@@ -104,7 +134,7 @@ mod openskill {
                 .map(|(t, r)| (t.as_slice(), r))
                 .collect_vec();
 
-            let new_ratings = weng_lin_multi_team(&teams_and_ranks, &WengLinConfig::default());
+            let new_ratings = weng_lin_multi_team(&teams_and_ranks, &self.config);
 
             new_ratings.into_iter().map(|r| r[0].into()).collect_vec()
         }
@@ -115,12 +145,29 @@ mod openskill {
     }
 }
 
-mod trueskill {
+pub mod trueskill {
     use crate::{domain::Rating, ranking::Algorithm};
     use itertools::Itertools;
+    use serde::{Deserialize, Serialize};
     use skillratings::{trueskill::*, MultiTeamOutcome};
 
-    pub struct Trueskill;
+    #[derive(Serialize, Deserialize)]
+    pub struct Config {
+        pub draw_probability: Option<f64>,
+        pub beta: Option<f64>,
+        pub default_dynamics: Option<f64>,
+    }
+
+    impl From<Config> for TrueSkillConfig {
+        fn from(value: Config) -> Self {
+            let default = TrueSkillConfig::default();
+            TrueSkillConfig {
+                draw_probability: value.draw_probability.unwrap_or(default.draw_probability),
+                beta: value.beta.unwrap_or(default.beta),
+                default_dynamics: value.default_dynamics.unwrap_or(default.default_dynamics),
+            }
+        }
+    }
 
     impl From<Rating> for TrueSkillRating {
         fn from(rating: Rating) -> Self {
@@ -136,6 +183,18 @@ mod trueskill {
             Rating {
                 mu: rating.rating,
                 sigma: rating.uncertainty,
+            }
+        }
+    }
+
+    pub struct Trueskill {
+        config: TrueSkillConfig,
+    }
+
+    impl Trueskill {
+        pub fn new(config: Config) -> Self {
+            Self {
+                config: config.into(),
             }
         }
     }
@@ -158,7 +217,7 @@ mod trueskill {
                 .map(|(t, r)| (t.as_slice(), r))
                 .collect_vec();
 
-            let new_ratings = trueskill_multi_team(&teams_and_ranks, &TrueSkillConfig::default());
+            let new_ratings = trueskill_multi_team(&teams_and_ranks, &self.config);
 
             new_ratings.into_iter().map(|r| r[0].into()).collect_vec()
         }
@@ -169,11 +228,24 @@ mod trueskill {
     }
 }
 
-mod elo {
+pub mod elo {
     use crate::{domain::Rating, ranking::Algorithm};
+    use serde::{Deserialize, Serialize};
     use skillratings::{elo::*, Outcomes};
 
-    pub struct Elo;
+    #[derive(Serialize, Deserialize)]
+    pub struct Config {
+        pub k: Option<f64>,
+    }
+
+    impl From<Config> for EloConfig {
+        fn from(value: Config) -> Self {
+            let default = EloConfig::default();
+            EloConfig {
+                k: value.k.unwrap_or(default.k),
+            }
+        }
+    }
 
     impl From<Rating> for EloRating {
         fn from(rating: Rating) -> Self {
@@ -186,6 +258,18 @@ mod elo {
             Rating {
                 mu: rating.rating,
                 sigma: 0.0,
+            }
+        }
+    }
+
+    pub struct Elo {
+        config: EloConfig,
+    }
+
+    impl Elo {
+        pub fn new(config: Config) -> Self {
+            Self {
+                config: config.into(),
             }
         }
     }
@@ -205,7 +289,7 @@ mod elo {
                 std::cmp::Ordering::Greater => Outcomes::LOSS,
             };
 
-            let (new_p1, new_p2) = elo(&p1, &p2, &outcome, &EloConfig::default());
+            let (new_p1, new_p2) = elo(&p1, &p2, &outcome, &self.config);
             vec![new_p1.into(), new_p2.into()]
         }
 
