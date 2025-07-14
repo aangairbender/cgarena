@@ -123,7 +123,7 @@ function App() {
                     <Button
                       variant="outline-danger"
                       size="sm"
-                      onClick={() => confirmDialog.show({ prompt: `Do you really want to delete leaderboard {lb.name}?`, action: () => deleteLeaderboard(lb.id)})}
+                      onClick={() => confirmDialog.show({ prompt: `Do you really want to delete leaderboard '${lb.name}'?`, action: () => deleteLeaderboard(lb.id)})}
                     >
                       <FaTrash className="bi"/>
                     </Button>
