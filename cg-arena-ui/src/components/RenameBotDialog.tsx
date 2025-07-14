@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BotId, RenameBotRequest } from "@models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
@@ -14,6 +14,13 @@ const RenameBotDialog = (dialog: DialogProps<RenameBotDialogData>) => {
   const [error, setError] = useState("");
 
   const data = dialog.data;
+
+  useEffect(() => {
+    if (dialog.isOpen && data) {
+      setName(data.currentName);
+    }
+  }, [dialog.isOpen, data]);
+
   if (data === undefined) return null;
 
   const canSubmit = name.length > 0 && name != data.currentName;

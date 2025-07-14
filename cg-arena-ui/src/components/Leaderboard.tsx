@@ -18,7 +18,12 @@ interface LeaderboardProps {
 
 const Leaderboard = ({ bots, data, selectedBotId, selectBot }: LeaderboardProps) => {
   if (data.status === "computing") {
-    return <Spinner animation="border" />;
+    return (
+      <Stack direction="horizontal">
+        <Spinner animation="border" />
+        <div className="ms-3">Building the leaderboard</div>
+      </Stack>
+    );
   }
 
   return (

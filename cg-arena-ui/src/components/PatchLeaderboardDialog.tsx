@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LeaderboardId, LeaderboardOverviewResponse, PatchLeaderboardRequest } from "@models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
@@ -14,9 +14,18 @@ const PatchLeaderboardDialog = (dialog: DialogProps<PatchLeaderboardDialogData>)
   const [error, setError] = useState("");
 
   const data = dialog.data;
+
+  useEffect(() => {
+    if (dialog.isOpen && data) {
+      setName(data.leaderboard.name);
+      setFilter(data.leaderboard.filter);
+    }
+  }, [dialog.isOpen, data]);
+
   if (data === undefined) return null;
 
-  const canSubmit = name.length > 0;
+  const canSubmit = (name.length > 0 && name != data.leaderboard.name)
+    || (filter.length > 0 && filter != data.leaderboard.filter);
 
   const closeDialog = () => {
     setName("");
@@ -42,7 +51,7 @@ const PatchLeaderboardDialog = (dialog: DialogProps<PatchLeaderboardDialogData>)
   return (
     <Modal show={dialog.isOpen} onHide={closeDialog} centered>
       <Modal.Header closeButton>
-        <Modal.Title>Rename leaderboard</Modal.Title>
+        <Modal.Title>Change leaderboard</Modal.Title>
       </Modal.Header>
       <Modal.Body>
         <Form.Group controlId="formName" className="mb-3">
@@ -76,7 +85,7 @@ const PatchLeaderboardDialog = (dialog: DialogProps<PatchLeaderboardDialogData>)
           Cancel
         </Button>
         <Button variant="primary" onClick={handleSubmit} disabled={!canSubmit}>
-          Rename
+          Submit
         </Button>
       </Modal.Footer>
     </Modal>

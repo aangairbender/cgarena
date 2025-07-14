@@ -136,6 +136,9 @@ export const useAppLogic = () => {
         const existing = leaderboards.find((lb) => lb.id == id);
         if (existing) {
           existing.name = req.name;
+          if (existing.filter != req.filter) {
+            existing.status = "computing";
+          }
           existing.filter = req.filter;
           return leaderboards;
         } else {
