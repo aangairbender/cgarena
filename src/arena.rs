@@ -656,6 +656,16 @@ impl Arena {
                 value: MatchAttributeValue::Integer(output.seed),
             });
 
+            new_match.attributes.retain(|attr| attr.name != "index");
+            for (index, p) in new_match.participants.iter().enumerate() {
+                new_match.attributes.push(MatchAttribute {
+                    name: "index".to_string(),
+                    bot_id: Some(p.bot_id),
+                    turn: None,
+                    value: MatchAttributeValue::Integer(index as _),
+                });
+            }
+
             if self.game_config.min_players != self.game_config.max_players {
                 new_match
                     .attributes
