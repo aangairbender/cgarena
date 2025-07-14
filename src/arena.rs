@@ -657,6 +657,7 @@ impl Arena {
             });
 
             new_match.attributes.retain(|attr| attr.name != "index");
+            new_match.attributes.retain(|attr| attr.name != "error");
             for (index, p) in new_match.participants.iter().enumerate() {
                 new_match.attributes.push(MatchAttribute {
                     name: "index".to_string(),
@@ -664,6 +665,15 @@ impl Arena {
                     turn: None,
                     value: MatchAttributeValue::Integer(index as _),
                 });
+
+                if p.error {
+                    new_match.attributes.push(MatchAttribute {
+                        name: "error".to_string(),
+                        bot_id: Some(p.bot_id),
+                        turn: None,
+                        value: MatchAttributeValue::Integer(1),
+                    });
+                }
             }
 
             if self.game_config.min_players != self.game_config.max_players {
