@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Badge,
   Button,
   Container,
   Form,
@@ -11,6 +12,7 @@ import ThemeSwitcher from "./ThemeSwitcher";
 
 interface AppNavbarProps {
   loading: boolean;
+  status: "connected" | "connecting";
   openSubmitDialog: () => void;
   autoRefresh: boolean,
   setAutoRefresh: (v: boolean) => void;
@@ -18,10 +20,14 @@ interface AppNavbarProps {
 
 const AppNavbar: React.FC<AppNavbarProps> = ({
   loading,
+  status,
   openSubmitDialog,
   autoRefresh,
   setAutoRefresh,
 }) => {
+  const pillBg = status == "connected" ? "success" : "warning";
+  const pillText = status == "connected" ? "light" : "dark";
+
   return (
     <Navbar className="bg-body-tertiary">
       <Container>
@@ -29,6 +35,7 @@ const AppNavbar: React.FC<AppNavbarProps> = ({
 
         <Stack direction="horizontal" gap={3}>
           {loading && <Spinner animation="border" />}
+          <Badge pill bg={pillBg} text={pillText}>{status}</Badge>
           <Form.Switch
             checked={autoRefresh}
             onChange={(e) => setAutoRefresh(e.target.checked)}

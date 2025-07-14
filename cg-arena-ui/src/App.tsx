@@ -24,6 +24,7 @@ function App() {
     selectBot,
     submitNewBot,
     loading,
+    status,
     deleteBot,
     renameBot,
     autoRefresh,
@@ -46,6 +47,7 @@ function App() {
     <>
       <AppNavbar
         loading={loading}
+        status={status}
         autoRefresh={autoRefresh}
         setAutoRefresh={setAutoRefresh}
         openSubmitDialog={() =>

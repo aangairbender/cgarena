@@ -17,26 +17,31 @@ export const useAppLogic = () => {
   const [bots, setBots] = useState<BotOverviewResponse[]>([]);
   const [leaderboards, setLeaderboards] = useState<LeaderboardOverviewResponse[]>([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [status, setStatus] = useState<"connected" | "connecting">("connected");
+  const [fetchingStatus, setFetchingStatus] = useState(false);
 
   const fetchStatus = useCallback(
     async () => {
-      setLoading(true);
       try {
+        setFetchingStatus(true);
         const res = await api.fetchStatus();
         setBots(res.bots)
         setLeaderboards(res.leaderboards);
+        setStatus("connected");
+      } catch {
+        setStatus("connecting");
       } finally {
-        setLoading(false);
+        setFetchingStatus(false);
       }
     },
-    [setLoading, setBots, setLeaderboards]
+    [setBots, setLeaderboards, setStatus]
   );
 
   const refreshLeaderboard = useCallback(() => {
-    if (!loading) {
+    if (!fetchingStatus) {
       fetchStatus();
     }
-  }, [loading, fetchStatus]);
+  }, [fetchingStatus, fetchStatus]);
 
   // effects
 
@@ -44,7 +49,7 @@ export const useAppLogic = () => {
   useEffect(() => {
     if (!autoRefresh) return;
 
-    const interval = setInterval(refreshLeaderboard, 3000); // in ms
+    const interval = setInterval(refreshLeaderboard, 2000); // in ms
     return () => clearInterval(interval);
   }, [refreshLeaderboard, autoRefresh]);
 
@@ -166,6 +171,7 @@ export const useAppLogic = () => {
     leaderboards,
     loading,
     autoRefresh,
+    status,
     setAutoRefresh,
     selectBot,
     submitNewBot,
