@@ -199,7 +199,6 @@ async fn run_play_matches(
             })
             .collect_vec();
 
-        let run_commands_combined = run_commands.join(" ");
         let seed = input.seed.to_string();
 
         let command_parts = config
@@ -215,10 +214,12 @@ async fn run_play_matches(
                 "{P6}" => &run_commands[5],
                 "{P7}" => &run_commands[6],
                 "{P8}" => &run_commands[7],
-                "{PLAYERS}" => &run_commands_combined,
                 _ => s,
             })
-            .map(|s| s.to_string())
+            .flat_map(|s| match s {
+                "{PLAYERS}" => run_commands.clone(),
+                _ => vec![s.to_string()],
+            })
             .collect_vec();
         assert_ne!(command_parts.len(), 0);
 
