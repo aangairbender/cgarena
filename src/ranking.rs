@@ -9,12 +9,11 @@ pub struct Ranker {
 
 impl Ranker {
     pub fn new(config: RankingConfig) -> Ranker {
-        let algorithm = match config {
-            RankingConfig::OpenSkill => openskill::OpenSkill,
+        let algorithm: Box<dyn Algorithm + Sync + Send> = match config {
+            RankingConfig::OpenSkill => Box::new(openskill::OpenSkill),
+            RankingConfig::TrueSkill => Box::new(trueskill::Trueskill),
         };
-        Self {
-            algorithm: Box::new(algorithm),
-        }
+        Self { algorithm }
     }
 
     pub fn default_rating(&self) -> Rating {
@@ -100,6 +99,56 @@ mod openskill {
                 .collect_vec();
 
             let new_ratings = weng_lin_multi_team(&teams_and_ranks, &WengLinConfig::default());
+
+            new_ratings.into_iter().map(|r| r[0].into()).collect_vec()
+        }
+    }
+}
+
+mod trueskill {
+    use crate::{domain::Rating, ranking::Algorithm};
+    use itertools::Itertools;
+    use skillratings::{trueskill::*, MultiTeamOutcome};
+
+    pub struct Trueskill;
+
+    impl From<Rating> for TrueSkillRating {
+        fn from(rating: Rating) -> Self {
+            Self {
+                rating: rating.mu,
+                uncertainty: rating.sigma,
+            }
+        }
+    }
+
+    impl From<TrueSkillRating> for Rating {
+        fn from(rating: TrueSkillRating) -> Self {
+            Rating {
+                mu: rating.rating,
+                sigma: rating.uncertainty,
+            }
+        }
+    }
+
+    impl Algorithm for Trueskill {
+        fn default_rating(&self) -> Rating {
+            TrueSkillRating::default().into()
+        }
+
+        fn recalc_ratings(&self, input: &[(Rating, u8)]) -> Vec<Rating> {
+            let teams: Vec<Vec<TrueSkillRating>> = input.iter().map(|w| vec![w.0.into()]).collect();
+            let ranks = input
+                .iter()
+                .map(|w| MultiTeamOutcome::new(w.1 as usize))
+                .collect_vec();
+
+            let teams_and_ranks = teams
+                .iter()
+                .zip_eq(ranks)
+                .map(|(t, r)| (t.as_slice(), r))
+                .collect_vec();
+
+            let new_ratings = trueskill_multi_team(&teams_and_ranks, &TrueSkillConfig::default());
 
             new_ratings.into_iter().map(|r| r[0].into()).collect_vec()
         }

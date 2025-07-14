@@ -31,6 +31,7 @@ pub struct MatchmakingConfig {
 #[serde(tag = "algorithm")]
 pub enum RankingConfig {
     OpenSkill,
+    TrueSkill,
 }
 
 #[derive(Serialize, Deserialize)]
