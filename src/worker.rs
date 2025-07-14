@@ -2,6 +2,7 @@ use crate::config::EmbeddedWorkerConfig;
 use crate::domain::{
     BotId, BuildResult, Language, MatchAttribute, Participant, SourceCode, WorkerName,
 };
+use anyhow::{bail, Context};
 use itertools::Itertools;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -38,10 +39,10 @@ pub fn run_embedded_worker(
     worker_path: &Path,
     config: EmbeddedWorkerConfig,
     token: CancellationToken,
-) -> WorkerHandle {
+) -> anyhow::Result<WorkerHandle> {
     let config = Arc::new(config);
 
-    let known_bot_ids = known_bot_ids(worker_path);
+    let known_bot_ids = known_bot_ids(worker_path)?;
 
     let (match_result_tx, match_result_rx) = channel(100);
     let (match_tx, match_rx) = channel(config.threads as usize * 2);
@@ -56,24 +57,25 @@ pub fn run_embedded_worker(
     let (build_tx, build_rx) = channel(1);
     tokio::spawn(run_build_bots(worker_path.to_path_buf(), config, build_rx));
 
-    WorkerHandle {
+    let handle = WorkerHandle {
         match_tx,
         match_result_rx,
         build_tx,
         known_bot_ids,
-    }
+    };
+    Ok(handle)
 }
 
-fn known_bot_ids(worker_path: &Path) -> Vec<BotId> {
+fn known_bot_ids(worker_path: &Path) -> anyhow::Result<Vec<BotId>> {
     let bots_folder = worker_path.join(DIR_BOTS);
     let mut res = vec![];
 
     if !bots_folder.exists() {
-        return vec![];
+        return Ok(vec![]);
     }
 
-    for entry in std::fs::read_dir(bots_folder).unwrap() {
-        let entry = entry.unwrap();
+    for entry in std::fs::read_dir(bots_folder)? {
+        let entry = entry?;
         let path = entry.path();
 
         if !path.is_dir() {
@@ -91,7 +93,7 @@ fn known_bot_ids(worker_path: &Path) -> Vec<BotId> {
         res.push(BotId::from(bot_id_i64));
     }
 
-    res
+    Ok(res)
 }
 
 async fn run_build_bots(
@@ -103,7 +105,11 @@ async fn run_build_bots(
         let bot_id = cmd.input.bot_id;
         let worker_name = cmd.input.worker_name.clone();
 
-        let result = build_bot(worker_path.clone(), Arc::clone(&config), cmd.input).await;
+        let result = build_bot(worker_path.clone(), Arc::clone(&config), cmd.input)
+            .await
+            .unwrap_or_else(|e| BuildResult::Failure {
+                stderr: e.to_string(),
+            });
 
         let output = BuildBotOutput {
             bot_id,
@@ -118,21 +124,23 @@ async fn build_bot(
     worker_path: PathBuf,
     config: Arc<EmbeddedWorkerConfig>,
     input: BuildBotInput,
-) -> BuildResult {
+) -> anyhow::Result<BuildResult> {
     let bot_folder_relative = PathBuf::from(DIR_BOTS).join(i64::from(input.bot_id).to_string());
     let bot_folder = worker_path.join(&bot_folder_relative);
 
     fs::create_dir_all(&bot_folder)
         .await
-        .expect("Failed to create bot folder");
+        .context("Failed to create bot folder")?;
     fs::write(
         bot_folder.join("source.txt"),
         &String::from(input.source_code),
     )
     .await
-    .expect("Cannot create source.txt file");
+    .context("Cannot create source.txt file")?;
 
-    let dir_param_value = bot_folder_relative.to_str().unwrap();
+    let dir_param_value = bot_folder_relative
+        .to_str()
+        .context("Bot folder path is not utf-8")?;
     let command_parts = config
         .cmd_build
         .split_ascii_whitespace()
@@ -149,15 +157,16 @@ async fn build_bot(
         .current_dir(&worker_path)
         .output()
         .await
-        .expect("Failed to execute command");
+        .context("Failed to execute command")?;
 
-    if output.status.success() {
+    let res = if output.status.success() {
         BuildResult::Success
     } else {
         BuildResult::Failure {
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         }
-    }
+    };
+    Ok(res)
 }
 
 async fn run_play_matches(
@@ -182,7 +191,9 @@ async fn run_play_matches(
             .map(|b| {
                 let bot_folder_relative =
                     PathBuf::from(DIR_BOTS).join(i64::from(b.bot_id).to_string());
-                let dir_param_value = bot_folder_relative.to_str().unwrap();
+                let dir_param_value = bot_folder_relative
+                    .to_str()
+                    .expect("bot folder must be utf-8");
                 config
                     .cmd_run
                     .replace("{DIR}", dir_param_value)
@@ -216,13 +227,15 @@ async fn run_play_matches(
         let match_result_tx_clone = match_result_tx.clone();
         let worker_path_clone = worker_path.clone();
         tokio::spawn(async move {
-            spawn_play_match_command(
-                command_parts,
-                worker_path_clone,
-                input,
-                match_result_tx_clone,
-            )
-            .await;
+            let res = spawn_play_match_command(command_parts, worker_path_clone, input).await;
+
+            match res {
+                Ok(output) => {
+                    let _ = match_result_tx_clone.send(output).await;
+                }
+                Err(e) => tracing::error!("Running match failed: {}", e),
+            }
+
             drop(permit);
         });
     }
@@ -232,24 +245,23 @@ async fn spawn_play_match_command(
     command_parts: Vec<String>,
     worker_path: PathBuf,
     input: PlayMatchInput,
-    match_result_tx: Sender<PlayMatchOutput>,
-) {
+) -> anyhow::Result<PlayMatchOutput> {
     let cmd_output = Command::new(&command_parts[0])
         .args(&command_parts[1..])
         .current_dir(&worker_path)
         .output()
         .await
-        .expect("Cannot run match");
+        .context("Cannot run match command")?;
 
     let result = if cmd_output.status.success() {
-        let stdout = String::from_utf8(cmd_output.stdout).expect("stdout is not valid UTF-8");
+        let stdout = String::from_utf8(cmd_output.stdout).context("stdout is not valid UTF-8")?;
         let match_result: CmdPlayMatchStdout =
-            serde_json::from_str(&stdout).expect("play match output should be valid JSON");
+            serde_json::from_str(&stdout).context("play match output should be valid JSON")?;
         match_result
     } else {
-        panic!(
+        bail!(
             "Error while running match: {}",
-            String::from_utf8(cmd_output.stderr).expect("stderr is not valid UTF-8")
+            String::from_utf8(cmd_output.stderr).context("stderr is not valid UTF-8")?
         );
     };
 
@@ -274,10 +286,7 @@ async fn spawn_play_match_command(
             .collect(),
     };
 
-    match_result_tx
-        .send(output)
-        .await
-        .expect("Cannot send match result");
+    Ok(output)
 }
 
 #[derive(Clone)]

@@ -42,7 +42,8 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
         bail!("In the current version only single embedded worker supported");
     };
-    let worker_handle = worker::run_embedded_worker(arena_path, cfg.clone(), token.clone());
+    let worker_handle = worker::run_embedded_worker(arena_path, cfg.clone(), token.clone())
+        .context("Cannot start embedded worker")?;
 
     let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
 

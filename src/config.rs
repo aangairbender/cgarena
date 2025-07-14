@@ -87,6 +87,19 @@ impl Config {
         if !(0.0..=1.0).contains(&self.matchmaking.min_matches_preference) {
             bail!("matchmaking.min_matches_preference should be in 0..1 range");
         }
+        for config in &self.workers {
+            let WorkerConfig::Embedded(config) = config;
+
+            if config.cmd_build.split_ascii_whitespace().count() == 0 {
+                bail!("cmd_build must not be blank");
+            }
+            if config.cmd_run.split_ascii_whitespace().count() == 0 {
+                bail!("cmd_run must not be blank");
+            }
+            if config.cmd_play_match.split_ascii_whitespace().count() == 0 {
+                bail!("cmd_play_match must not be blank");
+            }
+        }
         Ok(())
     }
 
