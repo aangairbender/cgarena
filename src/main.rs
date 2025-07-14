@@ -65,7 +65,9 @@ async fn handle_cli_command(command: Commands) -> anyhow::Result<()> {
         }
         Commands::VacuumDB { path } => {
             let path = unwrap_or_current_dir(path)?;
+            print!("Vacuum process started... ");
             db::vacuum_db(&path).await?;
+            println!("Done.")
         }
     }
     Ok(())
