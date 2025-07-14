@@ -63,13 +63,15 @@ You would also need to create following files in the arena folder:
 CodinGame compatible `play_game.py` (slightly modified version from Psyleague readme)
 
 ```python
-import sys, subprocess, random, json, tempfile, os
+import sys, subprocess, json, tempfile, os, re
+
 if __name__ == '__main__':
     f, log_file = tempfile.mkstemp(prefix='log_')
     os.close(f)
 
     n_players = len(sys.argv) - 2
     seed = sys.argv[1]
+    
     # assumes brutaltester-compatible referee.jar is placed in the same folder
     cmd = 'java --add-opens java.base/java.lang=ALL-UNNAMED -jar referee.jar' + ''.join([f' -p{i} "{sys.argv[i + 1]}"' for i in range(1, n_players+1)]) + f' -d seed={seed} -l "{log_file}"'
     task = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -80,6 +82,32 @@ if __name__ == '__main__':
     rv = {}
     rv['ranks'] = [sum([int(p_score < p2_score) for p2_score in p_scores]) for p_score in p_scores] # assumes higher score is better
     rv['errors'] = [int(p_score < 0) for p_score in p_scores] # assumes negative score means error
+    rv['attributes'] = []
+
+    pattern = r"\[(T|P)DATA\](?:\[(\d+)\])?\s+(\w+)\s*=\s*(.+)"
+    regex = re.compile(pattern, re.IGNORECASE)
+
+    for player, key in enumerate([str(i) for i in range(n_players)]):
+        for data in json_log['errors'][key]:
+            if not data: continue
+            for line in [line.strip() for line in data.split('\n')]:
+                match = regex.match(line)
+                if not match: continue
+
+                type_tag = match.group(1).upper()  # T or P
+                turn = match.group(2)             # optional number
+                key = match.group(3)
+                value = match.group(4)
+
+                attribute = {
+                    'name': key,
+                    'player': player if type_tag == 'P' else None,
+                    'turn': int(turn) if turn else None,
+                    'value': value,
+                }
+                
+                rv['attributes'].append(attribute)
+                
     print(json.dumps(rv))
 ```
 
@@ -92,6 +120,7 @@ elif [ "$2" = "python" ]; then
   cp "$1"/source.txt "$1"/a.py
 else
   echo "Unsupported language '$2'" >&2
+  exit 1
 fi
 ```
 
@@ -104,6 +133,7 @@ elif [ "$2" = "python" ]; then
   python ./"$1"/a.py
 else
   echo "Unsupported language '$2'" >&2
+  exit 1
 fi
 ```
 
@@ -125,3 +155,11 @@ cargo build --release
 ```
 
 You can find executable in `/target/release` folder.
+
+## Thanks
+
+Thanks to
+- Psyho's [psyleague](https://github.com/FakePsyho/psyleague) for the idea inspiration!
+- Magus's [CG stats](https://cgstats.magusgeek.com/) for the UI inspiration!
+- [CodinGame](https://www.codingame.com/) for such an amazing platform and bot competitions!
+- You for reading until the end!
