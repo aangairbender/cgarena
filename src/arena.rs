@@ -174,13 +174,7 @@ pub async fn run(
             // time to let api return responses to clients
             tokio::time::sleep(Duration::from_millis(50)).await;
 
-            arena.run_builds().await;
-
-            arena.perform_matchmaking();
-
-            arena.process_finished_matches().await;
-
-            arena.let_leaderboards_catchup_with_live_matches();
+            arena.do_chores().await;
         }
     });
     Ok(task_handle)
@@ -237,6 +231,17 @@ impl Arena {
             .map(|lb| AsyncLeaderboard::new(lb, Arc::clone(&self.ranker), self.pool.clone()))
             .collect();
         Ok(())
+    }
+
+    #[instrument(skip(self), level = "debug")]
+    pub async fn do_chores(&mut self) {
+        self.run_builds().await;
+
+        self.perform_matchmaking();
+
+        self.process_finished_matches().await;
+
+        self.let_leaderboards_catchup_with_live_matches();
     }
 
     pub async fn reset_stale_builds(&mut self) {
@@ -370,7 +375,7 @@ impl Arena {
         self.recalculate_computed_full();
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), level = "debug")]
     async fn cmd_fetch_status(&mut self) -> FetchStatusResult {
         let bots = self
             .bots
