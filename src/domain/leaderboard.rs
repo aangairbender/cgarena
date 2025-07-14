@@ -1,13 +1,9 @@
-use crate::{
-    domain::{ComputedStats, LeaderboardId, LeaderboardName, Match, MatchFilter},
-    ranking::Ranker,
-};
+use crate::domain::{LeaderboardId, LeaderboardName, MatchFilter};
 
 pub struct Leaderboard {
     pub id: LeaderboardId,
     pub name: LeaderboardName,
     pub filter: MatchFilter,
-    pub stats: ComputedStats,
 }
 
 impl Leaderboard {
@@ -16,7 +12,6 @@ impl Leaderboard {
             id: LeaderboardId::UNINITIALIZED,
             name,
             filter,
-            stats: Default::default(),
         }
     }
 
@@ -25,17 +20,6 @@ impl Leaderboard {
             id: LeaderboardId::UNINITIALIZED,
             name: LeaderboardName::global(),
             filter: MatchFilter::accept_all(),
-            stats: Default::default(),
         }
-    }
-
-    pub fn process(&mut self, ranker: &Ranker, m: &Match) {
-        if self.filter.matches(m) {
-            self.stats.recalc_after_match(ranker, m);
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.stats.clear();
     }
 }

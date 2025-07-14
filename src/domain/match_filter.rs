@@ -4,6 +4,7 @@ use anyhow::{anyhow, bail};
 
 use crate::domain::{Match, MatchAttribute, MatchAttributeValue};
 
+#[derive(Clone)]
 pub struct MatchFilter {
     expr: Option<ast::Expr>,
 }
@@ -15,9 +16,7 @@ impl MatchFilter {
 
     pub fn matches(&self, m: &Match) -> bool {
         if let Some(ref expr) = self.expr {
-            check_expr(expr, m)
-                .inspect_err(|e| tracing::warn!("Filter match: {}", e))
-                .unwrap_or(false)
+            check_expr(expr, m).unwrap_or(false)
         } else {
             true
         }
@@ -204,6 +203,7 @@ mod ast {
 
     use crate::domain::BotId;
 
+    #[derive(Clone)]
     pub enum Expr {
         Condition(Argument, ConditionOp, Argument),
         Paren(Box<Expr>),
@@ -212,12 +212,14 @@ mod ast {
         Not(Box<Expr>),
     }
 
+    #[derive(Clone)]
     pub enum Argument {
         Value(Value),
         MatchAttr(MatchAttr),
         BotAttr(BotAttr),
     }
 
+    #[derive(Clone)]
     pub enum ConditionOp {
         Eq,
         NotEq,
@@ -233,11 +235,13 @@ mod ast {
         String(String),
     }
 
+    #[derive(Clone)]
     pub struct MatchAttr {
         pub name: String,
         pub turn: Option<u16>,
     }
 
+    #[derive(Clone)]
     pub struct BotAttr {
         pub name: String,
         pub turn: Option<u16>,

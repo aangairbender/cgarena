@@ -1,8 +1,10 @@
+use crate::async_leaderboard::AsyncLeaderboard;
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
 use crate::db::Database;
 use crate::domain::{
-    Bot, BotId, BotName, Build, Language, Leaderboard, LeaderboardId, LeaderboardName, Match,
-    MatchAttribute, MatchAttributeValue, MatchFilter, Rating, SourceCode, WinrateStats, WorkerName,
+    Bot, BotId, BotName, Build, ComputedStats, Language, Leaderboard, LeaderboardId,
+    LeaderboardName, Match, MatchAttribute, MatchAttributeValue, MatchFilter, Rating, SourceCode,
+    WinrateStats, WorkerName,
 };
 use crate::matchmaking;
 use crate::ranking::Ranker;
@@ -10,6 +12,7 @@ use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::Receiver;
@@ -102,9 +105,15 @@ pub struct LeaderboardOverview {
     pub id: LeaderboardId,
     pub name: LeaderboardName,
     pub filter: String,
+    pub status: LeaderboardStatus,
     pub items: Vec<LeaderboardItem>,
     pub winrate_stats: HashMap<(BotId, BotId), WinrateStats>,
     pub total_matches: u64,
+}
+
+pub enum LeaderboardStatus {
+    Live,
+    Computing,
 }
 
 pub struct LeaderboardItem {
@@ -127,7 +136,7 @@ pub async fn run(
 
     arena.load_from_db().await;
     arena.reset_stale_builds().await;
-    arena.recalculate_computed_full().await;
+    arena.recalculate_computed_full();
 
     loop {
         // 0. check cancellation
@@ -163,9 +172,9 @@ struct Arena {
     bots: Vec<Bot>,
     builds: Vec<Build>,
     worker_handle: WorkerHandle,
-    ranker: Ranker,
-    global_leaderboard: Leaderboard,
-    custom_leaderboards: Vec<Leaderboard>,
+    ranker: Arc<Ranker>,
+    global_leaderboard: AsyncLeaderboard,
+    custom_leaderboards: Vec<AsyncLeaderboard>,
     match_queue: VecDeque<PlayMatchInput>,
 }
 
@@ -177,15 +186,17 @@ impl Arena {
         db: Database,
         worker_handle: WorkerHandle,
     ) -> Self {
+        let ranker = Arc::new(ranker);
+        let pool = db.pool();
         Self {
             game_config,
             matchmaking_config,
             db,
             worker_handle,
-            ranker,
+            ranker: Arc::clone(&ranker),
             bots: Default::default(),
             builds: Default::default(),
-            global_leaderboard: Leaderboard::global(),
+            global_leaderboard: AsyncLeaderboard::new(Leaderboard::global(), ranker, pool),
             custom_leaderboards: Default::default(),
             match_queue: Default::default(),
         }
@@ -202,6 +213,8 @@ impl Arena {
         // 5. process finished matches
         self.process_finished_matches().await;
 
+        self.let_leaderboards_catchup_with_live_matches();
+
         // 7. (future) update views
     }
 
@@ -209,7 +222,13 @@ impl Arena {
     pub async fn load_from_db(&mut self) {
         self.bots = self.db.fetch_bots().await;
         self.builds = self.db.fetch_builds().await;
-        self.custom_leaderboards = self.db.fetch_leaderboards().await;
+        self.custom_leaderboards = self
+            .db
+            .fetch_leaderboards()
+            .await
+            .into_iter()
+            .map(|lb| AsyncLeaderboard::new(lb, Arc::clone(&self.ranker), self.db.pool()))
+            .collect();
     }
 
     pub async fn reset_stale_builds(&mut self) {
@@ -323,7 +342,7 @@ impl Arena {
         self.db.delete_bot(id).await;
         self.bots.retain(|bot| bot.id != id);
         self.builds.retain(|b| b.bot_id != id);
-        self.recalculate_computed_full().await;
+        self.recalculate_computed_full();
     }
 
     #[instrument(skip(self), level = "debug")]
@@ -351,8 +370,16 @@ impl Arena {
             id: bot.id,
             name: bot.name.clone(),
             language: bot.language.clone(),
-            matches_played: self.global_leaderboard.stats.matches_played(bot.id),
-            matches_with_error: self.global_leaderboard.stats.matches_with_error(bot.id),
+            matches_played: self
+                .global_leaderboard
+                .stats()
+                .map(|s| s.matches_played(bot.id))
+                .unwrap_or_default(),
+            matches_with_error: self
+                .global_leaderboard
+                .stats()
+                .map(|s| s.matches_with_error(bot.id))
+                .unwrap_or_default(),
             builds: self
                 .builds
                 .iter()
@@ -363,27 +390,42 @@ impl Arena {
         }
     }
 
-    fn render_leaderboard_overview(&self, leaderboard: &Leaderboard) -> LeaderboardOverview {
+    fn render_leaderboard_overview(&self, async_lb: &AsyncLeaderboard) -> LeaderboardOverview {
+        let leaderboard = &async_lb.leaderboard;
+
+        let Some(stats) = async_lb.stats() else {
+            return LeaderboardOverview {
+                id: leaderboard.id,
+                name: leaderboard.name.clone(),
+                filter: leaderboard.filter.to_string(),
+                status: LeaderboardStatus::Computing,
+                items: Default::default(),
+                winrate_stats: Default::default(),
+                total_matches: 0,
+            };
+        };
+
         let items = self
             .bots
             .iter()
             .map(|bot| LeaderboardItem {
                 id: bot.id,
-                rank: self.rank(leaderboard, bot.id),
-                rating: self.rating(leaderboard, bot.id),
+                rank: self.rank(&stats, bot.id),
+                rating: self.rating(&stats, bot.id),
             })
             .sorted_by_key(|item| item.rank)
             .collect_vec();
 
-        let winrate_stats = leaderboard.stats.winrate_stats_snapshot();
+        let winrate_stats = stats.winrate_stats_snapshot();
 
         LeaderboardOverview {
             id: leaderboard.id,
             name: leaderboard.name.clone(),
             filter: leaderboard.filter.to_string(),
+            status: LeaderboardStatus::Live,
             items,
             winrate_stats,
-            total_matches: leaderboard.stats.total_matches(),
+            total_matches: stats.total_matches(),
         }
     }
 
@@ -394,9 +436,11 @@ impl Arena {
     ) -> LeaderboardOverview {
         let mut leaderboard = Leaderboard::new(name, filter);
         self.db.persist_leaderboard(&mut leaderboard).await;
-        Self::recalculate_single_leaderboard(&self.db, &self.ranker, &mut leaderboard).await;
-        let overview = self.render_leaderboard_overview(&leaderboard);
-        self.custom_leaderboards.push(leaderboard);
+
+        let lb = AsyncLeaderboard::new(leaderboard, Arc::clone(&self.ranker), self.db.pool());
+        lb.recalculate();
+        let overview = self.render_leaderboard_overview(&lb);
+        self.custom_leaderboards.push(lb);
         overview
     }
 
@@ -406,20 +450,26 @@ impl Arena {
         name: LeaderboardName,
         filter: MatchFilter,
     ) -> PatchLeaderboardResult {
-        let Some(leaderboard) = self.custom_leaderboards.iter_mut().find(|w| w.id == id) else {
+        let Some(async_lb) = self
+            .custom_leaderboards
+            .iter_mut()
+            .find(|w| w.leaderboard.id == id)
+        else {
             return PatchLeaderboardResult::NotFound;
         };
+
+        let leaderboard = &mut async_lb.leaderboard;
 
         let old_filter_str = leaderboard.filter.to_string();
         let new_filter_str = filter.to_string();
 
         leaderboard.name = name;
-        leaderboard.filter = filter;
+        leaderboard.filter = filter.clone();
 
         self.db.persist_leaderboard(leaderboard).await;
 
         if old_filter_str != new_filter_str {
-            Self::recalculate_single_leaderboard(&self.db, &self.ranker, leaderboard).await;
+            async_lb.recalculate();
         }
 
         PatchLeaderboardResult::OK
@@ -427,22 +477,21 @@ impl Arena {
 
     async fn cmd_delete_leaderboard(&mut self, id: LeaderboardId) {
         self.db.delete_leaderboard(id).await;
-        self.custom_leaderboards.retain(|w| w.id != id);
+        self.custom_leaderboards.retain(|w| w.leaderboard.id != id);
     }
 
-    fn rating(&self, leaderboard: &Leaderboard, id: BotId) -> Rating {
-        leaderboard
-            .stats
+    fn rating(&self, stats: &ComputedStats, id: BotId) -> Rating {
+        stats
             .rating(id)
             .unwrap_or_else(|| self.ranker.default_rating())
     }
 
-    fn rank(&self, leaderboard: &Leaderboard, id: BotId) -> usize {
-        let my_rating = self.rating(leaderboard, id);
+    fn rank(&self, stats: &ComputedStats, id: BotId) -> usize {
+        let my_rating = self.rating(stats, id);
         let stronger_bots_cnt = self
             .bots
             .iter()
-            .filter(|b| my_rating.score() < self.rating(leaderboard, b.id).score())
+            .filter(|b| my_rating.score() < self.rating(stats, b.id).score())
             .count();
         stronger_bots_cnt
     }
@@ -526,6 +575,13 @@ impl Arena {
         }
     }
 
+    pub fn let_leaderboards_catchup_with_live_matches(&mut self) {
+        self.global_leaderboard.catch_up_with_live_matches();
+        for async_lb in &mut self.custom_leaderboards {
+            async_lb.catch_up_with_live_matches();
+        }
+    }
+
     #[instrument(skip(self), level = "debug")]
     pub async fn process_finished_matches(&mut self) {
         while let Ok(output) = self.worker_handle.match_result_rx.try_recv() {
@@ -565,9 +621,11 @@ impl Arena {
 
             self.db.persist_match(&mut new_match).await;
 
-            self.global_leaderboard.process(&self.ranker, &new_match);
+            let m = Arc::new(new_match);
+
+            self.global_leaderboard.record_for_later(Arc::clone(&m));
             for leaderboard in &mut self.custom_leaderboards {
-                leaderboard.process(&self.ranker, &new_match);
+                leaderboard.record_for_later(Arc::clone(&m));
             }
         }
     }
@@ -589,6 +647,10 @@ impl Arena {
     }
 
     fn schedule_match(&self) -> Vec<PlayMatchInput> {
+        let Some(stats) = self.global_leaderboard.stats() else {
+            return vec![];
+        };
+
         let candidates = self
             .bots
             .iter()
@@ -596,7 +658,7 @@ impl Arena {
             .filter(|id| self.is_bot_ready_for_playing(*id))
             .map(|id| matchmaking::Candidate {
                 id,
-                matches_played: self.global_leaderboard.stats.matches_played(id),
+                matches_played: stats.matches_played(id),
             })
             .collect_vec();
 
@@ -625,38 +687,10 @@ impl Arena {
             .collect_vec()
     }
 
-    async fn recalculate_computed_full(&mut self) {
-        self.global_leaderboard.reset();
-        for leaderboard in &mut self.custom_leaderboards {
-            leaderboard.reset();
-        }
-
-        let mut attrs = vec![];
+    fn recalculate_computed_full(&self) {
+        self.global_leaderboard.recalculate();
         for lb in &self.custom_leaderboards {
-            attrs.extend(lb.filter.needed_attributes());
-        }
-
-        let matches = self.db.fetch_matches_with_attrs(&attrs).await;
-        for m in matches {
-            self.global_leaderboard.process(&self.ranker, &m);
-            for leaderboard in &mut self.custom_leaderboards {
-                leaderboard.process(&self.ranker, &m);
-            }
-        }
-    }
-
-    async fn recalculate_single_leaderboard(
-        db: &Database,
-        ranker: &Ranker,
-        leaderboard: &mut Leaderboard,
-    ) {
-        leaderboard.reset();
-
-        let attrs = leaderboard.filter.needed_attributes();
-
-        let matches = db.fetch_matches_with_attrs(&attrs).await;
-        for m in matches {
-            leaderboard.process(ranker, &m);
+            lb.recalculate();
         }
     }
 }

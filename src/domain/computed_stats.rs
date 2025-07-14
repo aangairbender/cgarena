@@ -4,7 +4,7 @@ use crate::domain::{BotId, Match, Rating};
 use crate::ranking::Ranker;
 use std::collections::HashMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ComputedStats {
     ratings: HashMap<BotId, Rating>,
     winrate_stats: HashMap<(BotId, BotId), WinrateStats>,
@@ -26,13 +26,6 @@ impl WinrateStats {
 }
 
 impl ComputedStats {
-    pub fn clear(&mut self) {
-        self.ratings.clear();
-        self.winrate_stats.clear();
-        self.matches_with_error.clear();
-        self.total_matches = 0;
-    }
-
     pub fn recalc_after_match(&mut self, ranker: &Ranker, m: &Match) {
         self.total_matches += 1;
 

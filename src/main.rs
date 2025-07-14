@@ -4,6 +4,7 @@ mod arena_handle;
 mod arena_server;
 #[cfg(test)]
 mod arena_tests;
+mod async_leaderboard;
 mod config;
 mod db;
 mod domain;

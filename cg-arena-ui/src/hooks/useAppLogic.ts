@@ -104,11 +104,12 @@ export const useAppLogic = () => {
   const deleteBot = useCallback(
     async (botId: BotId) => {
       setLoading(true);
-      setBots((bots) => bots.filter((b) => b.id != botId));
-      if (selectedBotId == botId) setSelectedBotId(undefined);
-
       await api.deleteBot(botId);
       setLoading(false);
+
+      setBots((bots) => bots.filter((b) => b.id != botId));
+      if (selectedBotId == botId) setSelectedBotId(undefined);
+      setLeaderboards(leaderboards => leaderboards.map(lb => ({ ...lb, status: "computing" })));
 
       // not awaiting intentionally to not block dialog
       fetchStatus();

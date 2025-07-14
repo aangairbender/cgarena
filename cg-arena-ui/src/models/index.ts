@@ -27,6 +27,7 @@ export interface LeaderboardOverviewResponse {
   id: LeaderboardId;
   name: string;
   filter: string;
+  status: "live" | "computing";
   items: LeaderboardItemResponse[];
   winrate_stats: WinrateStatsResponse[];
   total_matches: number;

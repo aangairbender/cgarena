@@ -70,7 +70,6 @@ impl From<LeaderboardsRow> for Leaderboard {
             id: row.id.into(),
             name: row.name.try_into().expect("Invalid leaderboard name in db"),
             filter: row.filter.parse().expect("Invalid match filter in db"),
-            stats: Default::default(),
         }
     }
 }
@@ -180,6 +179,7 @@ impl Database {
 
         let opts = SqliteConnectOptions::new()
             .filename(db_path)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .create_if_missing(true);
 
         let pool = SqlitePool::connect_with(opts)
@@ -207,6 +207,10 @@ impl Database {
             .execute(&mut conn)
             .await
             .expect("can't vacuum the db");
+    }
+
+    pub fn pool(&self) -> SqlitePool {
+        self.pool.clone()
     }
 
     /// for tests
@@ -431,14 +435,21 @@ impl Database {
         match_id
     }
 
-    pub async fn fetch_matches_with_attrs(&self, attrs: &[MatchAttribute]) -> Vec<Match> {
+    // pub async fn fetch_matches_with_attrs(&self, attrs: &[MatchAttribute]) -> Vec<Match> {
+    //     Self::fetch_matches_with_attrs_2(&self.pool, attrs).await
+    // }
+
+    pub async fn fetch_matches_with_attrs(
+        pool: &SqlitePool,
+        attrs: &[MatchAttribute],
+    ) -> Vec<Match> {
         let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
-            .fetch_all(&self.pool)
+            .fetch_all(pool)
             .await
             .expect("Cannot query matches from db");
 
         let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
-            .fetch_all(&self.pool)
+            .fetch_all(pool)
             .await
             .expect("Cannot query match participations from db");
 
@@ -484,7 +495,7 @@ impl Database {
                 WHERE n.name IN ({names_joined}) AND {turns_condition} AND {bots_condition}"
             };
             sqlx::query_as(&sql)
-                .fetch_all(&self.pool)
+                .fetch_all(pool)
                 .await
                 .expect("Cannot query match attributes from db")
         };
@@ -494,18 +505,18 @@ impl Database {
             combined.insert(m.id, (m, vec![], vec![]));
         }
         for p in participations {
-            combined
-                .get_mut(&p.match_id)
-                .expect("Participation does not match any match in db")
-                .1
-                .push(p);
+            let target = combined.get_mut(&p.match_id);
+            let Some(target) = target else {
+                continue;
+            };
+            target.1.push(p);
         }
         for attr in attributes {
-            combined
-                .get_mut(&attr.match_id)
-                .expect("Match attribute does not match any match in db")
-                .2
-                .push(attr);
+            let target = combined.get_mut(&attr.match_id);
+            let Some(target) = target else {
+                continue;
+            };
+            target.2.push(attr);
         }
 
         combined

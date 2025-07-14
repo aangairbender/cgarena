@@ -7,7 +7,7 @@ import {
   LeaderboardOverviewResponse,
   rating_score,
 } from "@models";
-import { OverlayTrigger, Stack, Table, Tooltip } from "react-bootstrap";
+import { OverlayTrigger, Spinner, Stack, Table, Tooltip } from "react-bootstrap";
 
 interface LeaderboardProps {
   bots: BotOverviewResponse[];
@@ -17,6 +17,10 @@ interface LeaderboardProps {
 }
 
 const Leaderboard = ({ bots, data, selectedBotId, selectBot }: LeaderboardProps) => {
+  if (data.status === "computing") {
+    return <Spinner animation="border" />;
+  }
+
   return (
     <Table hover className="mb-0">
       <thead>
@@ -35,6 +39,7 @@ const Leaderboard = ({ bots, data, selectedBotId, selectBot }: LeaderboardProps)
             .find(s => s.bot_id == selectedBotId && s.opponent_bot_id == item.id);
 
           return (<Row
+            lb={data}
             key={item.id}
             item={item}
             bot={bots.find(b => b.id == item.id)}
@@ -55,6 +60,7 @@ interface WinrateStats {
 }
 
 interface RowProps {
+  lb: LeaderboardOverviewResponse;
   item: LeaderboardItemResponse;
   stats: WinrateStats | undefined;
   bot: BotOverviewResponse | undefined;
@@ -62,10 +68,20 @@ interface RowProps {
   select: () => void;
 }
 
-const Row = ({ item, stats, bot, selected, select }: RowProps) => {
+const Row = ({ lb, item, stats, bot, selected, select }: RowProps) => {
   if (!bot) {
     return null;
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderTooltip = (props: any) => (
+    <Tooltip
+      id={`lb-${lb.id}-bot-${bot.id}-tooltip`}
+      {...props}
+    >
+      <div>{`id: ${bot.id}`}</div>
+    </Tooltip>
+  );
 
   return (
     <tr className={selected ? "highlighted-row" : ""}>
@@ -73,9 +89,11 @@ const Row = ({ item, stats, bot, selected, select }: RowProps) => {
       <td>
         <Stack direction="horizontal">
           <Identicon input={item.id + ""} size={24} />
-          <a href="#" style={{ marginLeft: "8px" }} onClick={select}>
-            {bot.name}
-          </a>
+          <OverlayTrigger overlay={renderTooltip} placement="right">
+            <a href="#" style={{ marginLeft: "8px" }} onClick={select}>
+              {bot.name}
+            </a>
+          </OverlayTrigger>
         </Stack>
       </td>
       <RatingCell item={item} />
