@@ -2,7 +2,7 @@ use itertools::Itertools;
 
 use crate::domain::{BotId, Match, Rating};
 use crate::ranking::Ranker;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Default, Clone)]
 pub struct ComputedStats {
@@ -10,7 +10,7 @@ pub struct ComputedStats {
     winrate_stats: HashMap<(BotId, BotId), WinrateStats>,
     matches_with_error: HashMap<BotId, u64>,
     total_matches: u64,
-    example_seeds: Vec<i64>,
+    example_seeds: VecDeque<i64>,
 }
 
 const EXAMPLE_SEEDS_LIMIT: usize = 10;
@@ -31,8 +31,11 @@ impl WinrateStats {
 impl ComputedStats {
     pub fn recalc_after_match(&mut self, ranker: &Ranker, m: &Match) {
         self.total_matches += 1;
-        if self.example_seeds.len() < EXAMPLE_SEEDS_LIMIT && !self.example_seeds.contains(&m.seed) {
-            self.example_seeds.push(m.seed);
+        if !self.example_seeds.contains(&m.seed) {
+            self.example_seeds.push_front(m.seed);
+            while self.example_seeds.len() >= EXAMPLE_SEEDS_LIMIT {
+                self.example_seeds.pop_back();
+            }
         }
 
         // rating
@@ -96,7 +99,7 @@ impl ComputedStats {
         self.total_matches
     }
 
-    pub fn example_seeds(&self) -> &[i64] {
-        &self.example_seeds
+    pub fn example_seeds(&self) -> Vec<i64> {
+        self.example_seeds.iter().cloned().collect()
     }
 }
