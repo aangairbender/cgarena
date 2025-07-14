@@ -36,7 +36,7 @@ pub async fn create_bot(
     let res = app_state
         .arena_handle
         .create_bot(name, source_code, language)
-        .await;
+        .await?;
 
     match res {
         CreateBotResult::Created(bot_overview) => Ok(Json(BotOverviewResponse::from(bot_overview))),
@@ -52,7 +52,7 @@ pub async fn delete_bot(
 ) -> Result<impl IntoResponse, ApiError> {
     let bot_id: BotId = id.into();
 
-    app_state.arena_handle.delete_bot(bot_id).await;
+    app_state.arena_handle.delete_bot(bot_id).await?;
 
     Ok(StatusCode::OK)
 }
@@ -68,7 +68,7 @@ pub async fn rename_bot(
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
 
-    let res = app_state.arena_handle.rename_bot(id, new_name).await;
+    let res = app_state.arena_handle.rename_bot(id, new_name).await?;
 
     match res {
         RenameBotResult::Renamed => Ok(()),

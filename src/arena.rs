@@ -9,14 +9,14 @@ use crate::domain::{
 use crate::matchmaking;
 use crate::ranking::Ranker;
 use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
-use anyhow::Context;
+use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use sqlx::SqlitePool;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -174,7 +174,11 @@ pub async fn run(
             // time to let api return responses to clients
             tokio::time::sleep(Duration::from_millis(50)).await;
 
-            arena.do_chores().await;
+            if let Err(e) = arena.do_chores().await {
+                eprintln!("Arena error: {:#}", e);
+                eprintln!("Check logs for more details");
+                break;
+            }
         }
     });
     Ok(task_handle)
@@ -216,7 +220,7 @@ impl Arena {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self), level = "debug")]
     pub async fn load_from_db(&mut self) -> anyhow::Result<()> {
         self.bots = db::fetch_bots(&self.pool)
             .await
@@ -233,15 +237,16 @@ impl Arena {
         Ok(())
     }
 
-    #[instrument(skip(self), level = "debug")]
-    pub async fn do_chores(&mut self) {
+    pub async fn do_chores(&mut self) -> anyhow::Result<()> {
         self.run_builds().await;
 
-        self.perform_matchmaking();
+        self.perform_matchmaking()?;
 
         self.process_finished_matches().await;
 
         self.let_leaderboards_catchup_with_live_matches();
+
+        Ok(())
     }
 
     pub async fn reset_stale_builds(&mut self) {
@@ -268,6 +273,7 @@ impl Arena {
         }
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub async fn run_builds(&mut self) {
         let mut inputs = Vec::new();
         for bot in &mut self.bots {
@@ -326,7 +332,6 @@ impl Arena {
         }
     }
 
-    #[instrument(skip(self, source_code))]
     async fn cmd_create_bot(
         &mut self,
         name: BotName,
@@ -345,7 +350,6 @@ impl Arena {
         CreateBotResult::Created(bot_overview)
     }
 
-    #[instrument(skip(self))]
     async fn cmd_rename_bot(&mut self, id: BotId, new_name: BotName) -> RenameBotResult {
         if self.bots.iter().any(|b| b.id != id && b.name == new_name) {
             return RenameBotResult::DuplicateName;
@@ -362,7 +366,6 @@ impl Arena {
         RenameBotResult::Renamed
     }
 
-    #[instrument(skip(self))]
     async fn cmd_delete_bot(&mut self, id: BotId) {
         // builds would be automatically deleted by foreign link constraint
         // participations would be automatically deleted by foreign link constraint
@@ -375,7 +378,6 @@ impl Arena {
         self.recalculate_computed_full();
     }
 
-    #[instrument(skip(self), level = "debug")]
     async fn cmd_fetch_status(&mut self) -> FetchStatusResult {
         let bots = self
             .bots
@@ -589,7 +591,7 @@ impl Arena {
     }
 
     #[instrument(skip(self), level = "debug")]
-    pub fn perform_matchmaking(&mut self) {
+    pub fn perform_matchmaking(&mut self) -> anyhow::Result<()> {
         // hardcoded for now
         let mm_match_queue_size_threshold: usize = 20;
 
@@ -602,18 +604,23 @@ impl Arena {
         }
 
         while let Some(input) = self.match_queue.pop_front() {
-            match self.worker_handle.match_tx.try_reserve() {
-                Ok(permit) => {
-                    permit.send(input);
-                }
-                Err(_) => {
+            match self.worker_handle.match_tx.try_send(input) {
+                Ok(_) => {}
+                Err(TrySendError::Full(input)) => {
                     self.match_queue.push_front(input);
                     break;
                 }
+                Err(TrySendError::Closed(input)) => {
+                    self.match_queue.push_front(input);
+                    bail!("Cannot schedule a match, worker is closed.");
+                }
             }
         }
+
+        Ok(())
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub fn let_leaderboards_catchup_with_live_matches(&mut self) {
         self.global_leaderboard.catch_up_with_live_matches();
         for async_lb in &mut self.custom_leaderboards {

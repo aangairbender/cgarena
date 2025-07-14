@@ -274,6 +274,7 @@ dependencies = [
  "indoc",
  "itertools",
  "local-ip-address",
+ "log",
  "mime",
  "mime_guess",
  "nom",

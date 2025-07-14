@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::{fs::OpenOptions, io::Write, path::Path};
 
@@ -72,8 +72,9 @@ impl Default for Config {
 impl Config {
     pub fn load(arena_path: &Path) -> Result<Config, anyhow::Error> {
         let path = arena_path.join(CONFIG_FILE_NAME);
-        let config_content = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&config_content)?;
+        let config_content = std::fs::read_to_string(path).context("Cannot open config file")?;
+        let config: Config =
+            toml::from_str(&config_content).context("Config file format should be a valid TOML")?;
         Ok(config)
     }
 

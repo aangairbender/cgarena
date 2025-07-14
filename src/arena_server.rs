@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use tokio_util::sync::CancellationToken;
-use tracing::{warn, Level};
+use tracing::{info, warn, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
@@ -21,14 +21,14 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         .open(arena_path.join(config.log.file.unwrap_or("cgarena.log".to_string())))
         .context("Cannot write to cgarena.log")?;
 
+    let log_level = config
+        .log
+        .level
+        .and_then(|lvl| Level::from_str(&lvl).ok())
+        .unwrap_or(Level::INFO);
+
     tracing_subscriber::fmt()
-        .with_max_level(
-            config
-                .log
-                .level
-                .and_then(|lvl| Level::from_str(&lvl).ok())
-                .unwrap_or(Level::INFO),
-        )
+        .with_max_level(log_level)
         .with_writer(log_file)
         .with_ansi(false)
         .with_span_events(FmtSpan::CLOSE)
@@ -42,7 +42,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
         bail!("In the current version only single embedded worker supported");
     };
-    let worker_handle = worker::run_embedded_worker(arena_path, cfg.clone(), token.clone())
+    let worker_handle = worker::run_embedded_worker(arena_path, cfg.clone())
         .context("Cannot start embedded worker")?;
 
     let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
@@ -68,7 +68,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .context("Cannot bind tcp listener to the target address")?;
+        .context("Port is already in use")?;
 
     let bind_addr = listener
         .local_addr()
@@ -77,6 +77,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let arena_handle = ArenaHandle::new(arena_tx);
     let api_task_handle = tokio::spawn(api::start(listener, arena_handle, token.clone()));
 
+    info!("CG Arena started");
     println!("CG Arena started, press Ctrl+C to stop it");
     println!("Local:   http://localhost:{}/", bind_addr.port());
     if exposed {
@@ -86,9 +87,11 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     } else {
         println!("Network: use 'server.expose' config param to expose",);
     }
+    println!(); // empty line for nicer stdout
 
     tokio::select! {
         _ = shutdown_signal() => {
+            println!("Stopping CG Arena... press Ctrl+C again to kill it");
             token.cancel();
         },
         _ = arena_task_handle => {
@@ -99,7 +102,8 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         }
     }
 
-    println!("Stopping CG Arena... press Ctrl+C again to kill it");
+    info!("CG Arena stopped");
+
     Ok(())
 }
 

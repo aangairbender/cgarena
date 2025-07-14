@@ -10,6 +10,7 @@ use sqlx::SqlitePool;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions};
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 use tracing::warn;
 
 #[derive(sqlx::FromRow)]
@@ -192,6 +193,7 @@ pub async fn connect(arena_path: &Path) -> anyhow::Result<SqlitePool> {
     let opts = SqliteConnectOptions::new()
         .filename(db_path)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .log_slow_statements(log::LevelFilter::Warn, Duration::from_secs(5))
         .create_if_missing(true);
 
     let pool = SqlitePool::connect_with(opts).await?;

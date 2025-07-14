@@ -12,7 +12,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{error, info};
+use tracing::error;
 
 pub async fn start(
     listener: TcpListener,
@@ -24,11 +24,9 @@ pub async fn start(
     let server = axum::serve(listener, router)
         .with_graceful_shutdown(async move { cancellation_token.cancelled().await });
 
-    info!("Arena API server started");
     if let Err(e) = server.await {
         error!("API Server error: {}", e);
     }
-    info!("Arena API server closed");
 }
 
 async fn create_router(app_state: AppState) -> Router {

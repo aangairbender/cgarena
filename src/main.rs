@@ -47,12 +47,10 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    handle_cli_command(cli.command).await.unwrap_or_else(|e| {
-        println!("Something went wrong:");
-        println!("{}", e);
-    });
+    handle_cli_command(cli.command).await?;
+    Ok(())
 }
 
 async fn handle_cli_command(command: Commands) -> anyhow::Result<()> {

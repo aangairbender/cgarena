@@ -28,7 +28,7 @@ where
     let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(16);
     let cancellation_token = CancellationToken::new();
     let (match_result_tx, match_result_rx) = tokio::sync::mpsc::channel(100);
-    let (match_tx, _match_rx) = tokio::sync::mpsc::channel(16);
+    let (match_tx, mut match_rx) = tokio::sync::mpsc::channel(16);
     let (build_tx, mut build_rx) = tokio::sync::mpsc::channel(1);
     let worker_handle = WorkerHandle {
         match_tx,
@@ -48,18 +48,11 @@ where
         }
     });
 
-    // if let Some(runner) = runner {
-    //     let match_result_tx_2 = match_result_tx.clone();
-    //     tokio::spawn(async move {
-    //         while let Some(input) = match_rx.recv().await {
-    //             let output = runner(input);
-    //             match_result_tx_2.send(output).await.unwrap();
-    //         }
-    //     });
-    // }
+    // just dropping scheduled matches
+    tokio::spawn(async move { while (match_rx.recv().await).is_some() {} });
 
     let handle = ArenaHandle::new(commands_tx);
-    tokio::spawn(run(
+    run(
         config.game,
         config.matchmaking,
         config.ranking,
@@ -67,7 +60,9 @@ where
         worker_handle,
         commands_rx,
         cancellation_token.clone(),
-    ));
+    )
+    .await
+    .unwrap();
 
     TestArena {
         handle,
@@ -96,7 +91,7 @@ async fn cmd_create_bot_should_create_record_in_db() {
         )
         .await;
 
-    let CreateBotResult::Created(bot) = res else {
+    let CreateBotResult::Created(bot) = res.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
@@ -147,7 +142,7 @@ async fn cmd_create_bot_should_fail_on_duplicate_name() {
         )
         .await;
 
-    let CreateBotResult::Created(_) = res else {
+    let CreateBotResult::Created(_) = res.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
@@ -160,7 +155,7 @@ async fn cmd_create_bot_should_fail_on_duplicate_name() {
         )
         .await;
 
-    let CreateBotResult::DuplicateName = res2 else {
+    let CreateBotResult::DuplicateName = res2.unwrap() else {
         panic!("Bot creation should fail with DuplicateName error")
     };
 }
@@ -184,13 +179,13 @@ async fn cmd_rename_bot_works() {
         )
         .await;
 
-    let CreateBotResult::Created(bot) = res else {
+    let CreateBotResult::Created(bot) = res.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
     let res2 = arena.handle.rename_bot(bot.id, bot_name_2.clone()).await;
 
-    let RenameBotResult::Renamed = res2 else {
+    let RenameBotResult::Renamed = res2.unwrap() else {
         panic!("Bot renaming should succeed")
     };
 
@@ -223,7 +218,7 @@ async fn cmd_rename_bot_fails_on_duplicate_name() {
         )
         .await;
 
-    let CreateBotResult::Created(bot) = res else {
+    let CreateBotResult::Created(bot) = res.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
@@ -236,13 +231,13 @@ async fn cmd_rename_bot_fails_on_duplicate_name() {
         )
         .await;
 
-    let CreateBotResult::Created(_) = res2 else {
+    let CreateBotResult::Created(_) = res2.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
     let res3 = arena.handle.rename_bot(bot.id, bot_name_2.clone()).await;
 
-    let RenameBotResult::DuplicateName = res3 else {
+    let RenameBotResult::DuplicateName = res3.unwrap() else {
         panic!("Bot renaming should fail with DuplicateName");
     };
 }
@@ -257,7 +252,7 @@ async fn cmd_rename_bot_fails_if_no_bot_with_id() {
 
     let res = arena.handle.rename_bot(bot_id, bot_name.clone()).await;
 
-    let RenameBotResult::NotFound = res else {
+    let RenameBotResult::NotFound = res.unwrap() else {
         panic!("Bot renaming should fail with NotFound");
     };
 }
@@ -280,11 +275,11 @@ async fn cmd_delete_bot_works() {
         )
         .await;
 
-    let CreateBotResult::Created(bot) = res else {
+    let CreateBotResult::Created(bot) = res.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
-    arena.handle.delete_bot(bot.id).await;
+    arena.handle.delete_bot(bot.id).await.unwrap();
 
     let row = sqlx::query("SELECT * FROM bots WHERE id = $1")
         .bind::<i64>(bot.id.into())
@@ -314,7 +309,7 @@ async fn cmd_fetch_leaderboard_works() {
         )
         .await;
 
-    let CreateBotResult::Created(bot1) = res else {
+    let CreateBotResult::Created(bot1) = res.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
@@ -327,11 +322,11 @@ async fn cmd_fetch_leaderboard_works() {
         )
         .await;
 
-    let CreateBotResult::Created(bot2) = res2 else {
+    let CreateBotResult::Created(bot2) = res2.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
-    let res3 = arena.handle.fetch_status().await;
+    let res3 = arena.handle.fetch_status().await.unwrap();
 
     assert_eq!(res3.bots.len(), 2);
 
@@ -398,7 +393,7 @@ async fn cmd_fetch_leaderboard_e2e() {
         )
         .await;
 
-    let CreateBotResult::Created(bot1) = res else {
+    let CreateBotResult::Created(bot1) = res.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
@@ -411,7 +406,7 @@ async fn cmd_fetch_leaderboard_e2e() {
         )
         .await;
 
-    let CreateBotResult::Created(bot2) = res2 else {
+    let CreateBotResult::Created(bot2) = res2.unwrap() else {
         panic!("Bot creation should succeed");
     };
 
@@ -494,7 +489,7 @@ async fn cmd_fetch_leaderboard_e2e() {
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let res3 = arena.handle.fetch_status().await;
+    let res3 = arena.handle.fetch_status().await.unwrap();
 
     assert_eq!(res3.bots.len(), 2);
     assert_eq!(res3.bots[0].id, bot1.id);

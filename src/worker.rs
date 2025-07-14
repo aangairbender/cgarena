@@ -38,7 +38,6 @@ const DIR_BOTS: &str = "bots";
 pub fn run_embedded_worker(
     worker_path: &Path,
     config: EmbeddedWorkerConfig,
-    token: CancellationToken,
 ) -> anyhow::Result<WorkerHandle> {
     let config = Arc::new(config);
 
@@ -51,7 +50,6 @@ pub fn run_embedded_worker(
         worker_path.to_path_buf(),
         Arc::clone(&config),
         match_result_tx,
-        token.clone(),
     ));
 
     let (build_tx, build_rx) = channel(1);
@@ -174,9 +172,9 @@ async fn run_play_matches(
     worker_path: PathBuf,
     config: Arc<EmbeddedWorkerConfig>,
     match_result_tx: Sender<PlayMatchOutput>,
-    token: CancellationToken,
 ) {
     let semaphore = Arc::new(Semaphore::new(config.threads as usize));
+    let token = CancellationToken::new();
 
     while let Some(input) = rx.recv().await {
         if token.is_cancelled() {
@@ -226,6 +224,7 @@ async fn run_play_matches(
 
         let match_result_tx_clone = match_result_tx.clone();
         let worker_path_clone = worker_path.clone();
+        let token_clone = token.clone();
         tokio::spawn(async move {
             let res = spawn_play_match_command(command_parts, worker_path_clone, input).await;
 
@@ -233,9 +232,11 @@ async fn run_play_matches(
                 Ok(output) => {
                     let _ = match_result_tx_clone.send(output).await;
                 }
-                Err(e) => tracing::error!("Running match failed: {}", e),
+                Err(e) => {
+                    token_clone.cancel(); // this should make cgarena stop eventually
+                    tracing::error!("{}", e);
+                }
             }
-
             drop(permit);
         });
     }
@@ -251,7 +252,7 @@ async fn spawn_play_match_command(
         .current_dir(&worker_path)
         .output()
         .await
-        .context("Cannot run match command")?;
+        .context("Error while executing cmd_play_match")?;
 
     let result = if cmd_output.status.success() {
         let stdout = String::from_utf8(cmd_output.stdout).context("stdout is not valid UTF-8")?;

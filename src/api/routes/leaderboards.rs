@@ -35,7 +35,7 @@ pub async fn create_leaderboard(
     let res = app_state
         .arena_handle
         .create_leaderboard(name, filter)
-        .await;
+        .await?;
 
     Ok(Json(LeaderboardOverviewResponse::from(res)))
 }
@@ -55,7 +55,7 @@ pub async fn patch_leaderboard(
     let res = app_state
         .arena_handle
         .patch_leaderboard(id, name, filter)
-        .await;
+        .await?;
 
     match res {
         crate::arena::PatchLeaderboardResult::OK => Ok(()),
@@ -68,6 +68,6 @@ pub async fn delete_leaderboard(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let id: LeaderboardId = id.into();
-    app_state.arena_handle.delete_leaderboard(id).await;
+    app_state.arena_handle.delete_leaderboard(id).await?;
     Ok(())
 }

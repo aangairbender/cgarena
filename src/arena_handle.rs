@@ -23,7 +23,7 @@ impl ArenaHandle {
         name: BotName,
         source_code: SourceCode,
         language: Language,
-    ) -> CreateBotResult {
+    ) -> anyhow::Result<CreateBotResult> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::CreateBot(CreateBotCommand {
                 name,
@@ -35,7 +35,11 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn rename_bot(&self, id: BotId, new_name: BotName) -> RenameBotResult {
+    pub async fn rename_bot(
+        &self,
+        id: BotId,
+        new_name: BotName,
+    ) -> anyhow::Result<RenameBotResult> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::RenameBot(RenameBotCommand {
                 id,
@@ -46,14 +50,14 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn delete_bot(&self, id: BotId) {
+    pub async fn delete_bot(&self, id: BotId) -> anyhow::Result<()> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::DeleteBot(DeleteBotCommand { id, response: tx })
         })
         .await
     }
 
-    pub async fn fetch_status(&self) -> FetchStatusResult {
+    pub async fn fetch_status(&self) -> anyhow::Result<FetchStatusResult> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::FetchStatus(FetchStatusCommand { response: tx })
         })
@@ -64,7 +68,7 @@ impl ArenaHandle {
         &self,
         name: LeaderboardName,
         filter: MatchFilter,
-    ) -> LeaderboardOverview {
+    ) -> anyhow::Result<LeaderboardOverview> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::CreateLeaderboard(CreateLeaderboardCommand {
                 name,
@@ -80,7 +84,7 @@ impl ArenaHandle {
         id: LeaderboardId,
         name: LeaderboardName,
         filter: MatchFilter,
-    ) -> PatchLeaderboardResult {
+    ) -> anyhow::Result<PatchLeaderboardResult> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::PatchLeaderboard(PatchLeaderboardCommand {
                 id,
@@ -92,7 +96,7 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn delete_leaderboard(&self, id: LeaderboardId) {
+    pub async fn delete_leaderboard(&self, id: LeaderboardId) -> anyhow::Result<()> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::DeleteLeaderboard(DeleteLeaderboardCommand { id, response: tx })
         })
@@ -102,16 +106,13 @@ impl ArenaHandle {
     async fn send_command_and_await_for_result<R, F: FnOnce(oneshot::Sender<R>) -> ArenaCommand>(
         &self,
         cmd_builder: F,
-    ) -> R {
+    ) -> anyhow::Result<R> {
         let (tx, rx) = oneshot::channel();
 
         let cmd = cmd_builder(tx);
 
-        self.commands_tx
-            .send(cmd)
-            .await
-            .expect("Arena command tx send error");
+        self.commands_tx.send(cmd).await?;
 
-        rx.await.expect("Arena command rx error")
+        Ok(rx.await?)
     }
 }
