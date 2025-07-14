@@ -12,6 +12,7 @@ mod matchmaking;
 mod ranking;
 mod worker;
 
+use anyhow::Context;
 use clap::{command, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -48,32 +49,33 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    match cli.command {
-        Commands::Init { path } => {
-            let path = unwrap_or_current_dir(path);
-            arena_server::init(&path).unwrap_or_else(|e| {
-                println!("Something went wrong:");
-                println!("{}", e);
-            });
-        }
-        Commands::Run { path } => {
-            let path = unwrap_or_current_dir(path);
-            arena_server::start(&path).await.unwrap_or_else(|e| {
-                println!("Something went wrong:");
-                println!("{}", e);
-            });
-        }
-        Commands::VacuumDB { path } => {
-            let path = unwrap_or_current_dir(path);
-            db::vacuum_db(&path).await.unwrap_or_else(|e| {
-                println!("Something went wrong:");
-                println!("{}", e);
-            });
-        }
-    }
+    handle_cli_command(cli.command).await.unwrap_or_else(|e| {
+        println!("Something went wrong:");
+        println!("{}", e);
+    });
 }
 
-fn unwrap_or_current_dir(path: Option<String>) -> PathBuf {
-    path.map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().expect("Can not get current directory"))
+async fn handle_cli_command(command: Commands) -> anyhow::Result<()> {
+    match command {
+        Commands::Init { path } => {
+            let path = unwrap_or_current_dir(path)?;
+            arena_server::init(&path)?;
+        }
+        Commands::Run { path } => {
+            let path = unwrap_or_current_dir(path)?;
+            arena_server::start(&path).await?;
+        }
+        Commands::VacuumDB { path } => {
+            let path = unwrap_or_current_dir(path)?;
+            db::vacuum_db(&path).await?;
+        }
+    }
+    Ok(())
+}
+
+fn unwrap_or_current_dir(path: Option<String>) -> anyhow::Result<PathBuf> {
+    path.map(PathBuf::from).map_or_else(
+        || std::env::current_dir().context("Cannot get current directory"),
+        Ok,
+    )
 }
