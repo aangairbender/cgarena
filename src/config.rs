@@ -32,6 +32,7 @@ pub struct MatchmakingConfig {
 pub enum RankingConfig {
     OpenSkill,
     TrueSkill,
+    Elo,
 }
 
 #[derive(Serialize, Deserialize)]

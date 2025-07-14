@@ -12,8 +12,13 @@ impl Ranker {
         let algorithm: Box<dyn Algorithm + Sync + Send> = match config {
             RankingConfig::OpenSkill => Box::new(openskill::OpenSkill),
             RankingConfig::TrueSkill => Box::new(trueskill::Trueskill),
+            RankingConfig::Elo => Box::new(elo::Elo),
         };
         Self { algorithm }
+    }
+
+    pub fn support_multi_team(&self) -> bool {
+        self.algorithm.support_multi_team()
     }
 
     pub fn default_rating(&self) -> Rating {
@@ -47,6 +52,7 @@ impl Ranker {
 }
 
 trait Algorithm {
+    fn support_multi_team(&self) -> bool;
     fn default_rating(&self) -> Rating;
     fn recalc_ratings(&self, input: &[(Rating, u8)]) -> Vec<Rating>;
 }
@@ -102,6 +108,10 @@ mod openskill {
 
             new_ratings.into_iter().map(|r| r[0].into()).collect_vec()
         }
+
+        fn support_multi_team(&self) -> bool {
+            true
+        }
     }
 }
 
@@ -151,6 +161,56 @@ mod trueskill {
             let new_ratings = trueskill_multi_team(&teams_and_ranks, &TrueSkillConfig::default());
 
             new_ratings.into_iter().map(|r| r[0].into()).collect_vec()
+        }
+
+        fn support_multi_team(&self) -> bool {
+            true
+        }
+    }
+}
+
+mod elo {
+    use crate::{domain::Rating, ranking::Algorithm};
+    use skillratings::{elo::*, Outcomes};
+
+    pub struct Elo;
+
+    impl From<Rating> for EloRating {
+        fn from(rating: Rating) -> Self {
+            Self { rating: rating.mu }
+        }
+    }
+
+    impl From<EloRating> for Rating {
+        fn from(rating: EloRating) -> Self {
+            Rating {
+                mu: rating.rating,
+                sigma: 0.0,
+            }
+        }
+    }
+
+    impl Algorithm for Elo {
+        fn default_rating(&self) -> Rating {
+            EloRating::default().into()
+        }
+
+        fn recalc_ratings(&self, input: &[(Rating, u8)]) -> Vec<Rating> {
+            assert_eq!(input.len(), 2);
+            let p1 = input[0].0.into();
+            let p2 = input[1].0.into();
+            let outcome = match input[0].1.cmp(&input[1].1) {
+                std::cmp::Ordering::Less => Outcomes::WIN,
+                std::cmp::Ordering::Equal => Outcomes::DRAW,
+                std::cmp::Ordering::Greater => Outcomes::LOSS,
+            };
+
+            let (new_p1, new_p2) = elo(&p1, &p2, &outcome, &EloConfig::default());
+            vec![new_p1.into(), new_p2.into()]
+        }
+
+        fn support_multi_team(&self) -> bool {
+            false
         }
     }
 }

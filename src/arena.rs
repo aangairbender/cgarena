@@ -142,6 +142,10 @@ pub async fn run(
         .context("Cannot run db migrations")?;
 
     let ranker = Ranker::new(ranking_config);
+    if game_config.max_players > 2 && !ranker.support_multi_team() {
+        bail!("Configured ranking algorithm only supports 2 player games");
+    }
+
     let mut arena = Arena::new(game_config, matchmaking_config, ranker, pool, worker_handle);
 
     arena
