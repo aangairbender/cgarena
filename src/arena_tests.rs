@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
     arena_handle::ArenaHandle,
     config::Config,
-    db::Database,
+    db,
     domain::*,
     worker::{BuildBotInput, BuildBotOutput, PlayMatchOutput, WorkerHandle},
 };
@@ -24,7 +24,7 @@ async fn create_test_arena<F1>(config: Config, builder: F1) -> TestArena
 where
     F1: Fn(BuildBotInput) -> BuildResult + Send + 'static,
 {
-    let (db, pool) = Database::in_memory().await;
+    let pool = db::in_memory().await;
     let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(16);
     let cancellation_token = CancellationToken::new();
     let (match_result_tx, match_result_rx) = tokio::sync::mpsc::channel(100);
@@ -63,7 +63,7 @@ where
         config.game,
         config.matchmaking,
         config.ranking,
-        db,
+        pool.clone(),
         worker_handle,
         commands_rx,
         cancellation_token.clone(),

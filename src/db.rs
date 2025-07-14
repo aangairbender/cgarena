@@ -167,427 +167,398 @@ impl
     }
 }
 
-pub struct Database {
-    pool: SqlitePool,
-}
-
 const DB_FILE_NAME: &str = "cgarena.db";
 
-impl Database {
-    pub async fn connect(arena_path: &Path) -> Self {
-        let db_path = arena_path.join(DB_FILE_NAME);
+pub async fn connect(arena_path: &Path) -> SqlitePool {
+    let db_path = arena_path.join(DB_FILE_NAME);
 
-        let opts = SqliteConnectOptions::new()
-            .filename(db_path)
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-            .create_if_missing(true);
+    let opts = SqliteConnectOptions::new()
+        .filename(db_path)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .create_if_missing(true);
 
-        let pool = SqlitePool::connect_with(opts)
-            .await
-            .expect("cannot connect to db");
+    SqlitePool::connect_with(opts)
+        .await
+        .expect("cannot connect to db")
+}
 
-        sqlx::migrate!()
-            .run(&pool)
-            .await
-            .expect("can't run migrations");
+pub async fn vacuum_db(arena_path: &Path) {
+    let db_path = arena_path.join(DB_FILE_NAME);
 
-        Self { pool }
+    let mut conn = SqliteConnectOptions::new()
+        .filename(db_path)
+        .connect()
+        .await
+        .expect("cannot connect to database");
+
+    sqlx::query("VACUUM")
+        .execute(&mut conn)
+        .await
+        .expect("can't vacuum the db");
+}
+
+/// for tests
+#[cfg(test)]
+pub async fn in_memory() -> SqlitePool {
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap()
+}
+
+pub async fn persist_bot(pool: &SqlitePool, bot: &mut Bot) {
+    if bot.id == BotId::UNINITIALIZED {
+        bot.id = insert_bot(pool, bot).await;
+    } else {
+        update_bot(pool, bot).await;
     }
+}
 
-    pub async fn vacuum_db(arena_path: &Path) {
-        let db_path = arena_path.join(DB_FILE_NAME);
+async fn insert_bot(pool: &SqlitePool, bot: &Bot) -> BotId {
+    assert_eq!(bot.id, BotId::UNINITIALIZED);
+    const SQL: &str = indoc! {"
+        INSERT INTO bots (name, source_code, language, created_at) \
+        VALUES ($1, $2, $3, $4) \
+    "};
 
-        let mut conn = SqliteConnectOptions::new()
-            .filename(db_path)
-            .connect()
-            .await
-            .expect("cannot connect to database");
+    let res = sqlx::query(SQL)
+        .bind::<&str>(&bot.name)
+        .bind::<&str>(&bot.source_code)
+        .bind::<&str>(&bot.language)
+        .bind::<DateTime<Utc>>(bot.created_at)
+        .execute(pool)
+        .await
+        .expect("Cannot insert bot to db");
 
-        sqlx::query("VACUUM")
-            .execute(&mut conn)
-            .await
-            .expect("can't vacuum the db");
-    }
+    BotId::from(res.last_insert_rowid())
+}
 
-    pub fn pool(&self) -> SqlitePool {
-        self.pool.clone()
-    }
+/// only updates mutable fields
+async fn update_bot(pool: &SqlitePool, bot: &Bot) {
+    assert_ne!(bot.id, BotId::UNINITIALIZED);
+    const SQL: &str = indoc! {"
+        UPDATE bots SET name = $1 \
+        WHERE id = $2"
+    };
 
-    /// for tests
-    #[cfg(test)]
-    pub async fn in_memory() -> (Self, SqlitePool) {
-        use sqlx::sqlite::SqlitePoolOptions;
+    let res = sqlx::query(SQL)
+        .bind::<&str>(&bot.name)
+        .bind::<i64>(bot.id.into())
+        .execute(pool)
+        .await
+        .expect("Cannot update bot in db");
 
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+    assert_eq!(res.rows_affected(), 1);
+}
 
-        sqlx::migrate!()
-            .run(&pool)
-            .await
-            .expect("can't run migrations");
+pub async fn delete_bot(pool: &SqlitePool, id: BotId) {
+    sqlx::query("DELETE FROM bots WHERE id = $1")
+        .bind::<i64>(id.into())
+        .execute(pool)
+        .await
+        .expect("Cannot delete bot from db");
+}
 
-        (Self { pool: pool.clone() }, pool)
-    }
+pub async fn fetch_bots(pool: &SqlitePool) -> Vec<Bot> {
+    sqlx::query_as::<_, BotsRow>("SELECT * from bots")
+        .fetch_all(pool)
+        .await
+        .expect("Cannot fetch all bots")
+        .into_iter()
+        .filter_map(|item| {
+            let id = item.id;
+            Bot::try_from(item)
+                .inspect_err(|e| warn!("Invalid db data (bot {}): {}. Skipping.", id, e))
+                .ok()
+        })
+        .collect()
+}
 
-    pub async fn persist_bot(&mut self, bot: &mut Bot) {
-        if bot.id == BotId::UNINITIALIZED {
-            bot.id = self.insert_bot(bot).await;
-        } else {
-            self.update_bot(bot).await;
+pub async fn fetch_builds(pool: &SqlitePool) -> Vec<Build> {
+    sqlx::query_as::<_, BuildsRow>("SELECT * from builds")
+        .fetch_all(pool)
+        .await
+        .expect("Cannot fetch all builds")
+        .into_iter()
+        .filter_map(|item| {
+            let id = (item.worker_name.clone(), item.bot_id);
+            Build::try_from(item)
+                .inspect_err(|e| warn!("Invalid db data (build {:?}): {}. Skipping.", id, e))
+                .ok()
+        })
+        .collect()
+}
+
+pub async fn persist_build(pool: &SqlitePool, build: &Build) {
+    const SQL: &str = indoc! {"
+        INSERT OR REPLACE INTO builds (bot_id, worker_name, status, result, error) \
+        VALUES ($1, $2, $3, $4, $5) \
+    "};
+
+    let (status, result, error) = match &build.status {
+        BuildStatus::Pending => (0, None, None),
+        BuildStatus::Running => (1, None, None),
+        BuildStatus::Finished(BuildResult::Success) => (2, Some(0), None),
+        BuildStatus::Finished(BuildResult::Failure { stderr }) => {
+            (2, Some(1), Some(stderr.as_ref()))
         }
-    }
+    };
 
-    async fn insert_bot(&mut self, bot: &Bot) -> BotId {
-        assert_eq!(bot.id, BotId::UNINITIALIZED);
-        const SQL: &str = indoc! {"
-            INSERT INTO bots (name, source_code, language, created_at) \
-            VALUES ($1, $2, $3, $4) \
-        "};
+    sqlx::query(SQL)
+        .bind::<i64>(build.bot_id.into())
+        .bind::<&str>(&build.worker_name)
+        .bind::<u8>(status)
+        .bind::<Option<u8>>(result)
+        .bind::<Option<&str>>(error)
+        .execute(pool)
+        .await
+        .expect("Cannot upsert build to db");
+}
 
-        let res = sqlx::query(SQL)
-            .bind::<&str>(&bot.name)
-            .bind::<&str>(&bot.source_code)
-            .bind::<&str>(&bot.language)
-            .bind::<DateTime<Utc>>(bot.created_at)
-            .execute(&self.pool)
+pub async fn persist_match(pool: &SqlitePool, m: &mut Match) {
+    assert_eq!(m.id, MatchId::UNINITIALIZED);
+    m.id = create_match(pool, m).await;
+}
+
+pub async fn create_match(pool: &SqlitePool, m: &Match) -> MatchId {
+    let mut tx = pool.begin().await.expect("cannot start a transaction");
+
+    let match_id: MatchId =
+        sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)")
+            .bind::<i64>(m.seed)
+            .bind::<u8>(m.participants.len() as _)
+            .execute(&mut *tx)
             .await
-            .expect("Cannot insert bot to db");
+            .expect("Cannot create match in db")
+            .last_insert_rowid()
+            .into();
 
-        BotId::from(res.last_insert_rowid())
-    }
-
-    /// only updates mutable fields
-    async fn update_bot(&mut self, bot: &Bot) {
-        assert_ne!(bot.id, BotId::UNINITIALIZED);
-        const SQL: &str = indoc! {"
-            UPDATE bots SET name = $1 \
-            WHERE id = $2"
-        };
-
-        let res = sqlx::query(SQL)
-            .bind::<&str>(&bot.name)
-            .bind::<i64>(bot.id.into())
-            .execute(&self.pool)
-            .await
-            .expect("Cannot update bot in db");
-
-        assert_eq!(res.rows_affected(), 1);
-    }
-
-    pub async fn delete_bot(&mut self, id: BotId) {
-        sqlx::query("DELETE FROM bots WHERE id = $1")
-            .bind::<i64>(id.into())
-            .execute(&self.pool)
-            .await
-            .expect("Cannot delete bot from db");
-    }
-
-    pub async fn fetch_bots(&mut self) -> Vec<Bot> {
-        sqlx::query_as::<_, BotsRow>("SELECT * from bots")
-            .fetch_all(&self.pool)
-            .await
-            .expect("Cannot fetch all bots")
-            .into_iter()
-            .filter_map(|item| {
-                let id = item.id;
-                Bot::try_from(item)
-                    .inspect_err(|e| warn!("Invalid db data (bot {}): {}. Skipping.", id, e))
-                    .ok()
-            })
-            .collect()
-    }
-
-    pub async fn fetch_builds(&mut self) -> Vec<Build> {
-        sqlx::query_as::<_, BuildsRow>("SELECT * from builds")
-            .fetch_all(&self.pool)
-            .await
-            .expect("Cannot fetch all builds")
-            .into_iter()
-            .filter_map(|item| {
-                let id = (item.worker_name.clone(), item.bot_id);
-                Build::try_from(item)
-                    .inspect_err(|e| warn!("Invalid db data (build {:?}): {}. Skipping.", id, e))
-                    .ok()
-            })
-            .collect()
-    }
-
-    pub async fn persist_build(&mut self, build: &Build) {
-        const SQL: &str = indoc! {"
-            INSERT OR REPLACE INTO builds (bot_id, worker_name, status, result, error) \
-            VALUES ($1, $2, $3, $4, $5) \
-        "};
-
-        let (status, result, error) = match &build.status {
-            BuildStatus::Pending => (0, None, None),
-            BuildStatus::Running => (1, None, None),
-            BuildStatus::Finished(BuildResult::Success) => (2, Some(0), None),
-            BuildStatus::Finished(BuildResult::Failure { stderr }) => {
-                (2, Some(1), Some(stderr.as_ref()))
-            }
+    for (index, p) in m.participants.iter().enumerate() {
+        const SQL: &str = indoc! {
+            "INSERT INTO participations (match_id, bot_id, `index`, rank, error) \
+                VALUES ($1, $2, $3, $4, $5)"
         };
 
         sqlx::query(SQL)
-            .bind::<i64>(build.bot_id.into())
-            .bind::<&str>(&build.worker_name)
-            .bind::<u8>(status)
-            .bind::<Option<u8>>(result)
-            .bind::<Option<&str>>(error)
-            .execute(&self.pool)
+            .bind::<i64>(match_id.into())
+            .bind::<i64>(p.bot_id.into())
+            .bind::<u8>(index as _)
+            .bind::<u8>(p.rank)
+            .bind::<bool>(p.error)
+            .execute(&mut *tx)
             .await
-            .expect("Cannot upsert build to db");
+            .expect("Cannot create participation in db");
     }
 
-    pub async fn persist_match(&mut self, m: &mut Match) {
-        assert_eq!(m.id, MatchId::UNINITIALIZED);
-        m.id = self.create_match(m).await;
-    }
+    for attr in &m.attributes {
+        sqlx::query("INSERT OR IGNORE INTO match_attribute_names (name) VALUES (?)")
+            .bind::<&str>(&attr.name)
+            .execute(&mut *tx)
+            .await
+            .expect("Cannot insert attribute name");
 
-    pub async fn create_match(&mut self, m: &Match) -> MatchId {
-        let mut tx = self.pool.begin().await.expect("cannot start a transaction");
-
-        let match_id: MatchId =
-            sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)")
-                .bind::<i64>(m.seed)
-                .bind::<u8>(m.participants.len() as _)
-                .execute(&mut *tx)
-                .await
-                .expect("Cannot create match in db")
-                .last_insert_rowid()
-                .into();
-
-        for (index, p) in m.participants.iter().enumerate() {
-            const SQL: &str = indoc! {
-                "INSERT INTO participations (match_id, bot_id, `index`, rank, error) \
-                 VALUES ($1, $2, $3, $4, $5)"
-            };
-
-            sqlx::query(SQL)
-                .bind::<i64>(match_id.into())
-                .bind::<i64>(p.bot_id.into())
-                .bind::<u8>(index as _)
-                .bind::<u8>(p.rank)
-                .bind::<bool>(p.error)
-                .execute(&mut *tx)
-                .await
-                .expect("Cannot create participation in db");
-        }
-
-        for attr in &m.attributes {
-            sqlx::query("INSERT OR IGNORE INTO match_attribute_names (name) VALUES (?)")
+        let name_id =
+            sqlx::query_as::<_, (i64,)>("SELECT id FROM match_attribute_names WHERE name = ?")
                 .bind::<&str>(&attr.name)
-                .execute(&mut *tx)
+                .fetch_one(&mut *tx)
                 .await
-                .expect("Cannot insert attribute name");
+                .expect("Cannot get attribute name")
+                .0;
 
-            let name_id =
-                sqlx::query_as::<_, (i64,)>("SELECT id FROM match_attribute_names WHERE name = ?")
-                    .bind::<&str>(&attr.name)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .expect("Cannot get attribute name")
-                    .0;
-
-            let str_value_id = if let Some(str_value) = attr.value.string_value() {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO match_attribute_string_values (value) VALUES (?)",
-                )
+        let str_value_id = if let Some(str_value) = attr.value.string_value() {
+            sqlx::query("INSERT OR IGNORE INTO match_attribute_string_values (value) VALUES (?)")
                 .bind::<&str>(str_value)
                 .execute(&mut *tx)
                 .await
                 .expect("Cannot insert attribute string value");
 
-                let str_value_id = sqlx::query_as::<_, (i64,)>(
-                    "SELECT id FROM match_attribute_string_values WHERE value = ?",
-                )
-                .bind::<&str>(str_value)
-                .fetch_one(&mut *tx)
-                .await
-                .expect("Cannot get attribute string value")
-                .0;
-                Some(str_value_id)
-            } else {
-                None
-            };
-
-            const SQL: &str = indoc! {
-                "INSERT INTO match_attributes (name_id, match_id, bot_id, turn, value_int, value_float, value_string_id) \
-                VALUES ($1, $2, $3, $4, $5, $6, $7)"
-            };
-
-            sqlx::query(SQL)
-                .bind::<i64>(name_id)
-                .bind::<i64>(match_id.into())
-                .bind::<Option<i64>>(attr.bot_id.map(|id| id.into()))
-                .bind::<Option<u16>>(attr.turn)
-                .bind::<Option<i64>>(attr.value.integer_value())
-                .bind::<Option<f64>>(attr.value.float_value())
-                .bind::<Option<i64>>(str_value_id)
-                .execute(&mut *tx)
-                .await
-                .expect("Cannot create match attribute in db");
-        }
-
-        tx.commit().await.expect("cannot commit transaction");
-        match_id
-    }
-
-    // pub async fn fetch_matches_with_attrs(&self, attrs: &[MatchAttribute]) -> Vec<Match> {
-    //     Self::fetch_matches_with_attrs_2(&self.pool, attrs).await
-    // }
-
-    pub async fn fetch_matches_with_attrs(
-        pool: &SqlitePool,
-        attrs: &[MatchAttribute],
-    ) -> Vec<Match> {
-        let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
-            .fetch_all(pool)
+            let str_value_id = sqlx::query_as::<_, (i64,)>(
+                "SELECT id FROM match_attribute_string_values WHERE value = ?",
+            )
+            .bind::<&str>(str_value)
+            .fetch_one(&mut *tx)
             .await
-            .expect("Cannot query matches from db");
-
-        let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
-            .fetch_all(pool)
-            .await
-            .expect("Cannot query match participations from db");
-
-        let attributes: Vec<MatchAttributesJoinedRow> = if attrs.is_empty() {
-            vec![]
+            .expect("Cannot get attribute string value")
+            .0;
+            Some(str_value_id)
         } else {
-            let names_joined = attrs.iter().map(|a| format!("'{}'", a.name)).join(",");
-            let turns = attrs.iter().flat_map(|a| a.turn).collect_vec();
-            let turns_condition = if turns.is_empty() {
-                "ma.turn IS NULL".to_string()
-            } else {
-                format!(
-                    "(ma.turn is NULL OR ma.turn IN ({}))",
-                    turns.iter().join(",")
-                )
-            };
-            let bot_ids: Vec<i64> = attrs
-                .iter()
-                .flat_map(|a| a.bot_id)
-                .map(|id| id.into())
-                .collect_vec();
-            let bots_condition = if bot_ids.is_empty() {
-                "ma.bot_id IS NULL".to_string()
-            } else {
-                format!(
-                    "(ma.bot_id is NULL OR ma.bot_id IN ({}))",
-                    bot_ids.iter().join(",")
-                )
-            };
-
-            let sql = formatdoc! {
-                "SELECT
-                    n.name as name,
-                    ma.match_id as match_id,
-                    ma.bot_id as bot_id,
-                    ma.turn as turn,
-                    ma.value_int as value_int,
-                    ma.value_float as value_float,
-                    v.value as value_string
-                FROM match_attributes ma
-                INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
-                LEFT JOIN match_attribute_string_values v ON (v.id = ma.value_string_id)
-                WHERE n.name IN ({names_joined}) AND {turns_condition} AND {bots_condition}"
-            };
-            sqlx::query_as(&sql)
-                .fetch_all(pool)
-                .await
-                .expect("Cannot query match attributes from db")
+            None
         };
 
-        let mut combined = HashMap::with_capacity(matches.len());
-        for m in matches {
-            combined.insert(m.id, (m, vec![], vec![]));
-        }
-        for p in participations {
-            let target = combined.get_mut(&p.match_id);
-            let Some(target) = target else {
-                continue;
-            };
-            target.1.push(p);
-        }
-        for attr in attributes {
-            let target = combined.get_mut(&attr.match_id);
-            let Some(target) = target else {
-                continue;
-            };
-            target.2.push(attr);
-        }
-
-        combined
-            .into_values()
-            .filter_map(|item| {
-                let id = item.0.id;
-                Match::try_from(item)
-                    .inspect_err(|e| warn!("Invalid db data (match {}): {}. Skipping.", id, e))
-                    .ok()
-            })
-            .collect()
-    }
-
-    pub async fn persist_leaderboard(&mut self, leaderboard: &mut Leaderboard) {
-        if leaderboard.id == LeaderboardId::UNINITIALIZED {
-            leaderboard.id = self.insert_leaderboard(leaderboard).await;
-        } else {
-            self.update_leaderboard(leaderboard).await;
-        }
-    }
-
-    async fn insert_leaderboard(&mut self, leaderboard: &Leaderboard) -> LeaderboardId {
-        assert_eq!(leaderboard.id, LeaderboardId::UNINITIALIZED);
-        const SQL: &str = indoc! {"
-            INSERT INTO leaderboards (name, filter) \
-            VALUES ($1, $2) \
-        "};
-
-        let res = sqlx::query(SQL)
-            .bind::<&str>(&leaderboard.name)
-            .bind::<&str>(&leaderboard.filter.to_string())
-            .execute(&self.pool)
-            .await
-            .expect("Cannot insert leaderboard to db");
-
-        LeaderboardId::from(res.last_insert_rowid())
-    }
-
-    /// only updates mutable fields
-    async fn update_leaderboard(&mut self, leaderboard: &Leaderboard) {
-        assert_ne!(leaderboard.id, LeaderboardId::UNINITIALIZED);
-        const SQL: &str = indoc! {"
-            UPDATE leaderboards SET name = $1 \
-            WHERE id = $2"
+        const SQL: &str = indoc! {
+            "INSERT INTO match_attributes (name_id, match_id, bot_id, turn, value_int, value_float, value_string_id) \
+            VALUES ($1, $2, $3, $4, $5, $6, $7)"
         };
 
-        let res = sqlx::query(SQL)
-            .bind::<&str>(&leaderboard.name)
-            .bind::<i64>(leaderboard.id.into())
-            .execute(&self.pool)
+        sqlx::query(SQL)
+            .bind::<i64>(name_id)
+            .bind::<i64>(match_id.into())
+            .bind::<Option<i64>>(attr.bot_id.map(|id| id.into()))
+            .bind::<Option<u16>>(attr.turn)
+            .bind::<Option<i64>>(attr.value.integer_value())
+            .bind::<Option<f64>>(attr.value.float_value())
+            .bind::<Option<i64>>(str_value_id)
+            .execute(&mut *tx)
             .await
-            .expect("Cannot update leaderboard in db");
-
-        assert_eq!(res.rows_affected(), 1);
+            .expect("Cannot create match attribute in db");
     }
 
-    pub async fn delete_leaderboard(&mut self, id: LeaderboardId) {
-        sqlx::query("DELETE FROM leaderboards WHERE id = $1")
-            .bind::<i64>(id.into())
-            .execute(&self.pool)
+    tx.commit().await.expect("cannot commit transaction");
+    match_id
+}
+
+// pub async fn fetch_matches_with_attrs(&self, attrs: &[MatchAttribute]) -> Vec<Match> {
+//     Self::fetch_matches_with_attrs_2(pool, attrs).await
+// }
+
+pub async fn fetch_matches_with_attrs(pool: &SqlitePool, attrs: &[MatchAttribute]) -> Vec<Match> {
+    let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
+        .fetch_all(pool)
+        .await
+        .expect("Cannot query matches from db");
+
+    let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
+        .fetch_all(pool)
+        .await
+        .expect("Cannot query match participations from db");
+
+    let attributes: Vec<MatchAttributesJoinedRow> = if attrs.is_empty() {
+        vec![]
+    } else {
+        let names_joined = attrs.iter().map(|a| format!("'{}'", a.name)).join(",");
+        let turns = attrs.iter().flat_map(|a| a.turn).collect_vec();
+        let turns_condition = if turns.is_empty() {
+            "ma.turn IS NULL".to_string()
+        } else {
+            format!(
+                "(ma.turn is NULL OR ma.turn IN ({}))",
+                turns.iter().join(",")
+            )
+        };
+        let bot_ids: Vec<i64> = attrs
+            .iter()
+            .flat_map(|a| a.bot_id)
+            .map(|id| id.into())
+            .collect_vec();
+        let bots_condition = if bot_ids.is_empty() {
+            "ma.bot_id IS NULL".to_string()
+        } else {
+            format!(
+                "(ma.bot_id is NULL OR ma.bot_id IN ({}))",
+                bot_ids.iter().join(",")
+            )
+        };
+
+        let sql = formatdoc! {
+            "SELECT
+                n.name as name,
+                ma.match_id as match_id,
+                ma.bot_id as bot_id,
+                ma.turn as turn,
+                ma.value_int as value_int,
+                ma.value_float as value_float,
+                v.value as value_string
+            FROM match_attributes ma
+            INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
+            LEFT JOIN match_attribute_string_values v ON (v.id = ma.value_string_id)
+            WHERE n.name IN ({names_joined}) AND {turns_condition} AND {bots_condition}"
+        };
+        sqlx::query_as(&sql)
+            .fetch_all(pool)
             .await
-            .expect("Cannot delete leaderboard from db");
+            .expect("Cannot query match attributes from db")
+    };
+
+    let mut combined = HashMap::with_capacity(matches.len());
+    for m in matches {
+        combined.insert(m.id, (m, vec![], vec![]));
+    }
+    for p in participations {
+        let target = combined.get_mut(&p.match_id);
+        let Some(target) = target else {
+            continue;
+        };
+        target.1.push(p);
+    }
+    for attr in attributes {
+        let target = combined.get_mut(&attr.match_id);
+        let Some(target) = target else {
+            continue;
+        };
+        target.2.push(attr);
     }
 
-    pub async fn fetch_leaderboards(&mut self) -> Vec<Leaderboard> {
-        sqlx::query_as::<_, LeaderboardsRow>("SELECT * from leaderboards")
-            .fetch_all(&self.pool)
-            .await
-            .expect("Cannot fetch all leaderboards")
-            .into_iter()
-            .map(|item| item.into())
-            .collect()
+    combined
+        .into_values()
+        .filter_map(|item| {
+            let id = item.0.id;
+            Match::try_from(item)
+                .inspect_err(|e| warn!("Invalid db data (match {}): {}. Skipping.", id, e))
+                .ok()
+        })
+        .collect()
+}
+
+pub async fn persist_leaderboard(pool: &SqlitePool, leaderboard: &mut Leaderboard) {
+    if leaderboard.id == LeaderboardId::UNINITIALIZED {
+        leaderboard.id = insert_leaderboard(pool, leaderboard).await;
+    } else {
+        update_leaderboard(pool, leaderboard).await;
     }
+}
+
+async fn insert_leaderboard(pool: &SqlitePool, leaderboard: &Leaderboard) -> LeaderboardId {
+    assert_eq!(leaderboard.id, LeaderboardId::UNINITIALIZED);
+    const SQL: &str = indoc! {"
+        INSERT INTO leaderboards (name, filter) \
+        VALUES ($1, $2) \
+    "};
+
+    let res = sqlx::query(SQL)
+        .bind::<&str>(&leaderboard.name)
+        .bind::<&str>(&leaderboard.filter.to_string())
+        .execute(pool)
+        .await
+        .expect("Cannot insert leaderboard to db");
+
+    LeaderboardId::from(res.last_insert_rowid())
+}
+
+/// only updates mutable fields
+async fn update_leaderboard(pool: &SqlitePool, leaderboard: &Leaderboard) {
+    assert_ne!(leaderboard.id, LeaderboardId::UNINITIALIZED);
+    const SQL: &str = indoc! {"
+        UPDATE leaderboards SET name = $1 \
+        WHERE id = $2"
+    };
+
+    let res = sqlx::query(SQL)
+        .bind::<&str>(&leaderboard.name)
+        .bind::<i64>(leaderboard.id.into())
+        .execute(pool)
+        .await
+        .expect("Cannot update leaderboard in db");
+
+    assert_eq!(res.rows_affected(), 1);
+}
+
+pub async fn delete_leaderboard(pool: &SqlitePool, id: LeaderboardId) {
+    sqlx::query("DELETE FROM leaderboards WHERE id = $1")
+        .bind::<i64>(id.into())
+        .execute(pool)
+        .await
+        .expect("Cannot delete leaderboard from db");
+}
+
+pub async fn fetch_leaderboards(pool: &SqlitePool) -> Vec<Leaderboard> {
+    sqlx::query_as::<_, LeaderboardsRow>("SELECT * from leaderboards")
+        .fetch_all(pool)
+        .await
+        .expect("Cannot fetch all leaderboards")
+        .into_iter()
+        .map(|item| item.into())
+        .collect()
 }

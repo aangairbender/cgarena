@@ -59,7 +59,7 @@ async fn main() {
         }
         Commands::VacuumDB { path } => {
             let path = unwrap_or_current_dir(path);
-            db::Database::vacuum_db(&path).await;
+            db::vacuum_db(&path).await;
         }
     }
 }

@@ -1,7 +1,6 @@
 use crate::arena_handle::ArenaHandle;
 use crate::config::{Config, WorkerConfig};
-use crate::db::Database;
-use crate::{api, arena, worker};
+use crate::{api, arena, db, worker};
 use std::fs::OpenOptions;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -37,7 +36,7 @@ pub async fn start(arena_path: &Path) {
         .with_span_events(FmtSpan::CLOSE)
         .init();
 
-    let db = Database::connect(arena_path).await;
+    let pool = db::connect(arena_path).await;
     let token = CancellationToken::new();
 
     let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
@@ -51,7 +50,7 @@ pub async fn start(arena_path: &Path) {
         config.game,
         config.matchmaking,
         config.ranking,
-        db,
+        pool,
         worker_handle,
         arena_rx,
         token.clone(),

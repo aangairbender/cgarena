@@ -1,6 +1,6 @@
 use crate::async_leaderboard::AsyncLeaderboard;
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
-use crate::db::Database;
+use crate::db;
 use crate::domain::{
     Bot, BotId, BotName, Build, ComputedStats, Language, Leaderboard, LeaderboardId,
     LeaderboardName, Match, MatchAttribute, MatchAttributeValue, MatchFilter, Rating, SourceCode,
@@ -11,6 +11,7 @@ use crate::ranking::Ranker;
 use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
+use sqlx::SqlitePool;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -126,13 +127,18 @@ pub async fn run(
     game_config: GameConfig,
     matchmaking_config: MatchmakingConfig,
     ranking_config: RankingConfig,
-    db: Database,
+    pool: SqlitePool,
     worker_handle: WorkerHandle,
     mut commands_rx: Receiver<ArenaCommand>,
     cancellation_token: CancellationToken,
 ) {
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .expect("can't run migrations");
+
     let ranker = Ranker::new(ranking_config);
-    let mut arena = Arena::new(game_config, matchmaking_config, ranker, db, worker_handle);
+    let mut arena = Arena::new(game_config, matchmaking_config, ranker, pool, worker_handle);
 
     arena.load_from_db().await;
     arena.reset_stale_builds().await;
@@ -168,7 +174,7 @@ pub async fn run(
 struct Arena {
     game_config: GameConfig,
     matchmaking_config: MatchmakingConfig,
-    db: Database,
+    pool: SqlitePool,
     bots: Vec<Bot>,
     builds: Vec<Build>,
     worker_handle: WorkerHandle,
@@ -183,15 +189,14 @@ impl Arena {
         game_config: GameConfig,
         matchmaking_config: MatchmakingConfig,
         ranker: Ranker,
-        db: Database,
+        pool: SqlitePool,
         worker_handle: WorkerHandle,
     ) -> Self {
         let ranker = Arc::new(ranker);
-        let pool = db.pool();
         Self {
             game_config,
             matchmaking_config,
-            db,
+            pool: pool.clone(),
             worker_handle,
             ranker: Arc::clone(&ranker),
             bots: Default::default(),
@@ -220,14 +225,12 @@ impl Arena {
 
     #[instrument(skip(self))]
     pub async fn load_from_db(&mut self) {
-        self.bots = self.db.fetch_bots().await;
-        self.builds = self.db.fetch_builds().await;
-        self.custom_leaderboards = self
-            .db
-            .fetch_leaderboards()
+        self.bots = db::fetch_bots(&self.pool).await;
+        self.builds = db::fetch_builds(&self.pool).await;
+        self.custom_leaderboards = db::fetch_leaderboards(&self.pool)
             .await
             .into_iter()
-            .map(|lb| AsyncLeaderboard::new(lb, Arc::clone(&self.ranker), self.db.pool()))
+            .map(|lb| AsyncLeaderboard::new(lb, Arc::clone(&self.ranker), self.pool.clone()))
             .collect();
     }
 
@@ -236,7 +239,7 @@ impl Arena {
         for build in &mut self.builds {
             if build.is_running() {
                 build.reset();
-                self.db.persist_build(build).await;
+                db::persist_build(&self.pool, build).await;
             }
         }
 
@@ -246,7 +249,7 @@ impl Arena {
 
             if build.was_finished_successfully() && !still_valid {
                 build.reset();
-                self.db.persist_build(build).await;
+                db::persist_build(&self.pool, build).await;
             }
         }
     }
@@ -271,7 +274,7 @@ impl Arena {
                 };
 
                 build.make_running();
-                self.db.persist_build(build).await;
+                db::persist_build(&self.pool, build).await;
                 inputs.push(BuildBotInput {
                     bot_id: bot.id,
                     worker_name: worker_name.clone(),
@@ -298,7 +301,7 @@ impl Arena {
                 .expect("Finished build should already exist in a running state");
 
             build.make_finished(output.result);
-            self.db.persist_build(build).await;
+            db::persist_build(&self.pool, build).await;
         }
     }
 
@@ -313,7 +316,7 @@ impl Arena {
             return CreateBotResult::DuplicateName;
         }
         let mut bot = Bot::new(name, source_code, language);
-        self.db.persist_bot(&mut bot).await;
+        db::persist_bot(&self.pool, &mut bot).await;
         let bot_overview = self.render_bot_overview(&bot);
         self.bots.push(bot);
         CreateBotResult::Created(bot_overview)
@@ -330,7 +333,7 @@ impl Arena {
         };
 
         bot.name = new_name;
-        self.db.persist_bot(bot).await;
+        db::persist_bot(&self.pool, bot).await;
         RenameBotResult::Renamed
     }
 
@@ -339,7 +342,7 @@ impl Arena {
         // builds would be automatically deleted by foreign link constraint
         // participations would be automatically deleted by foreign link constraint
         // matches would be automatically delete by db trigger
-        self.db.delete_bot(id).await;
+        db::delete_bot(&self.pool, id).await;
         self.bots.retain(|bot| bot.id != id);
         self.builds.retain(|b| b.bot_id != id);
         self.recalculate_computed_full();
@@ -435,9 +438,9 @@ impl Arena {
         filter: MatchFilter,
     ) -> LeaderboardOverview {
         let mut leaderboard = Leaderboard::new(name, filter);
-        self.db.persist_leaderboard(&mut leaderboard).await;
+        db::persist_leaderboard(&self.pool, &mut leaderboard).await;
 
-        let lb = AsyncLeaderboard::new(leaderboard, Arc::clone(&self.ranker), self.db.pool());
+        let lb = AsyncLeaderboard::new(leaderboard, Arc::clone(&self.ranker), self.pool.clone());
         lb.recalculate();
         let overview = self.render_leaderboard_overview(&lb);
         self.custom_leaderboards.push(lb);
@@ -466,7 +469,7 @@ impl Arena {
         leaderboard.name = name;
         leaderboard.filter = filter.clone();
 
-        self.db.persist_leaderboard(leaderboard).await;
+        db::persist_leaderboard(&self.pool, leaderboard).await;
 
         if old_filter_str != new_filter_str {
             async_lb.recalculate();
@@ -476,7 +479,7 @@ impl Arena {
     }
 
     async fn cmd_delete_leaderboard(&mut self, id: LeaderboardId) {
-        self.db.delete_leaderboard(id).await;
+        db::delete_leaderboard(&self.pool, id).await;
         self.custom_leaderboards.retain(|w| w.leaderboard.id != id);
     }
 
@@ -619,7 +622,7 @@ impl Arena {
                 });
             }
 
-            self.db.persist_match(&mut new_match).await;
+            db::persist_match(&self.pool, &mut new_match).await;
 
             let m = Arc::new(new_match);
 

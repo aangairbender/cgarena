@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    db::Database,
+    db,
     domain::{ComputedStats, Leaderboard, Match},
     ranking::Ranker,
 };
@@ -57,7 +57,7 @@ impl AsyncLeaderboard {
         tokio::spawn(async move {
             let mut stats = ComputedStats::default();
             let attrs = filter.needed_attributes();
-            let matches = Database::fetch_matches_with_attrs(&pool, &attrs).await;
+            let matches = db::fetch_matches_with_attrs(&pool, &attrs).await;
             for m in &matches {
                 if filter.matches(m) {
                     stats.recalc_after_match(&ranker, m);
