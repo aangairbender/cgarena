@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +26,7 @@ impl Drop for AsyncLeaderboard {
         match *status {
             LeaderboardStatus::Live(_) => {}
             LeaderboardStatus::Computing(ref token) => token.cancel(),
+            LeaderboardStatus::Error(_, _) => {}
         }
     }
 }
@@ -55,17 +59,28 @@ impl AsyncLeaderboard {
         let filter = self.leaderboard.filter.clone();
         let pool = self.pool.clone();
         tokio::spawn(async move {
-            let mut stats = ComputedStats::default();
             let attrs = filter.needed_attributes();
             let matches = db::fetch_matches_with_attrs(&pool, &attrs).await;
-            for m in &matches {
-                if filter.matches(m) {
-                    stats.recalc_after_match(&ranker, m);
+
+            match matches {
+                Ok(matches) => {
+                    let mut stats = ComputedStats::default();
+                    for m in &matches {
+                        if filter.matches(m) {
+                            stats.recalc_after_match(&ranker, m);
+                        }
+                    }
+                    if !token.is_cancelled() {
+                        let mut status = status_inner.lock().unwrap();
+                        *status = LeaderboardStatus::Live(stats);
+                    }
                 }
-            }
-            if !token.is_cancelled() {
-                let mut status = status_inner.lock().unwrap();
-                *status = LeaderboardStatus::Live(stats);
+                Err(e) => {
+                    if !token.is_cancelled() {
+                        let mut status = status_inner.lock().unwrap();
+                        *status = LeaderboardStatus::Error(e, Instant::now());
+                    }
+                }
             }
         });
     }
@@ -75,6 +90,15 @@ impl AsyncLeaderboard {
         match *status {
             LeaderboardStatus::Live(ref computed_stats) => Some(computed_stats.clone()),
             LeaderboardStatus::Computing(_) => None,
+            LeaderboardStatus::Error(_, _) => None,
+        }
+    }
+
+    pub fn error(&self) -> Option<String> {
+        let status = self.status.lock().unwrap();
+        match *status {
+            LeaderboardStatus::Error(ref e, _) => Some(e.to_string()),
+            _ => None,
         }
     }
 
@@ -93,6 +117,11 @@ impl AsyncLeaderboard {
                 }
             }
             LeaderboardStatus::Computing(_) => {}
+            LeaderboardStatus::Error(_, at) => {
+                if Instant::now() > at + Duration::from_secs(3) {
+                    self.recalculate();
+                }
+            }
         }
     }
 }
@@ -100,4 +129,5 @@ impl AsyncLeaderboard {
 pub enum LeaderboardStatus {
     Live(ComputedStats),
     Computing(CancellationToken),
+    Error(anyhow::Error, Instant),
 }

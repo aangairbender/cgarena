@@ -9,6 +9,7 @@ use crate::domain::{
 use crate::matchmaking;
 use crate::ranking::Ranker;
 use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use sqlx::SqlitePool;
@@ -18,6 +19,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{instrument, warn};
 
@@ -115,6 +117,7 @@ pub struct LeaderboardOverview {
 pub enum LeaderboardStatus {
     Live,
     Computing,
+    Error(String),
 }
 
 pub struct LeaderboardItem {
@@ -131,44 +134,56 @@ pub async fn run(
     worker_handle: WorkerHandle,
     mut commands_rx: Receiver<ArenaCommand>,
     cancellation_token: CancellationToken,
-) {
+) -> anyhow::Result<JoinHandle<()>> {
     sqlx::migrate!()
         .run(&pool)
         .await
-        .expect("can't run migrations");
+        .context("Cannot run db migrations")?;
 
     let ranker = Ranker::new(ranking_config);
     let mut arena = Arena::new(game_config, matchmaking_config, ranker, pool, worker_handle);
 
-    arena.load_from_db().await;
+    arena
+        .load_from_db()
+        .await
+        .context("Cannot load initial data from db")?;
     arena.reset_stale_builds().await;
     arena.recalculate_computed_full();
 
-    loop {
-        // 0. check cancellation
-        if cancellation_token.is_cancelled() {
-            break;
-        }
-
-        // 1. handle commands
-        let disconnected = loop {
-            match commands_rx.try_recv() {
-                Ok(cmd) => {
-                    arena.handle_command(cmd).await;
-                }
-                Err(TryRecvError::Empty) => break false,
-                Err(TryRecvError::Disconnected) => break true,
+    let task_handle = tokio::spawn(async move {
+        loop {
+            // check cancellation
+            if cancellation_token.is_cancelled() {
+                break;
             }
-        };
-        if disconnected {
-            break;
+
+            // handle commands
+            let disconnected = loop {
+                match commands_rx.try_recv() {
+                    Ok(cmd) => {
+                        arena.handle_command(cmd).await;
+                    }
+                    Err(TryRecvError::Empty) => break false,
+                    Err(TryRecvError::Disconnected) => break true,
+                }
+            };
+            if disconnected {
+                break;
+            }
+
+            // time to let api return responses to clients
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            arena.run_builds().await;
+
+            arena.perform_matchmaking();
+
+            arena.process_finished_matches().await;
+
+            arena.let_leaderboards_catchup_with_live_matches();
         }
-
-        // time to let api return responses to clients
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        arena.do_chores().await;
-    }
+    });
+    Ok(task_handle)
 }
 
 struct Arena {
@@ -207,31 +222,21 @@ impl Arena {
         }
     }
 
-    #[instrument(skip(self), level = "debug")]
-    pub async fn do_chores(&mut self) {
-        // 2. run builds
-        self.run_builds().await;
-
-        // 4. perform matchmaking
-        self.perform_matchmaking();
-
-        // 5. process finished matches
-        self.process_finished_matches().await;
-
-        self.let_leaderboards_catchup_with_live_matches();
-
-        // 7. (future) update views
-    }
-
     #[instrument(skip(self))]
-    pub async fn load_from_db(&mut self) {
-        self.bots = db::fetch_bots(&self.pool).await;
-        self.builds = db::fetch_builds(&self.pool).await;
+    pub async fn load_from_db(&mut self) -> anyhow::Result<()> {
+        self.bots = db::fetch_bots(&self.pool)
+            .await
+            .context("Cannot fetch bots")?;
+        self.builds = db::fetch_builds(&self.pool)
+            .await
+            .context("Cannot fetch builds")?;
         self.custom_leaderboards = db::fetch_leaderboards(&self.pool)
             .await
+            .context("Cannot fetch leaderboards")?
             .into_iter()
             .map(|lb| AsyncLeaderboard::new(lb, Arc::clone(&self.ranker), self.pool.clone()))
             .collect();
+        Ok(())
     }
 
     pub async fn reset_stale_builds(&mut self) {
@@ -239,7 +244,9 @@ impl Arena {
         for build in &mut self.builds {
             if build.is_running() {
                 build.reset();
-                db::persist_build(&self.pool, build).await;
+                db::persist_build(&self.pool, build)
+                    .await
+                    .expect("Cannot persist build to DB");
             }
         }
 
@@ -249,12 +256,13 @@ impl Arena {
 
             if build.was_finished_successfully() && !still_valid {
                 build.reset();
-                db::persist_build(&self.pool, build).await;
+                db::persist_build(&self.pool, build)
+                    .await
+                    .expect("Cannot persist build to DB");
             }
         }
     }
 
-    #[instrument(skip(self), level = "debug")]
     pub async fn run_builds(&mut self) {
         let mut inputs = Vec::new();
         for bot in &mut self.bots {
@@ -274,7 +282,9 @@ impl Arena {
                 };
 
                 build.make_running();
-                db::persist_build(&self.pool, build).await;
+                db::persist_build(&self.pool, build)
+                    .await
+                    .expect("Cannot persist build to DB");
                 inputs.push(BuildBotInput {
                     bot_id: bot.id,
                     worker_name: worker_name.clone(),
@@ -297,11 +307,17 @@ impl Arena {
             let build = self
                 .builds
                 .iter_mut()
-                .find(|b| b.bot_id == output.bot_id && b.worker_name == output.worker_name)
-                .expect("Finished build should already exist in a running state");
+                .find(|b| b.bot_id == output.bot_id && b.worker_name == output.worker_name);
+
+            let Some(build) = build else {
+                warn!("Obtained build result for non-existent build, skipping");
+                continue;
+            };
 
             build.make_finished(output.result);
-            db::persist_build(&self.pool, build).await;
+            db::persist_build(&self.pool, build)
+                .await
+                .expect("Cannot persist build to DB");
         }
     }
 
@@ -316,13 +332,15 @@ impl Arena {
             return CreateBotResult::DuplicateName;
         }
         let mut bot = Bot::new(name, source_code, language);
-        db::persist_bot(&self.pool, &mut bot).await;
+        db::persist_bot(&self.pool, &mut bot)
+            .await
+            .expect("Cannot persist bot to DB");
         let bot_overview = self.render_bot_overview(&bot);
         self.bots.push(bot);
         CreateBotResult::Created(bot_overview)
     }
 
-    #[instrument(skip(self), level = "debug")]
+    #[instrument(skip(self))]
     async fn cmd_rename_bot(&mut self, id: BotId, new_name: BotName) -> RenameBotResult {
         if self.bots.iter().any(|b| b.id != id && b.name == new_name) {
             return RenameBotResult::DuplicateName;
@@ -333,7 +351,9 @@ impl Arena {
         };
 
         bot.name = new_name;
-        db::persist_bot(&self.pool, bot).await;
+        db::persist_bot(&self.pool, bot)
+            .await
+            .expect("Cannot persist bot to DB");
         RenameBotResult::Renamed
     }
 
@@ -342,13 +362,15 @@ impl Arena {
         // builds would be automatically deleted by foreign link constraint
         // participations would be automatically deleted by foreign link constraint
         // matches would be automatically delete by db trigger
-        db::delete_bot(&self.pool, id).await;
+        db::delete_bot(&self.pool, id)
+            .await
+            .expect("Cannot delete bot from DB");
         self.bots.retain(|bot| bot.id != id);
         self.builds.retain(|b| b.bot_id != id);
         self.recalculate_computed_full();
     }
 
-    #[instrument(skip(self), level = "debug")]
+    #[instrument(skip(self))]
     async fn cmd_fetch_status(&mut self) -> FetchStatusResult {
         let bots = self
             .bots
@@ -401,7 +423,10 @@ impl Arena {
                 id: leaderboard.id,
                 name: leaderboard.name.clone(),
                 filter: leaderboard.filter.to_string(),
-                status: LeaderboardStatus::Computing,
+                status: async_lb
+                    .error()
+                    .map(LeaderboardStatus::Error)
+                    .unwrap_or(LeaderboardStatus::Computing),
                 items: Default::default(),
                 winrate_stats: Default::default(),
                 total_matches: 0,
@@ -438,7 +463,9 @@ impl Arena {
         filter: MatchFilter,
     ) -> LeaderboardOverview {
         let mut leaderboard = Leaderboard::new(name, filter);
-        db::persist_leaderboard(&self.pool, &mut leaderboard).await;
+        db::persist_leaderboard(&self.pool, &mut leaderboard)
+            .await
+            .expect("Cannot persist leaderboard to DB");
 
         let lb = AsyncLeaderboard::new(leaderboard, Arc::clone(&self.ranker), self.pool.clone());
         lb.recalculate();
@@ -469,7 +496,9 @@ impl Arena {
         leaderboard.name = name;
         leaderboard.filter = filter.clone();
 
-        db::persist_leaderboard(&self.pool, leaderboard).await;
+        db::persist_leaderboard(&self.pool, leaderboard)
+            .await
+            .expect("Cannot persist leaderboard to DB");
 
         if old_filter_str != new_filter_str {
             async_lb.recalculate();
@@ -479,7 +508,9 @@ impl Arena {
     }
 
     async fn cmd_delete_leaderboard(&mut self, id: LeaderboardId) {
-        db::delete_leaderboard(&self.pool, id).await;
+        db::delete_leaderboard(&self.pool, id)
+            .await
+            .expect("Cannot delete leaderboard from DB");
         self.custom_leaderboards.retain(|w| w.leaderboard.id != id);
     }
 
@@ -622,7 +653,9 @@ impl Arena {
                 });
             }
 
-            db::persist_match(&self.pool, &mut new_match).await;
+            db::persist_match(&self.pool, &mut new_match)
+                .await
+                .expect("Cannot persist match to DB");
 
             let m = Arc::new(new_match);
 

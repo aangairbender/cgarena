@@ -30,6 +30,7 @@ pub struct LeaderboardOverviewResponse {
     pub name: String,
     pub filter: String,
     pub status: &'static str,
+    pub error: Option<String>,
     pub items: Vec<LeaderboardItemResponse>,
     pub winrate_stats: Vec<WinrateStatsResponse>,
     pub total_matches: u64,
@@ -44,6 +45,11 @@ impl From<LeaderboardOverview> for LeaderboardOverviewResponse {
             status: match value.status {
                 crate::arena::LeaderboardStatus::Live => "live",
                 crate::arena::LeaderboardStatus::Computing => "computing",
+                crate::arena::LeaderboardStatus::Error(_) => "error",
+            },
+            error: match value.status {
+                crate::arena::LeaderboardStatus::Error(e) => Some(e),
+                _ => None,
             },
             items: value.items.into_iter().map(Into::into).collect(),
             winrate_stats: value.winrate_stats.into_iter().map(Into::into).collect(),

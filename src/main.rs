@@ -51,15 +51,24 @@ async fn main() {
     match cli.command {
         Commands::Init { path } => {
             let path = unwrap_or_current_dir(path);
-            arena_server::init(&path);
+            arena_server::init(&path).unwrap_or_else(|e| {
+                println!("Something went wrong:");
+                println!("{}", e);
+            });
         }
         Commands::Run { path } => {
             let path = unwrap_or_current_dir(path);
-            arena_server::start(&path).await;
+            arena_server::start(&path).await.unwrap_or_else(|e| {
+                println!("Something went wrong:");
+                println!("{}", e);
+            });
         }
         Commands::VacuumDB { path } => {
             let path = unwrap_or_current_dir(path);
-            db::vacuum_db(&path).await;
+            db::vacuum_db(&path).await.unwrap_or_else(|e| {
+                println!("Something went wrong:");
+                println!("{}", e);
+            });
         }
     }
 }

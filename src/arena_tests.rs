@@ -24,7 +24,7 @@ async fn create_test_arena<F1>(config: Config, builder: F1) -> TestArena
 where
     F1: Fn(BuildBotInput) -> BuildResult + Send + 'static,
 {
-    let pool = db::in_memory().await;
+    let pool = db::in_memory().await.unwrap();
     let (commands_tx, commands_rx) = tokio::sync::mpsc::channel(16);
     let cancellation_token = CancellationToken::new();
     let (match_result_tx, match_result_rx) = tokio::sync::mpsc::channel(100);
