@@ -315,8 +315,8 @@ mod ast {
     }
 
     pub fn parse(input: &str) -> Result<Expr, anyhow::Error> {
-        let (remaining, expr) =
-            expression(input).map_err(|err| anyhow::anyhow!("Invalid expression: {}", err))?;
+        let (remaining, expr) = expression(input)
+            .map_err(|_| anyhow::anyhow!("Invalid filter syntax, please check docs"))?;
         if remaining.is_empty() {
             Ok(expr)
         } else {
