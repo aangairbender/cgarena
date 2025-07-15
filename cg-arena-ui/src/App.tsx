@@ -147,7 +147,7 @@ function App() {
           </Card>;
         })}
 
-        <Container className="mt-4 d-flex justify-content-center">
+        <Container className="my-4 d-flex justify-content-center">
           <Button
             className="mx-1"
             variant="outline-secondary"
