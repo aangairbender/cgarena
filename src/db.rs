@@ -200,19 +200,6 @@ pub async fn connect(arena_path: &Path) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
-pub async fn vacuum_db(arena_path: &Path) -> anyhow::Result<()> {
-    let db_path = arena_path.join(DB_FILE_NAME);
-
-    let mut conn = SqliteConnectOptions::new()
-        .filename(db_path)
-        .connect()
-        .await?;
-
-    sqlx::query("VACUUM").execute(&mut conn).await?;
-
-    Ok(())
-}
-
 /// for tests
 #[cfg(test)]
 pub async fn in_memory() -> anyhow::Result<SqlitePool> {
@@ -460,6 +447,56 @@ pub async fn fetch_turn_attributes(
     let res = res.into_iter().flat_map(TryInto::try_into).collect();
 
     Ok(res)
+}
+
+pub async fn wipe_old_matches<F: Fn(usize) -> bool>(
+    arena_path: &Path,
+    percentage: u8,
+    vacuum: bool,
+    confirm: F,
+) -> anyhow::Result<usize> {
+    let db_path = arena_path.join(DB_FILE_NAME);
+
+    let opts = SqliteConnectOptions::new()
+        .filename(db_path)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
+        .create_if_missing(false);
+
+    let mut conn = opts.connect().await?;
+
+    let percentage = percentage.clamp(0, 100);
+
+    let mut match_ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM matches")
+        .fetch_all(&mut conn)
+        .await?;
+
+    match_ids.sort();
+
+    let amount_to_delete = (match_ids.len() as u64) * (percentage as u64) / 100;
+    if amount_to_delete == 0 {
+        println!("0 matches to delete, skipping");
+    } else {
+        if !confirm(amount_to_delete as usize) {
+            bail!("Cancelled by the user");
+        }
+
+        assert!(amount_to_delete <= match_ids.len() as u64);
+        let last_deleted_id = match_ids[amount_to_delete as usize - 1].0;
+
+        println!("Deleting {} old matches", amount_to_delete);
+
+        sqlx::query("DELETE FROM matches WHERE id <= $1")
+            .bind::<i64>(last_deleted_id)
+            .execute(&mut conn)
+            .await?;
+    }
+
+    if vacuum {
+        println!("Vacuuming the db");
+        sqlx::query("VACUUM").execute(&mut conn).await?;
+    }
+
+    Ok(amount_to_delete as usize)
 }
 
 pub async fn fetch_matches_with_attrs(

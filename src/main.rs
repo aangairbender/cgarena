@@ -39,11 +39,23 @@ enum Commands {
         /// If omitted the current working directory is used.
         path: Option<String>,
     },
-    /// Vacuum DB - clean up space taken by deleted data (e.g. matches).
-    VacuumDB {
+    /// Wipe old matches and vacuum db after that .
+    WipeOldMatches {
         /// Path to the arena directory.
         /// If omitted the current working directory is used.
         path: Option<String>,
+
+        /// The percentage of old matches to be wiped, 0..100
+        #[arg(short, long)]
+        percentage: u8,
+
+        /// Automatically answer "yes" to prompts
+        #[arg(short)]
+        yes: bool,
+
+        /// Whether to vacuum the db afterwards (reclaim occupied disk space).
+        #[arg(short, long)]
+        vacuum: bool,
     },
 }
 
@@ -64,14 +76,38 @@ async fn handle_cli_command(command: Commands) -> anyhow::Result<()> {
             let path = unwrap_or_current_dir(path)?;
             arena_server::start(&path).await?;
         }
-        Commands::VacuumDB { path } => {
+        Commands::WipeOldMatches {
+            path,
+            percentage,
+            yes,
+            vacuum,
+        } => {
             let path = unwrap_or_current_dir(path)?;
-            print!("Vacuum process started... ");
-            db::vacuum_db(&path).await?;
+            db::wipe_old_matches(&path, percentage, vacuum, |cnt| {
+                if yes {
+                    true
+                } else {
+                    confirm_wiping_matches(cnt)
+                }
+            })
+            .await?;
             println!("Done.")
         }
     }
     Ok(())
+}
+
+fn confirm_wiping_matches(cnt: usize) -> bool {
+    println!("{} matches would be deleted. Continue? (y/n)", cnt);
+    loop {
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s).unwrap();
+        match s.trim().chars().next() {
+            Some(c) if c.eq_ignore_ascii_case(&'y') => break true,
+            None => continue,
+            _ => break false,
+        }
+    }
 }
 
 fn unwrap_or_current_dir(path: Option<String>) -> anyhow::Result<PathBuf> {
