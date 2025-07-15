@@ -1,6 +1,5 @@
 use crate::async_leaderboard::AsyncLeaderboard;
 use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
-use crate::db;
 use crate::domain::{
     Bot, BotId, BotName, Build, ComputedStats, Language, Leaderboard, LeaderboardId,
     LeaderboardName, Match, MatchAttribute, MatchAttributeValue, MatchFilter, Rating, SourceCode,
@@ -9,6 +8,7 @@ use crate::domain::{
 use crate::matchmaking;
 use crate::ranking::Ranker;
 use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
+use crate::{chart, db};
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
@@ -21,7 +21,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{instrument, warn};
+use tracing::{error, instrument, warn};
 
 pub enum ArenaCommand {
     CreateBot(CreateBotCommand),
@@ -31,6 +31,30 @@ pub enum ArenaCommand {
     CreateLeaderboard(CreateLeaderboardCommand),
     DeleteLeaderboard(DeleteLeaderboardCommand),
     PatchLeaderboard(PatchLeaderboardCommand),
+    Chart(ChartCommand),
+}
+
+pub struct ChartCommand {
+    pub filter: MatchFilter,
+    pub attribute_name: String,
+    pub response: oneshot::Sender<ChartOverview>,
+}
+
+pub struct ChartOverview {
+    pub items: Vec<ChartItem>,
+    pub total_matches: u64,
+}
+
+pub struct ChartItem {
+    pub bot_id: BotId,
+    pub data: Vec<ChartTurnData>,
+}
+
+pub struct ChartTurnData {
+    pub turn: u16,
+    pub avg: f64,
+    pub min: f64,
+    pub max: f64,
 }
 
 pub struct CreateLeaderboardCommand {
@@ -544,6 +568,27 @@ impl Arena {
         stronger_bots_cnt
     }
 
+    fn cmd_chart(&self, cmd: ChartCommand) {
+        let ChartCommand {
+            filter,
+            attribute_name,
+            response,
+        } = cmd;
+        let pool = self.pool.clone();
+
+        tokio::spawn(async move {
+            let res = chart::visualize(filter, attribute_name, pool).await;
+            match res {
+                Ok(overview) => {
+                    let _ = response.send(overview);
+                }
+                Err(e) => {
+                    error!("Failed to visualize chart: {}", e);
+                }
+            };
+        });
+    }
+
     pub async fn handle_command(&mut self, command: ArenaCommand) {
         match command {
             ArenaCommand::CreateBot(command) => {
@@ -593,6 +638,10 @@ impl Arena {
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }
+            }
+            ArenaCommand::Chart(chart_command) => {
+                // this one is a bit special
+                self.cmd_chart(chart_command);
             }
         }
     }

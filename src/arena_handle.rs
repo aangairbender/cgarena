@@ -1,7 +1,8 @@
 use crate::arena::{
-    ArenaCommand, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand, DeleteBotCommand,
-    DeleteLeaderboardCommand, FetchStatusCommand, FetchStatusResult, LeaderboardOverview,
-    PatchLeaderboardCommand, PatchLeaderboardResult, RenameBotCommand, RenameBotResult,
+    ArenaCommand, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
+    CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand, FetchStatusCommand,
+    FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand, PatchLeaderboardResult,
+    RenameBotCommand, RenameBotResult,
 };
 use crate::domain::{
     BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
@@ -99,6 +100,21 @@ impl ArenaHandle {
     pub async fn delete_leaderboard(&self, id: LeaderboardId) -> anyhow::Result<()> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::DeleteLeaderboard(DeleteLeaderboardCommand { id, response: tx })
+        })
+        .await
+    }
+
+    pub async fn chart(
+        &self,
+        filter: MatchFilter,
+        attribute_name: String,
+    ) -> anyhow::Result<ChartOverview> {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::Chart(ChartCommand {
+                filter,
+                attribute_name,
+                response: tx,
+            })
         })
         .await
     }

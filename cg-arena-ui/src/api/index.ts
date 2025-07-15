@@ -8,6 +8,8 @@ import {
   LeaderboardOverviewResponse,
   RenameBotRequest,
   PatchLeaderboardRequest,
+  ChartRequest,
+  ChartOverviewResponse,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -96,6 +98,20 @@ export const deleteLeaderboard = async (id: LeaderboardId) => {
   await checkForErrors(response);
 };
 
+export const chart = async (
+  payload: ChartRequest
+): Promise<ChartOverviewResponse> => {
+  const req = new Request(`${host}/api/chart`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const response = await fetch(req);
+  return await parseResponse<ChartOverviewResponse>(response);
+};
 
 async function checkForErrors(response: Response) {
   if (response.status >= 500) {

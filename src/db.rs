@@ -420,6 +420,48 @@ pub async fn create_match(pool: &SqlitePool, m: &Match) -> anyhow::Result<MatchI
     Ok(match_id)
 }
 
+pub async fn fetch_turn_attributes(
+    pool: &SqlitePool,
+    match_ids: &[MatchId],
+    attribute_name: &str,
+) -> anyhow::Result<Vec<MatchAttribute>> {
+    if match_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let match_ids_joined = match_ids
+        .iter()
+        .map::<i64, _>(|&id| id.into())
+        .map(|id| id.to_string())
+        .join(",");
+
+    let sql = formatdoc! {
+        "SELECT
+            n.name as name,
+            ma.match_id as match_id,
+            ma.bot_id as bot_id,
+            ma.turn as turn,
+            ma.value_int as value_int,
+            ma.value_float as value_float,
+            NULL as value_string
+        FROM match_attributes ma
+        INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
+        WHERE n.name = $1
+        AND ma.bot_id IS NOT NULL
+        AND ma.turn IS NOT NULL
+        AND ma.match_id IN ({match_ids_joined})"
+    };
+
+    let res: Vec<MatchAttributesJoinedRow> = sqlx::query_as(&sql)
+        .bind::<&str>(attribute_name)
+        .fetch_all(pool)
+        .await?;
+
+    let res = res.into_iter().flat_map(TryInto::try_into).collect();
+
+    Ok(res)
+}
+
 pub async fn fetch_matches_with_attrs(
     pool: &SqlitePool,
     attrs: &[MatchAttribute],

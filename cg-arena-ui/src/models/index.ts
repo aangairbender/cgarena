@@ -65,6 +65,28 @@ export interface BuildResponse {
   stderr?: string;
 }
 
+export interface ChartRequest {
+  filter: string;
+  attribute_name: string;
+}
+
+export interface ChartOverviewResponse {
+  items: ChartItemResponse[];
+  total_matches: number;
+}
+
+export interface ChartItemResponse {
+  bot_id: BotId;
+  data: ChartTurnDataResponse[];
+}
+
+export interface ChartTurnDataResponse {
+  turn: number;
+  avg: number;
+  min: number;
+  max: number;
+}
+
 export function rating_score(item: LeaderboardItemResponse): number {
   return Number((item.rating_mu - item.rating_sigma * 3).toFixed(2));
 }

@@ -10,11 +10,12 @@ import ConfirmDialog, { ConfirmDialogData } from "@components/ConfirmDialog";
 import RenameBotDialog, { RenameBotDialogData } from "@components/RenameBotDialog";
 import { useAppLogic } from "@hooks/useAppLogic";
 import { useDialog } from "@hooks/useDialog";
-import { FaPencil, FaPlus, FaSeedling, FaTrash } from "react-icons/fa6";
+import { FaChartLine, FaPencil, FaPlus, FaSeedling, FaTrash } from "react-icons/fa6";
 import CreateLeaderboardDialog, { CreateLeaderboardDialogData } from "@components/CreateLeaderboardDialog";
 import PatchLeaderboardDialog, { PatchLeaderboardDialogData } from "@components/PatchLeaderboardDialog";
 import { GLOBAL_LEADERBOARD_ID } from "@models";
 import ExampleSeedsDialog, { ExampleSeedsDialogData } from "@components/ExampleSeedsDialog";
+import ChartDialog, { ChartDialogData } from "@components/ChartDialog";
 
 function App() {
   const {
@@ -40,6 +41,7 @@ function App() {
   const createLeaderboardDialog = useDialog<CreateLeaderboardDialogData>();
   const patchLeaderboardDialog = useDialog<PatchLeaderboardDialogData>();
   const exampleSeedsDialog = useDialog<ExampleSeedsDialogData>();
+  const chartDialog = useDialog<ChartDialogData>();
 
   const selectedBot = bots.find(b => b.id == selectedBotId);
 
@@ -102,6 +104,14 @@ function App() {
                 <div>{lb.name}</div>
               </OverlayTrigger>
               <div className="d-flex gap-2">
+                <Button
+                  variant="outline-info"
+                  size="sm"
+                  onClick={() => chartDialog.show({filter: lb.filter, bots})}
+                >
+                  <FaChartLine  className="bi"/>
+                </Button>
+
                 {lb.id != GLOBAL_LEADERBOARD_ID && (
                   <>
                     <Button
@@ -156,6 +166,7 @@ function App() {
       <CreateLeaderboardDialog {...createLeaderboardDialog} />
       <PatchLeaderboardDialog {...patchLeaderboardDialog} />
       <ExampleSeedsDialog {...exampleSeedsDialog} />
+      <ChartDialog {...chartDialog} />
     </>
   );
 }
