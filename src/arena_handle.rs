@@ -1,4 +1,4 @@
-use crate::arena::{
+use crate::arena_commands::{
     ArenaCommand, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
     CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand, FetchStatusCommand,
     FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand, PatchLeaderboardResult,

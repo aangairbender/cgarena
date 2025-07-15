@@ -12,6 +12,7 @@ use sqlx::{Row, SqlitePool};
 use tokio_util::sync::CancellationToken;
 
 use crate::arena::*;
+use crate::arena_commands::*;
 
 struct TestArena {
     handle: ArenaHandle,

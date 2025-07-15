@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::{
     api::{errors::ApiError, models::LeaderboardOverviewResponse, AppState},
+    arena_commands::PatchLeaderboardResult,
     domain::{LeaderboardId, LeaderboardName, MatchFilter},
 };
 
@@ -58,8 +59,8 @@ pub async fn patch_leaderboard(
         .await?;
 
     match res {
-        crate::arena::PatchLeaderboardResult::OK => Ok(()),
-        crate::arena::PatchLeaderboardResult::NotFound => Err(ApiError::NotFound),
+        PatchLeaderboardResult::OK => Ok(()),
+        PatchLeaderboardResult::NotFound => Err(ApiError::NotFound),
     }
 }
 

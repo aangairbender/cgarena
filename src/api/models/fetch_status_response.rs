@@ -1,8 +1,9 @@
 use crate::api::models::BuildResponse;
-use crate::arena::BotOverview;
-use crate::arena::FetchStatusResult;
-use crate::arena::LeaderboardItem;
-use crate::arena::LeaderboardOverview;
+use crate::arena_commands::BotOverview;
+use crate::arena_commands::FetchStatusResult;
+use crate::arena_commands::LeaderboardItem;
+use crate::arena_commands::LeaderboardOverview;
+use crate::arena_commands::LeaderboardStatus;
 use crate::domain::BotId;
 use crate::domain::WinrateStats;
 use chrono::DateTime;
@@ -44,12 +45,12 @@ impl From<LeaderboardOverview> for LeaderboardOverviewResponse {
             name: value.name.into(),
             filter: value.filter,
             status: match value.status {
-                crate::arena::LeaderboardStatus::Live => "live",
-                crate::arena::LeaderboardStatus::Computing => "computing",
-                crate::arena::LeaderboardStatus::Error(_) => "error",
+                LeaderboardStatus::Live => "live",
+                LeaderboardStatus::Computing => "computing",
+                LeaderboardStatus::Error(_) => "error",
             },
             error: match value.status {
-                crate::arena::LeaderboardStatus::Error(e) => Some(e),
+                LeaderboardStatus::Error(e) => Some(e),
                 _ => None,
             },
             items: value.items.into_iter().map(Into::into).collect(),

@@ -12,7 +12,7 @@ use crate::{
         models::{BotOverviewResponse, CreateBotRequest, RenameBotRequest},
         AppState,
     },
-    arena::{CreateBotResult, RenameBotResult},
+    arena_commands::{CreateBotResult, RenameBotResult},
     domain::{BotId, BotName, Language, SourceCode},
 };
 

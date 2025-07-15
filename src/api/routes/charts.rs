@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{errors::ApiError, AppState},
-    arena::{ChartItem, ChartOverview, ChartTurnData},
+    arena_commands::{ChartItem, ChartOverview, ChartTurnData},
     domain::MatchFilter,
 };
 

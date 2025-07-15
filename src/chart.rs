@@ -4,7 +4,7 @@ use itertools::Itertools;
 use sqlx::SqlitePool;
 
 use crate::{
-    arena::{ChartItem, ChartOverview, ChartTurnData},
+    arena_commands::{ChartItem, ChartOverview, ChartTurnData},
     db,
     domain::{BotId, MatchAttributeValue, MatchFilter, MatchId},
 };
