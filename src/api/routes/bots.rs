@@ -5,6 +5,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use serde::Serialize;
 
 use crate::{
     api::{
@@ -12,7 +13,7 @@ use crate::{
         models::{BotOverviewResponse, CreateBotRequest, RenameBotRequest},
         AppState,
     },
-    arena_commands::{CreateBotResult, RenameBotResult},
+    arena_commands::{BotSourceCode, CreateBotResult, RenameBotResult},
     domain::{BotId, BotName, Language, SourceCode},
 };
 
@@ -76,5 +77,34 @@ pub async fn rename_bot(
             "Bot with the same name already exists"
         ))),
         RenameBotResult::NotFound => Err(ApiError::NotFound),
+    }
+}
+
+pub async fn fetch_source_code(
+    State(app_state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    let id: BotId = id.into();
+
+    let res = app_state.arena_handle.fetch_bot_source_code(id).await?;
+
+    match res {
+        Some(res) => Ok(Json(BotSourceCodeResponse::from(res))),
+        None => Err(ApiError::NotFound),
+    }
+}
+
+#[derive(Serialize)]
+pub struct BotSourceCodeResponse {
+    pub language: String,
+    pub source_code: String,
+}
+
+impl From<BotSourceCode> for BotSourceCodeResponse {
+    fn from(value: BotSourceCode) -> Self {
+        BotSourceCodeResponse {
+            language: value.language.into(),
+            source_code: value.source_code.into(),
+        }
     }
 }

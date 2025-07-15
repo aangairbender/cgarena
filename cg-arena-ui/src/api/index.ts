@@ -10,6 +10,7 @@ import {
   PatchLeaderboardRequest,
   ChartRequest,
   ChartOverviewResponse,
+  BotSourceCode,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -111,6 +112,11 @@ export const chart = async (
 
   const response = await fetch(req);
   return await parseResponse<ChartOverviewResponse>(response);
+};
+
+export const fetchBotSourceCode = async (id: BotId): Promise<BotSourceCode> => {
+  const response = await fetch(`${host}/api/bots/${id}/source`);
+  return await parseResponse<BotSourceCode>(response);
 };
 
 async function checkForErrors(response: Response) {

@@ -14,6 +14,17 @@ pub enum ArenaCommand {
     DeleteLeaderboard(DeleteLeaderboardCommand),
     PatchLeaderboard(PatchLeaderboardCommand),
     Chart(ChartCommand),
+    FetchBotSourceCode(FetchBotSourceCodeCommand),
+}
+
+pub struct FetchBotSourceCodeCommand {
+    pub id: BotId,
+    pub response: oneshot::Sender<Option<BotSourceCode>>,
+}
+
+pub struct BotSourceCode {
+    pub language: Language,
+    pub source_code: SourceCode,
 }
 
 pub struct ChartCommand {

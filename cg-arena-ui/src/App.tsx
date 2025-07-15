@@ -5,7 +5,7 @@ import SubmitBotDialog, { SubmitBotDialogData } from "@components/SubmitBotDialo
 import AppNavbar from "@components/AppNavbar";
 import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
-import ViewContentDialog, { ViewContentDialogData } from "@components/ViewContentDialog";
+import ViewCodeDialog, { ViewCodeDialogData } from "@components/ViewCodeDialog";
 import ConfirmDialog, { ConfirmDialogData } from "@components/ConfirmDialog";
 import RenameBotDialog, { RenameBotDialogData } from "@components/RenameBotDialog";
 import { useAppLogic } from "@hooks/useAppLogic";
@@ -35,7 +35,7 @@ function App() {
     deleteLeaderboard,
   } = useAppLogic();
   const submitBotDialog = useDialog<SubmitBotDialogData>();
-  const viewContentDialog = useDialog<ViewContentDialogData>();
+  const viewCodeDialog = useDialog<ViewCodeDialogData>();
   const confirmDialog = useDialog<ConfirmDialogData>();
   const renameBotDialog = useDialog<RenameBotDialogData>();
   const createLeaderboardDialog = useDialog<CreateLeaderboardDialogData>();
@@ -63,7 +63,7 @@ function App() {
             {selectedBot && (
               <BotOverview
                 bot={selectedBot}
-                showContentDialog={viewContentDialog.show}
+                showCodeDialog={viewCodeDialog.show}
                 deleteBot={() =>
                   confirmDialog.show({
                     prompt: `Are you sure you want to delete bot '${selectedBot.name}'?`,
@@ -160,7 +160,7 @@ function App() {
       </Container>
 
       <SubmitBotDialog {...submitBotDialog} />
-      <ViewContentDialog {...viewContentDialog} />
+      <ViewCodeDialog {...viewCodeDialog} />
       <ConfirmDialog {...confirmDialog} />
       <RenameBotDialog {...renameBotDialog} />
       <CreateLeaderboardDialog {...createLeaderboardDialog} />

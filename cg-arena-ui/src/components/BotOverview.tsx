@@ -4,21 +4,31 @@ import {
 } from "@models";
 import React from "react";
 import { Badge, Button, Stack, Table } from "react-bootstrap";
-import { FaPencil, FaTrash } from "react-icons/fa6";
+import { FaCode, FaPencil, FaTrash } from "react-icons/fa6";
+import { ViewCodeDialogData } from "./ViewCodeDialog";
+import { fetchBotSourceCode } from "@api";
 
 interface BotOverviewProps {
   bot: BotOverviewResponse;
-  showContentDialog: (data: { title: string; content: string }) => void;
+  showCodeDialog: (data: ViewCodeDialogData) => void;
   deleteBot: () => void;
   renameBot: () => void;
 }
 
 const BotOverview: React.FC<BotOverviewProps> = ({
   bot,
-  showContentDialog,
+  showCodeDialog,
   deleteBot,
   renameBot,
 }) => {
+  const showSourceCode = async () => {
+    const data = await fetchBotSourceCode(bot.id);
+    showCodeDialog({
+      title: `Source code of ${bot.name}`,
+      content: data.source_code,
+    });
+  };
+
   return (
     <Table hover className="mb-0">
       <thead>
@@ -41,11 +51,14 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <td>{bot.matches_played}</td>
           <td>{bot.matches_with_error}</td>
           <td>
-            <Builds builds={bot.builds} showContentDialog={showContentDialog} />
+            <Builds builds={bot.builds} showCodeDialog={showCodeDialog} />
           </td>
           <td>{bot.created_at}</td>
           <td>
             <Stack direction="horizontal" gap={2}>
+              <Button variant="outline-info" size="sm" onClick={showSourceCode}>
+                <FaCode className="bi"/>
+              </Button>
               <Button variant="outline-warning" size="sm" onClick={renameBot}>
                 <FaPencil className="bi"/>
               </Button>
@@ -62,10 +75,10 @@ const BotOverview: React.FC<BotOverviewProps> = ({
 
 interface BuildsProps {
   builds: BuildResponse[];
-  showContentDialog: (data: { title: string; content: string }) => void;
+  showCodeDialog: (data: ViewCodeDialogData) => void;
 }
 
-const Builds: React.FC<BuildsProps> = ({ builds, showContentDialog }) => {
+const Builds: React.FC<BuildsProps> = ({ builds, showCodeDialog }) => {
   return (
     <Stack>
       {builds.map((build) => (
@@ -75,7 +88,7 @@ const Builds: React.FC<BuildsProps> = ({ builds, showContentDialog }) => {
             <a
               href="#"
               onClick={() =>
-                showContentDialog({
+                showCodeDialog({
                   title: `Build on worker ${build.worker_name}`,
                   content: build.stderr ?? "",
                 })

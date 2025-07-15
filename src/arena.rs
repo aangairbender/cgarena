@@ -228,6 +228,15 @@ impl Arena {
         }
     }
 
+    async fn cmd_fetch_bot_source_code(&mut self, id: BotId) -> Option<BotSourceCode> {
+        let bot = self.bots.iter_mut().find(|b| b.id == id)?;
+
+        Some(BotSourceCode {
+            language: bot.language.clone(),
+            source_code: bot.source_code.clone(),
+        })
+    }
+
     async fn cmd_create_bot(
         &mut self,
         name: BotName,
@@ -509,6 +518,12 @@ impl Arena {
             ArenaCommand::Chart(chart_command) => {
                 // this one is a bit special
                 self.cmd_chart(chart_command);
+            }
+            ArenaCommand::FetchBotSourceCode(command) => {
+                let res = self.cmd_fetch_bot_source_code(command.id).await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
             }
         }
     }

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 
 use crate::{
     arena_handle::ArenaHandle,
@@ -198,6 +198,38 @@ async fn cmd_rename_bot_works() {
 
     let db_bot_name: String = row.get("name");
     assert_eq!(db_bot_name, bot_name_2.to_string());
+}
+
+#[tokio::test]
+async fn cmd_fetch_bot_source_code_works() {
+    let config = Config::default();
+    let arena = create_test_arena(config, |_| BuildResult::Success).await;
+
+    let bot_name: BotName = String::from("Bot1").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_language: Language = String::from("rust").try_into().unwrap();
+
+    let res = arena
+        .handle
+        .create_bot(
+            bot_name.clone(),
+            bot_source_code.clone(),
+            bot_language.clone(),
+        )
+        .await;
+
+    let CreateBotResult::Created(bot) = res.unwrap() else {
+        panic!("Bot creation should succeed");
+    };
+
+    let res2 = arena
+        .handle
+        .fetch_bot_source_code(bot.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(res2.language, bot_language);
+    assert_eq!(res2.source_code.deref(), bot_source_code.deref());
 }
 
 #[tokio::test]

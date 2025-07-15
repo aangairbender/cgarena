@@ -87,6 +87,11 @@ export interface ChartTurnDataResponse {
   max: number;
 }
 
+export interface BotSourceCode {
+  language: string;
+  source_code: string;
+}
+
 export function rating_score(item: LeaderboardItemResponse): number {
   return Number((item.rating_mu - item.rating_sigma * 3).toFixed(2));
 }

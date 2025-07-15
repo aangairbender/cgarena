@@ -1,8 +1,8 @@
 use crate::arena_commands::{
-    ArenaCommand, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
-    CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand, FetchStatusCommand,
-    FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand, PatchLeaderboardResult,
-    RenameBotCommand, RenameBotResult,
+    ArenaCommand, BotSourceCode, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
+    CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand,
+    FetchBotSourceCodeCommand, FetchStatusCommand, FetchStatusResult, LeaderboardOverview,
+    PatchLeaderboardCommand, PatchLeaderboardResult, RenameBotCommand, RenameBotResult,
 };
 use crate::domain::{
     BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
@@ -17,6 +17,13 @@ pub struct ArenaHandle {
 impl ArenaHandle {
     pub fn new(commands_tx: mpsc::Sender<ArenaCommand>) -> Self {
         Self { commands_tx }
+    }
+
+    pub async fn fetch_bot_source_code(&self, id: BotId) -> anyhow::Result<Option<BotSourceCode>> {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::FetchBotSourceCode(FetchBotSourceCodeCommand { id, response: tx })
+        })
+        .await
     }
 
     pub async fn create_bot(

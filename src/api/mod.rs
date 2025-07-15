@@ -34,6 +34,7 @@ async fn create_router(app_state: AppState) -> Router {
         .route("/bots", post(bots::create_bot))
         .route("/bots/{id}", delete(bots::delete_bot))
         .route("/bots/{id}", patch(bots::rename_bot))
+        .route("/bots/{id}/source", get(bots::fetch_source_code))
         .route("/leaderboards", post(leaderboards::create_leaderboard))
         .route("/leaderboards/{id}", patch(leaderboards::patch_leaderboard))
         .route(
