@@ -284,7 +284,6 @@ async fn spawn_play_match_command(
             .attributes
             .into_iter()
             .map(|attr| to_match_attribute(&input, attr))
-            .unique_by(|a| (a.name.clone(), a.bot_id, a.turn))
             .collect(),
     };
 

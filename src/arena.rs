@@ -699,7 +699,13 @@ impl Arena {
                 continue;
             }
 
-            let mut new_match = Match::new(output.seed, output.participants, output.attributes);
+            let attributes = output
+                .attributes
+                .into_iter()
+                .unique_by(|a| (a.name.clone(), a.bot_id, a.turn))
+                .collect();
+
+            let mut new_match = Match::new(output.seed, output.participants, attributes);
 
             new_match.attributes.retain(|attr| attr.name != "seed");
             new_match.attributes.push(MatchAttribute {
