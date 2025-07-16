@@ -2,7 +2,7 @@
 
 Local bot arena similar to CodinGame.
 
-![screenshot](/assets/readme_screenshot.png)
+![screenshot](/docs/img/readme_screenshot.png)
 
 ## Features
 
@@ -33,6 +33,8 @@ The same command can be used to update CG Arena to the latest version.
 ## Usage
 
 Please check the full usage documentation [here](docs/index.md).
+
+You can also check [the example setup guide for CodinGame](docs/example_codingame_setup.md).
 
 ## Building from source
 

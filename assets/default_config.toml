@@ -14,7 +14,7 @@ symmetric = true
 min_matches = 200
 min_matches_preference = 1.0
 
-# supported algorithms: ["OpenSkill"]
+# supported algorithms: ["OpenSkill", "TrueSkill", "Elo"]
 [ranking]
 algorithm = "OpenSkill"
 
@@ -32,9 +32,15 @@ file = "cgarena.log"
 # use 'type' = "embedded" for worker embedded into arena
 # 'threads' controls how many games can be run in parallel
 # 'cmd_play_match' is a command to run single match, should print JSON to stdout in the following format:
-#   { "ranks" [..], "errors": [..] }
+#   { "ranks" [..], "errors": [..], "attributes": [..] }
 #   where "ranks" - list of numbers where i-th number is i-th match participant final placement (e.g. 1 for winner). Duplicates are allowed in case of draw.
 #   where "errors" - list of numbers where i-th number is 1 if i-th match participant failed during match or 0 otherwise
+#   where "attributes" - list of match attributes emitted by the bot. Each attribute is json object with the following fields:
+#       - "name" - name of attribute
+#       - "player" - index of a player who the attribute belongs to (or null if it's match attribute, not specific to a particular bot)
+#       - "turn" - turn of the attribute (or null if the attribute is not specific to any particular turn)
+#       - "value" - attribute value (integer, float or string)
+#
 # 'cmd_build' is a command to build a bot
 # 'cmd_run' is a command to run bot
 # the above commands will have the following replacements applied:
@@ -48,6 +54,6 @@ file = "cgarena.log"
 [[workers]]
 type = "embedded"
 threads = 1
-cmd_play_match = "python play_game.py {SEED} {P1} {P2}"
+cmd_play_match = "python play_game.py {SEED} {PLAYERS}"
 cmd_build = "sh build.sh {DIR} {LANG}"
 cmd_run = "sh run.sh {DIR} {LANG}"

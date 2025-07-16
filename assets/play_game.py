@@ -22,11 +22,6 @@ if __name__ == '__main__':
     pattern = r"\[(T|P)DATA\](?:\[(\d+)\])?\s+(\w+)\s*=\s*(.+)"
     regex = re.compile(pattern, re.IGNORECASE)
 
-    def put_turn_kv(target, index, key, value):
-        if index not in target:
-            target[index] = {}
-        target[index][key] = value
-
     for player, key in enumerate([str(i) for i in range(n_players)]):
         for data in json_log['errors'][key]:
             if not data: continue
