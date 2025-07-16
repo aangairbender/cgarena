@@ -140,7 +140,7 @@ fn extract_match_attr<'m>(
 ) -> Result<&'m MatchAttributeValue, anyhow::Error> {
     m.attributes
         .iter()
-        .find(|a| a.name == attr.name && a.turn == attr.turn)
+        .find(|a| a.name == attr.name && a.turn == attr.turn && a.bot_id.is_none())
         .map(|a| &a.value)
         .ok_or(anyhow!("No such attribute"))
 }
