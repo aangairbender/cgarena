@@ -1,6 +1,6 @@
 # Configuration reference
 
-CG Arena uses [toml](https://toml.io/) format for it's config.
+CG Arena uses [toml](https://toml.io/) format for its' config.
 
 ## `[game]`
 
@@ -116,7 +116,7 @@ Example:
 cmd_play_match = "python play_game.py {SEED} {PLAYERS}"
 ```
 
-You can find the example of `play_game.py` [here](generic_codingame_setup.md).
+You can find the example of `play_game.py` [here](example_codingame_setup.md#player_gamepy).
 
 ### `cmd_build`
 
@@ -131,7 +131,7 @@ Example:
 cmd_build = "sh build.sh {DIR} {LANG}"
 ```
 
-You can find the example of `build.sh` [here](example_codingame_setup.md).
+You can find the example of `build.sh` [here](example_codingame_setup.md#buildsh).
 
 ### `cmd_run`
 
@@ -146,4 +146,4 @@ Example:
 cmd_run = "sh run.sh {DIR} {LANG}"
 ```
 
-You can find the example of `run.sh` [here](example_codingame_setup.md).
+You can find the example of `run.sh` [here](example_codingame_setup.md#runsh).
