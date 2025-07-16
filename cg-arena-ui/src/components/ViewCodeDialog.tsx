@@ -1,7 +1,7 @@
 import { DialogProps } from "@hooks/useDialog";
 import { useTheme } from "@hooks/useTheme";
 import { Modal } from "react-bootstrap";
-import { LightAsync as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomOneLight, atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
 export interface ViewCodeDialogData {
