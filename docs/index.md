@@ -177,7 +177,7 @@ You can create a custom leaderboard using "New leaderboard" button at the bottom
 The modal would appear where you need to input:
 
 - Leaderboard name - just for your reference, e.g. "small maps", can be changed later
-- Match filter - more details [here](match_attributes_and_filters.md)
+- Match filter - more details [here](match_attributes_and_filters.md#match-filters)
 
 Once you input all the data and press "Create", the new custom leaderboard will be created, e.g:
 
@@ -211,7 +211,7 @@ It would display the seeds of the last 10 matches used by the leaderboard. New m
 
 ## Charts
 
-If your bot has emitted some turn data (please check [this doc](match_attributes_and_filters.md) for details on emitting data from bots), you can visualize it on a chart.
+If your bot has emitted some turn data (please check [this doc](match_attributes_and_filters.md#emitting-match-attributes) for details on emitting data from bots), you can visualize it on a chart.
 
 You can the data by clicking "chart" icon on any of the leaderboards:
 

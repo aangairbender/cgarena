@@ -118,6 +118,48 @@ cmd_play_match = "python play_game.py {SEED} {PLAYERS}"
 
 You can find the example of `play_game.py` [here](example_codingame_setup.md#player_gamepy).
 
+The `cmd_play_match` command should print JSON to stdout in the following format:
+
+```js
+{ "ranks" [..], "errors": [..], "attributes": [..] }
+```
+
+Where:
+
+- `ranks` - the list of numbers where i-th number is i-th match participant final placement (e.g. 0 for winner). Duplicates are allowed in the case of draw.
+- `errors` - the list of numbers where i-th number is 1 if i-th match participant failed during match or 0 otherwise
+- `attributes` - the list of match attributes emitted by the bot. Each attribute is a json object with the following fields:
+
+    - `name` - name of attribute
+    - `player` - index of a player who the attribute belongs to (or `null` if it's match attribute, not specific to a particular bot)
+    - `turn` - turn of the attribute (or `null` if the attribute is not specific to any particular turn)
+    - `value` - the attribute value (integer, float or string)
+
+Example:
+
+```js
+{
+    "ranks": [0, 1],
+    "errors": [0, 0],
+    "attributes": [
+        {
+            "name": "map_size",
+            "value": 16
+        },
+        {
+            "name": "final_score",
+            "player": 0,
+            "value": 86
+        },
+        {
+            "name": "final_score",
+            "player": 1,
+            "value": 53
+        },
+    ],
+}
+```
+
 ### `cmd_build`
 
 Whenever a new bot is submitted CG Arena will run `cmd_build` command for the new bot.

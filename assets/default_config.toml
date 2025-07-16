@@ -33,7 +33,7 @@ file = "cgarena.log"
 # 'threads' controls how many games can be run in parallel
 # 'cmd_play_match' is a command to run single match, should print JSON to stdout in the following format:
 #   { "ranks" [..], "errors": [..], "attributes": [..] }
-#   where "ranks" - list of numbers where i-th number is i-th match participant final placement (e.g. 1 for winner). Duplicates are allowed in case of draw.
+#   where "ranks" - list of numbers where i-th number is i-th match participant final placement (e.g. 0 for winner). Duplicates are allowed in case of draw.
 #   where "errors" - list of numbers where i-th number is 1 if i-th match participant failed during match or 0 otherwise
 #   where "attributes" - list of match attributes emitted by the bot. Each attribute is json object with the following fields:
 #       - "name" - name of attribute
