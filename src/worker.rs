@@ -141,16 +141,14 @@ async fn build_bot(
         .context("Bot folder path is not utf-8")?;
     let command_parts = config
         .cmd_build
+        .replace("{DIR}", dir_param_value)
+        .replace("{LANG}", &input.language)
         .split_ascii_whitespace()
-        .map(|s| match s {
-            "{DIR}" => dir_param_value,
-            "{LANG}" => &input.language,
-            _ => s,
-        })
+        .map(|s| s.to_string())
         .collect_vec();
     assert_ne!(command_parts.len(), 0);
 
-    let output = Command::new(command_parts[0])
+    let output = Command::new(&command_parts[0])
         .args(&command_parts[1..])
         .current_dir(&worker_path)
         .output()

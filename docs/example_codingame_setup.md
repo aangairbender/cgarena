@@ -38,30 +38,23 @@ Let's review the default settings for the embedded worker:
 
 ```toml
 cmd_play_match = "python play_game.py {SEED} {PLAYERS}"
-cmd_build = "sh build.sh {DIR} {LANG}"
-cmd_run = "sh run.sh {DIR} {LANG}"
+cmd_build = "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a"
+cmd_run = "./{DIR}/a"
 ```
 
-The `cgarena init` command we used to create an arena also generated the following files for us:
+As you might have noticed, the default config supports c++ language only. 
 
-- `play_game.py`
-- `build.sh`
-- `run.sh`
-
-Please feel free to check them. You can add also add support for the new programming languages.
-
-By default "c++" and "python" languages are support. 
+The `cgarena init` command we used to create an arena also generated the `play_game.py` file for us which can play games using brutaltester-compatible referee ([how to make one](making_bt_compatible_referee.md)).
 
 ### Languages that need workspace
 
 For languages which need project folder (e.g. Rust) you build bot the following way:
 
 - create a single project somewhere and configure it to be the same as CG (e.g. has all the dependencies)
+- use `build.sh` file for `cmd_build` command
 - inside the `build.sh` copy `source.txt` to that project folder (e.g. `main.rs` for Rust)
 - build the project
 - copy the executable from the project build to the bot directory
-
-You can see this in actions in the `build.sh` and `run.sh` commands above for `"rust"` language.
 
 The `cargo.toml` inside `rust-workdir` looks like this (this is same as CG, might be outdated):
 

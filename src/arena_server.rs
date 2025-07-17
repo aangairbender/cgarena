@@ -118,16 +118,6 @@ static DEFAULT_FILES: &[(&str, &str, bool)] = &[
         true,
     ),
     (
-        "build.sh",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/build.sh")),
-        false,
-    ),
-    (
-        "run.sh",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/run.sh")),
-        false,
-    ),
-    (
         "play_game.py",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/play_game.py")),
         false,
@@ -192,8 +182,6 @@ mod test {
         let path = dir.path().join("test");
         init(&path, false).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
-        assert!(path.join("build.sh").exists());
-        assert!(path.join("run.sh").exists());
         assert!(path.join("play_game.py").exists());
     }
 
@@ -203,8 +191,6 @@ mod test {
         let path = dir.path().join("test");
         init(&path, true).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
-        assert!(!path.join("build.sh").exists());
-        assert!(!path.join("run.sh").exists());
         assert!(!path.join("play_game.py").exists());
     }
 

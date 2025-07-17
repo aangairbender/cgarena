@@ -38,14 +38,14 @@ cd summer-challenge-2025
 
 ## Configuring the arena
 
-The `cgarena init` command generates multiple files in the folder:
+The `cgarena init` command generates 2 files in the folder:
 
 - `cgarena_config.toml` - CG Arena config file with the default config.
 - `play_game.py` - python script for running matches (expects [brutaltester-compatible](making_bt_compatible_referee.md) `referee.jar` in the same folder to work)
-- `build.sh` - generic script CG Arena uses to build submitted bots (supports c++ and python out of the box)
-- `run.sh` - generic script CG Arena uses to run bots (supports c++ and python out of the box)
 
 The default config file is documented, so read through it and make any necessary changes. Be sure to restart the arena after modifying the configuration.
+
+The default config supports c++ out of the box.
 
 The important params to configure:
 - `[game]`
@@ -53,7 +53,7 @@ The important params to configure:
     - `max_players`: max amount of bots per match 
     - `symmetric`: whether the game is symmetric
 - `[[workers]]`
-    - `threads`: amount of concurrent matches to run (don't set higher than amount of cpu threads you have)
+    - `threads`: amount of concurrent matches to run (check your CPU load when increasing)
 
 Refer to [this document](configuration.md) for complete configuration options.
 

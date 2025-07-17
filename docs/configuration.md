@@ -173,8 +173,6 @@ Example:
 cmd_build = "sh build.sh {DIR} {LANG}"
 ```
 
-You can find the example of `build.sh` [here](example_codingame_setup.md#buildsh).
-
 ### `cmd_run`
 
 This command is passed to `cmd_play_match` after applying substitutions for each bot.
@@ -187,5 +185,3 @@ Example:
 ```
 cmd_run = "sh run.sh {DIR} {LANG}"
 ```
-
-You can find the example of `run.sh` [here](example_codingame_setup.md#runsh).
