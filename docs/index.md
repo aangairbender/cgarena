@@ -37,7 +37,12 @@ cd summer-challenge-2025
 
 ## Configuring the arena
 
-The `cgarena init` command generates a `cgarena_config.toml` with the default config.
+The `cgarena init` command generates multiple files in the folder:
+
+- `cgarena_config.toml` - CG Arena config file with the default config.
+- `play_game.py` - python script for running matches (expects [brutaltester-compatible](making_bt_compatible_referee.md) `referee.jar` in the same folder to work)
+- `build.sh` - generic script CG Arena uses to build submitted bots (supports c++ and python out of the box)
+- `run.sh` - generic script CG Arena uses to run bots (supports c++ and python out of the box)
 
 The default config file is documented, so read through it and make any necessary changes. Be sure to restart the arena after modifying the configuration.
 
@@ -48,9 +53,6 @@ The important params to configure:
     - `symmetric`: whether the game is symmetric
 - `[[workers]]`
     - `threads`: amount of concurrent matches to run (don't set higher than amount of cpu threads you have)
-    - `cmd_play_match`: command to run the match, usually would call referee
-    - `cmd_build`: command to build a new bots
-    - `cmd_run`: command to run a new bot
 
 Refer to [this document](configuration.md) for complete configuration options.
 
