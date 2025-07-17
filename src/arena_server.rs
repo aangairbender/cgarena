@@ -108,33 +108,27 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-static DEFAULT_FILES: &[(&str, &str, bool)] = &[
+static DEFAULT_FILES: &[(&str, &str)] = &[
     (
         "cgarena_config.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/assets/default_config.toml"
         )),
-        true,
     ),
     (
         "play_game.py",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/play_game.py")),
-        false,
     ),
 ];
 
-pub fn init(path: &Path, clean: bool) -> anyhow::Result<()> {
+pub fn init(path: &Path) -> anyhow::Result<()> {
     match std::fs::create_dir(path) {
         Ok(_) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
         Err(e) => bail!("Cannot create new arena: {}", e),
     }
-    for &(file, content, include_in_clean) in DEFAULT_FILES {
-        if clean && !include_in_clean {
-            continue;
-        }
-
+    for &(file, content) in DEFAULT_FILES {
         let filepath = path.join(file);
         OpenOptions::new()
             .write(true)
@@ -180,18 +174,9 @@ mod test {
     fn new_arena_can_be_created_in_new_folder() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test");
-        init(&path, false).unwrap();
+        init(&path).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
         assert!(path.join("play_game.py").exists());
-    }
-
-    #[test]
-    fn new_arena_can_be_created_in_new_folder_clean() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("test");
-        init(&path, true).unwrap();
-        assert!(path.join("cgarena_config.toml").exists());
-        assert!(!path.join("play_game.py").exists());
     }
 
     #[test]
@@ -199,7 +184,7 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test");
         std::fs::create_dir(&path).unwrap();
-        init(&path, true).unwrap();
+        init(&path).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
     }
 }

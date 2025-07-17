@@ -33,10 +33,6 @@ enum Commands {
         /// Path to the arena directory. Path would be created if it does not exist.
         /// If omitted the current working directory is used.
         path: Option<String>,
-
-        /// Whether to omit creating build.sh, run.sh and play_game.py files
-        #[arg(long)]
-        clean: bool,
     },
     /// Run existing arena
     Run {
@@ -73,9 +69,9 @@ async fn main() -> anyhow::Result<()> {
 
 async fn handle_cli_command(command: Commands) -> anyhow::Result<()> {
     match command {
-        Commands::Init { path, clean } => {
+        Commands::Init { path } => {
             let path = unwrap_or_current_dir(path)?;
-            arena_server::init(&path, clean)?;
+            arena_server::init(&path)?;
         }
         Commands::Run { path } => {
             let path = unwrap_or_current_dir(path)?;
