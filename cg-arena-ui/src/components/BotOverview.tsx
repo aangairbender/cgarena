@@ -79,6 +79,10 @@ interface BuildsProps {
 }
 
 const Builds: React.FC<BuildsProps> = ({ builds, showCodeDialog }) => {
+  if (builds.length == 0) {
+    return <Badge bg="secondary">Pending</Badge>;
+  }
+
   return (
     <Stack>
       {builds.map((build) => (
