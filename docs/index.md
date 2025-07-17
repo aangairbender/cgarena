@@ -21,6 +21,7 @@
 - [Misc](#misc)
     - [Deleting the old matches](#deleting-the-old-matches)
     - [Changing the color theme](#changing-the-color-theme)
+- [Troubleshooting]()
 
 ## Creating a new arena
 
@@ -265,3 +266,25 @@ CG Arena web ui supports light and dark themes.
 You can toggle the theme using the button on the top right of the screen:
 
 ![toggle-theme](img/toggle_theme.png)
+
+## Troubleshooting
+
+### Bot processes are not terminated
+
+If you see lots of bot processes hanging in RAM, that means they are not terminated properly.
+
+This can happen if you are using intermediate scipt between referee and bot executables, e.g. `run.sh`.
+
+Referee usually sends `SIGTERM` signall to bot processes to terminate the bots, but the default `run.sh` file does not propagate that termination to the bot.
+
+Easy way to solve this is to **check for stdin EOF before reading the turn input**, e.g.
+
+```c++
+int turn = 0;
+while (!std::cin.eof()) {
+    turn++;
+    // read turn data
+}
+```
+
+Another way is to not use `run.sh` and embed `g++` call directly into `cmd_run` in your `cgarena_config.toml`.
