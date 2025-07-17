@@ -3,6 +3,7 @@ use crate::config::{Config, WorkerConfig};
 use crate::{api, arena, db, worker};
 use anyhow::{bail, Context};
 use std::fs::OpenOptions;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
@@ -107,13 +108,52 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn init(path: &Path) -> anyhow::Result<()> {
+static DEFAULT_FILES: &[(&str, &str, bool)] = &[
+    (
+        "cgarena_config.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/default_config.toml"
+        )),
+        true,
+    ),
+    (
+        "build.sh",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/build.sh")),
+        false,
+    ),
+    (
+        "run.sh",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/run.sh")),
+        false,
+    ),
+    (
+        "play_game.py",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/play_game.py")),
+        false,
+    ),
+];
+
+pub fn init(path: &Path, clean: bool) -> anyhow::Result<()> {
     match std::fs::create_dir(path) {
         Ok(_) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
         Err(e) => bail!("Cannot create new arena: {}", e),
     }
-    Config::create_default(path);
+    for &(file, content, include_in_clean) in DEFAULT_FILES {
+        if clean && !include_in_clean {
+            continue;
+        }
+
+        let filepath = path.join(file);
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&filepath)
+            .context(format!("Cannot create {file} file"))?
+            .write_all(content.as_bytes())
+            .context(format!("Cannot write to {file}"))?;
+    }
     println!("New arena has been initialized in {}", path.display());
     Ok(())
 }
@@ -150,8 +190,22 @@ mod test {
     fn new_arena_can_be_created_in_new_folder() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test");
-        init(&path).unwrap();
+        init(&path, false).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
+        assert!(path.join("build.sh").exists());
+        assert!(path.join("run.sh").exists());
+        assert!(path.join("play_game.py").exists());
+    }
+
+    #[test]
+    fn new_arena_can_be_created_in_new_folder_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test");
+        init(&path, true).unwrap();
+        assert!(path.join("cgarena_config.toml").exists());
+        assert!(!path.join("build.sh").exists());
+        assert!(!path.join("run.sh").exists());
+        assert!(!path.join("play_game.py").exists());
     }
 
     #[test]
@@ -159,7 +213,7 @@ mod test {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test");
         std::fs::create_dir(&path).unwrap();
-        init(&path).unwrap();
+        init(&path, true).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
     }
 }

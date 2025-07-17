@@ -1,6 +1,6 @@
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
-use std::{fs::OpenOptions, io::Write, path::Path};
+use std::path::Path;
 
 use crate::ranking::{elo, openskill, trueskill};
 
@@ -106,17 +106,6 @@ impl Config {
             }
         }
         Ok(())
-    }
-
-    pub fn create_default(arena_path: &Path) {
-        let config_file_path = arena_path.join(CONFIG_FILE_NAME);
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(config_file_path)
-            .expect("Cannot create config file")
-            .write_all(DEFAULT_CONFIG_CONTENT.as_bytes())
-            .expect("Cannot write default config");
     }
 }
 
