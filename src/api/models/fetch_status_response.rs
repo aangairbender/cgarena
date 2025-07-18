@@ -14,6 +14,7 @@ use serde::Serialize;
 pub struct FetchStatusResponse {
     pub bots: Vec<BotOverviewResponse>,
     pub leaderboards: Vec<LeaderboardOverviewResponse>,
+    pub matchmaking_enabled: bool,
 }
 
 impl From<FetchStatusResult> for FetchStatusResponse {
@@ -21,6 +22,7 @@ impl From<FetchStatusResult> for FetchStatusResponse {
         FetchStatusResponse {
             bots: value.bots.into_iter().map(Into::into).collect(),
             leaderboards: value.leaderboards.into_iter().map(Into::into).collect(),
+            matchmaking_enabled: value.matchmaking_enabled,
         }
     }
 }

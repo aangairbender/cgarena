@@ -109,6 +109,7 @@ pub struct FetchStatusCommand {
 pub struct FetchStatusResult {
     pub bots: Vec<BotOverview>,
     pub leaderboards: Vec<LeaderboardOverview>,
+    pub matchmaking_enabled: bool,
 }
 
 pub struct BotOverview {

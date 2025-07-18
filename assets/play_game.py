@@ -13,7 +13,12 @@ if __name__ == '__main__':
     with open(log_file, 'r') as f:
         json_log = json.load(f)
     os.remove(log_file)
-    p_scores = [int(json_log['scores'][str(i)]) for i in range(n_players)]
+    p_scores = []
+    try:
+        p_scores = [int(json_log['scores'][str(i)]) for i in range(n_players)]
+    except:
+        print(json_log['failCause'], file=sys.stderr)
+        exit(1)
     rv = {}
     rv['ranks'] = [sum([int(p_score < p2_score) for p2_score in p_scores]) for p_score in p_scores] # assumes higher score is better
     rv['errors'] = [int(p_score < 0) for p_score in p_scores] # assumes negative score means error

@@ -361,6 +361,7 @@ async fn cmd_fetch_leaderboard_works() {
 
     let res3 = arena.handle.fetch_status().await.unwrap();
 
+    assert!(res3.matchmaking_enabled);
     assert_eq!(res3.bots.len(), 2);
 
     assert_eq!(res3.bots[0].id, bot1.id);

@@ -91,6 +91,7 @@ struct Arena {
     global_leaderboard: AsyncLeaderboard,
     custom_leaderboards: Vec<AsyncLeaderboard>,
     match_queue: VecDeque<PlayMatchInput>,
+    matchmaking_enabled: bool,
 }
 
 impl Arena {
@@ -113,6 +114,7 @@ impl Arena {
             global_leaderboard: AsyncLeaderboard::new(Leaderboard::global(), ranker, pool),
             custom_leaderboards: Default::default(),
             match_queue: Default::default(),
+            matchmaking_enabled: true,
         }
     }
 
@@ -299,7 +301,13 @@ impl Arena {
                 )
                 .collect_vec();
 
-        FetchStatusResult { bots, leaderboards }
+        let matchmaking_enabled = self.matchmaking_enabled;
+
+        FetchStatusResult {
+            bots,
+            leaderboards,
+            matchmaking_enabled,
+        }
     }
 
     fn render_bot_overview(&self, bot: &Bot) -> BotOverview {
