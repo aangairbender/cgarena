@@ -138,7 +138,9 @@ impl Arena {
     pub async fn do_chores(&mut self) -> anyhow::Result<()> {
         self.run_builds().await;
 
-        self.perform_matchmaking()?;
+        if self.matchmaking_enabled {
+            self.perform_matchmaking()?;
+        }
 
         self.process_finished_matches().await;
 
@@ -237,6 +239,10 @@ impl Arena {
             language: bot.language.clone(),
             source_code: bot.source_code.clone(),
         })
+    }
+
+    fn cmd_enable_matchmaking(&mut self, enabled: bool) {
+        self.matchmaking_enabled = enabled;
     }
 
     async fn cmd_create_bot(
@@ -530,6 +536,12 @@ impl Arena {
             ArenaCommand::FetchBotSourceCode(command) => {
                 let res = self.cmd_fetch_bot_source_code(command.id).await;
                 if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::EnableMatchmaking(command) => {
+                self.cmd_enable_matchmaking(command.enabled);
+                if command.response.send(()).is_err() {
                     warn!("Failed to send response to client");
                 }
             }

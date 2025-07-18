@@ -28,8 +28,8 @@ function App() {
     status,
     deleteBot,
     renameBot,
-    autoRefresh,
-    setAutoRefresh,
+    matchmakingEnabled,
+    enableMatchmaking,
     createLeaderboard,
     patchLeaderboard,
     deleteLeaderboard,
@@ -50,8 +50,8 @@ function App() {
       <AppNavbar
         loading={loading}
         status={status}
-        autoRefresh={autoRefresh}
-        setAutoRefresh={setAutoRefresh}
+        matchmakingEnabled={matchmakingEnabled}
+        enableMatchmaking={enableMatchmaking}
         openSubmitDialog={() =>
           submitBotDialog.show({ onSubmit: submitNewBot })
         }

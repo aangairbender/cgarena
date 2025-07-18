@@ -1,6 +1,6 @@
 use crate::arena_commands::{
     ArenaCommand, BotSourceCode, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
-    CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand,
+    CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand, EnableMatchmakingCommand,
     FetchBotSourceCodeCommand, FetchStatusCommand, FetchStatusResult, LeaderboardOverview,
     PatchLeaderboardCommand, PatchLeaderboardResult, RenameBotCommand, RenameBotResult,
 };
@@ -120,6 +120,16 @@ impl ArenaHandle {
             ArenaCommand::Chart(ChartCommand {
                 filter,
                 attribute_name,
+                response: tx,
+            })
+        })
+        .await
+    }
+
+    pub async fn enable_matchmaking(&self, enabled: bool) -> anyhow::Result<()> {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::EnableMatchmaking(EnableMatchmakingCommand {
+                enabled,
                 response: tx,
             })
         })

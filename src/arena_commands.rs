@@ -15,6 +15,12 @@ pub enum ArenaCommand {
     PatchLeaderboard(PatchLeaderboardCommand),
     Chart(ChartCommand),
     FetchBotSourceCode(FetchBotSourceCodeCommand),
+    EnableMatchmaking(EnableMatchmakingCommand),
+}
+
+pub struct EnableMatchmakingCommand {
+    pub enabled: bool,
+    pub response: oneshot::Sender<()>,
 }
 
 pub struct FetchBotSourceCodeCommand {

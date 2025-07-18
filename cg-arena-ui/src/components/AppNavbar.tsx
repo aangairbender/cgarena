@@ -14,16 +14,16 @@ interface AppNavbarProps {
   loading: boolean;
   status: "connected" | "connecting";
   openSubmitDialog: () => void;
-  autoRefresh: boolean,
-  setAutoRefresh: (v: boolean) => void;
+  matchmakingEnabled: boolean,
+  enableMatchmaking: (v: boolean) => void;
 }
 
 const AppNavbar: React.FC<AppNavbarProps> = ({
   loading,
   status,
   openSubmitDialog,
-  autoRefresh,
-  setAutoRefresh,
+  matchmakingEnabled,
+  enableMatchmaking,
 }) => {
   const pillBg = status == "connected" ? "success" : "warning";
   const pillText = status == "connected" ? "light" : "dark";
@@ -37,9 +37,9 @@ const AppNavbar: React.FC<AppNavbarProps> = ({
           {loading && <Spinner animation="border" />}
           <Badge pill bg={pillBg} text={pillText}>{status}</Badge>
           <Form.Switch
-            checked={autoRefresh}
-            onChange={(e) => setAutoRefresh(e.target.checked)}
-            label="Auto Refresh"
+            checked={matchmakingEnabled}
+            onChange={(e) => enableMatchmaking(e.target.checked)}
+            label="Matchmaking"
           />
           <Button variant="primary" onClick={openSubmitDialog}>
             Submit a new bot

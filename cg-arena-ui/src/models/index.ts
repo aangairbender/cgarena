@@ -21,6 +21,7 @@ export interface PatchLeaderboardRequest {
 export interface FetchStatusResponse {
   bots: BotOverviewResponse[];
   leaderboards: LeaderboardOverviewResponse[];
+  matchmaking_enabled: boolean;
 }
 
 export interface LeaderboardOverviewResponse {
@@ -90,6 +91,10 @@ export interface ChartTurnDataResponse {
 export interface BotSourceCode {
   language: string;
   source_code: string;
+}
+
+export interface EnableMatchmakingRequest {
+  enabled: boolean;
 }
 
 export function rating_score(item: LeaderboardItemResponse): number {

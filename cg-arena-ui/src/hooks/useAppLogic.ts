@@ -16,7 +16,7 @@ export const useAppLogic = () => {
   const [selectedBotId, setSelectedBotId] = useState<BotId | undefined>();
   const [bots, setBots] = useState<BotOverviewResponse[]>([]);
   const [leaderboards, setLeaderboards] = useState<LeaderboardOverviewResponse[]>([]);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [matchmakingEnabled, setMatchmakingEnabled] = useState(true);
   const [status, setStatus] = useState<"connected" | "connecting">("connected");
   const [fetchingStatus, setFetchingStatus] = useState(false);
 
@@ -27,6 +27,7 @@ export const useAppLogic = () => {
         const res = await api.fetchStatus();
         setBots(res.bots)
         setLeaderboards(res.leaderboards);
+        setMatchmakingEnabled(res.matchmaking_enabled);
         setStatus("connected");
       } catch {
         setStatus("connecting");
@@ -34,7 +35,7 @@ export const useAppLogic = () => {
         setFetchingStatus(false);
       }
     },
-    [setBots, setLeaderboards, setStatus]
+    [setBots, setLeaderboards, setStatus, setMatchmakingEnabled]
   );
 
   const refreshLeaderboard = useCallback(() => {
@@ -47,11 +48,9 @@ export const useAppLogic = () => {
 
   // auto refresh
   useEffect(() => {
-    if (!autoRefresh) return;
-
     const interval = setInterval(refreshLeaderboard, 2000); // in ms
     return () => clearInterval(interval);
-  }, [refreshLeaderboard, autoRefresh]);
+  }, [refreshLeaderboard]);
 
   // select bot from the list
   useEffect(() => {
@@ -165,14 +164,22 @@ export const useAppLogic = () => {
     [setLeaderboards, setLoading]
   );
 
+  const enableMatchmaking = useCallback(
+    async (enabled: boolean) => {
+      setMatchmakingEnabled(enabled);
+      await api.enableMatchmaking(enabled);
+    },
+    [setMatchmakingEnabled]
+  );
+
   return {
     selectedBotId,
     bots,
     leaderboards,
     loading,
-    autoRefresh,
+    matchmakingEnabled,
     status,
-    setAutoRefresh,
+    enableMatchmaking,
     selectBot,
     submitNewBot,
     deleteBot,

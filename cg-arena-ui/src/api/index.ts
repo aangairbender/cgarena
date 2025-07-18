@@ -11,6 +11,7 @@ import {
   ChartRequest,
   ChartOverviewResponse,
   BotSourceCode,
+  EnableMatchmakingRequest,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -35,10 +36,7 @@ export const submitNewBot = async (
   return await parseResponse<BotOverviewResponse>(response);
 };
 
-export const renameBot = async (
-  id: BotId,
-  payload: RenameBotRequest
-) => {
+export const renameBot = async (id: BotId, payload: RenameBotRequest) => {
   const req = new Request(`${host}/api/bots/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
@@ -53,12 +51,11 @@ export const renameBot = async (
 
 export const deleteBot = async (id: BotId) => {
   const req = new Request(`${host}/api/bots/${id}`, {
-      method: "DELETE"
+    method: "DELETE",
   });
   const response = await fetch(req);
   await checkForErrors(response);
 };
-
 
 export const createLeaderboard = async (
   payload: CreateLeaderboardRequest
@@ -77,7 +74,7 @@ export const createLeaderboard = async (
 
 export const patchLeaderboard = async (
   id: LeaderboardId,
-  payload: PatchLeaderboardRequest,
+  payload: PatchLeaderboardRequest
 ) => {
   const req = new Request(`${host}/api/leaderboards/${id}`, {
     method: "PATCH",
@@ -93,7 +90,7 @@ export const patchLeaderboard = async (
 
 export const deleteLeaderboard = async (id: LeaderboardId) => {
   const req = new Request(`${host}/api/leaderboards/${id}`, {
-      method: "DELETE"
+    method: "DELETE",
   });
   const response = await fetch(req);
   await checkForErrors(response);
@@ -119,6 +116,21 @@ export const fetchBotSourceCode = async (id: BotId): Promise<BotSourceCode> => {
   return await parseResponse<BotSourceCode>(response);
 };
 
+export const enableMatchmaking = async (enabled: boolean): Promise<void> => {
+  const payload: EnableMatchmakingRequest = { enabled };
+
+  const req = new Request(`${host}/api/matchmaking`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const response = await fetch(req);
+  await checkForErrors(response);
+};
+
 async function checkForErrors(response: Response) {
   if (response.status >= 500) {
     throw new Error("Internal server error");
@@ -134,6 +146,6 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 interface ApiErrorResponse {
-  error_code: string,
-  message?: string,
+  error_code: string;
+  message?: string;
 }
