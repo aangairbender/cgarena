@@ -105,6 +105,7 @@ impl Arena {
         let ranker = Arc::new(ranker);
         Self {
             game_config,
+            matchmaking_enabled: matchmaking_config.enabled_on_start.unwrap_or(true),
             matchmaking_config,
             pool: pool.clone(),
             worker_handle,
@@ -114,7 +115,6 @@ impl Arena {
             global_leaderboard: AsyncLeaderboard::new(Leaderboard::global(), ranker, pool),
             custom_leaderboards: Default::default(),
             match_queue: Default::default(),
-            matchmaking_enabled: true,
         }
     }
 

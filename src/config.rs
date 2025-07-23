@@ -27,6 +27,7 @@ pub struct GameConfig {
 pub struct MatchmakingConfig {
     pub min_matches: u32,
     pub min_matches_preference: f64,
+    pub enabled_on_start: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
