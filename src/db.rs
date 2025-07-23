@@ -621,12 +621,13 @@ async fn insert_leaderboard(
 async fn update_leaderboard(pool: &SqlitePool, leaderboard: &Leaderboard) -> anyhow::Result<()> {
     assert_ne!(leaderboard.id, LeaderboardId::UNINITIALIZED);
     const SQL: &str = indoc! {"
-        UPDATE leaderboards SET name = $1 \
-        WHERE id = $2"
+        UPDATE leaderboards SET name = $1, filter = $2 \
+        WHERE id = $3"
     };
 
     let res = sqlx::query(SQL)
         .bind::<&str>(&leaderboard.name)
+        .bind::<&str>(&leaderboard.filter.to_string())
         .bind::<i64>(leaderboard.id.into())
         .execute(pool)
         .await?;
