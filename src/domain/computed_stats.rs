@@ -33,7 +33,7 @@ impl ComputedStats {
         self.total_matches += 1;
         if !self.example_seeds.contains(&m.seed) {
             self.example_seeds.push_front(m.seed);
-            while self.example_seeds.len() >= EXAMPLE_SEEDS_LIMIT {
+            while self.example_seeds.len() > EXAMPLE_SEEDS_LIMIT {
                 self.example_seeds.pop_back();
             }
         }
