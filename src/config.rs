@@ -2,7 +2,7 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::ranking::{elo, openskill, trueskill};
+use crate::ranking::algorithms::{elo, openskill, trueskill};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {

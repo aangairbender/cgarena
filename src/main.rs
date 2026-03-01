@@ -15,7 +15,7 @@ mod ranking;
 mod worker;
 
 use anyhow::Context;
-use clap::{command, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
