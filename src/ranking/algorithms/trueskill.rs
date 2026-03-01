@@ -53,7 +53,7 @@ impl Trueskill {
 }
 
 impl Algorithm for Trueskill {
-    fn support_multi_team(&self) -> bool {
+    fn supports_multi_team(&self) -> bool {
         true
     }
 

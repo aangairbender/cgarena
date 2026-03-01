@@ -45,7 +45,7 @@ impl Elo {
 }
 
 impl Algorithm for Elo {
-    fn support_multi_team(&self) -> bool {
+    fn supports_multi_team(&self) -> bool {
         false
     }
 

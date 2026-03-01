@@ -20,7 +20,7 @@ impl Ranker {
     }
 
     pub fn support_multi_team(&self) -> bool {
-        self.algorithm.support_multi_team()
+        self.algorithm.supports_multi_team()
     }
 
     pub fn default_rating(&self) -> Rating {
