@@ -29,16 +29,38 @@ impl WinrateStats {
 }
 
 impl ComputedStats {
-    pub fn recalc_after_match(&mut self, ranker: &Ranker, m: &Match) {
-        self.total_matches += 1;
+    pub fn recalc_after_matches(&mut self, ranker: &Ranker, matches: &[&Match]) {
+        self.total_matches += matches.len() as u64;
+
+        for &m in matches {
+            self.recalc_example_seeds_after_match(m);
+            self.recalc_matches_with_error_after_match(m);
+            self.recalc_winrate_stats_after_match(m);
+        }
+
+        // rating
+        match ranker.strategy_kind() {
+            RankingStrategyKind::Online => {
+                for &m in matches {
+                    ranker.recalc_rating(&mut self.ratings, m);
+                }
+            }
+            RankingStrategyKind::Batch => {
+                self.ratings = ranker.recalc_rating_batch(&self.winrate_stats)
+            }
+        }
+    }
+
+    fn recalc_example_seeds_after_match(&mut self, m: &Match) {
         if !self.example_seeds.contains(&m.seed) {
             self.example_seeds.push_front(m.seed);
             while self.example_seeds.len() > EXAMPLE_SEEDS_LIMIT {
                 self.example_seeds.pop_back();
             }
         }
+    }
 
-        // matches_played and matches_with_error
+    fn recalc_matches_with_error_after_match(&mut self, m: &Match) {
         for p in &m.participants {
             if p.error {
                 self.matches_with_error
@@ -47,7 +69,9 @@ impl ComputedStats {
                     .or_insert(1);
             }
         }
+    }
 
+    fn recalc_winrate_stats_after_match(&mut self, m: &Match) {
         for (p1, p2) in m
             .participants
             .iter()
@@ -65,14 +89,6 @@ impl ComputedStats {
                 std::cmp::Ordering::Less => entry.wins += 1,
                 std::cmp::Ordering::Equal => entry.draws += 1,
                 std::cmp::Ordering::Greater => entry.loses += 1,
-            }
-        }
-
-        // rating
-        match ranker.strategy_kind() {
-            RankingStrategyKind::Online => ranker.recalc_rating(&mut self.ratings, m),
-            RankingStrategyKind::Batch => {
-                self.ratings = ranker.recalc_rating_batch(&self.winrate_stats)
             }
         }
     }

@@ -64,12 +64,12 @@ impl AsyncLeaderboard {
 
             match matches {
                 Ok(matches) => {
+                    let filtered = matches
+                        .iter()
+                        .filter(|m| filter.matches(m))
+                        .collect::<Vec<_>>();
                     let mut stats = ComputedStats::default();
-                    for m in &matches {
-                        if filter.matches(m) {
-                            stats.recalc_after_match(&ranker, m);
-                        }
-                    }
+                    stats.recalc_after_matches(&ranker, &filtered);
                     if !token.is_cancelled() {
                         let mut status = status_inner.lock().unwrap();
                         *status = LeaderboardStatus::Live(stats);
@@ -110,11 +110,13 @@ impl AsyncLeaderboard {
         let mut status = self.status.lock().unwrap();
         match *status {
             LeaderboardStatus::Live(ref mut computed_stats) => {
-                for m in self.live_matches.drain(..) {
-                    if self.leaderboard.filter.matches(&m) {
-                        computed_stats.recalc_after_match(&self.ranker, &m);
-                    }
-                }
+                let live_matches = std::mem::take(&mut self.live_matches);
+                let filtered = live_matches
+                    .iter()
+                    .map(|m| m.as_ref())
+                    .filter(|m| self.leaderboard.filter.matches(m))
+                    .collect::<Vec<_>>();
+                computed_stats.recalc_after_matches(&self.ranker, &filtered);
             }
             LeaderboardStatus::Computing(_) => {}
             LeaderboardStatus::Error(_, at) => {
