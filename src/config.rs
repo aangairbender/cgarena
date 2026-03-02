@@ -2,7 +2,7 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::ranking::algorithms::{elo, openskill, trueskill};
+use crate::ranking::algorithms::{bradley_terry, elo, openskill, trueskill};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -36,6 +36,7 @@ pub enum RankingConfig {
     OpenSkill(openskill::Config),
     TrueSkill(trueskill::Config),
     Elo(elo::Config),
+    BradleyTerry(bradley_terry::Config),
 }
 
 #[derive(Serialize, Deserialize)]

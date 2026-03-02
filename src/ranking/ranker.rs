@@ -1,6 +1,6 @@
 use crate::config::RankingConfig;
 use crate::domain::{BotId, Match, Rating, WinrateStats};
-use crate::ranking::algorithms::{elo, openskill, trueskill};
+use crate::ranking::algorithms::{bradley_terry, elo, openskill, trueskill};
 use crate::ranking::{BatchAlgorithm, OnlineAlgorithm};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -30,6 +30,9 @@ impl Ranker {
                 RankingStrategy::Online(Box::new(trueskill::Trueskill::new(c)))
             }
             RankingConfig::Elo(c) => RankingStrategy::Online(Box::new(elo::Elo::new(c))),
+            RankingConfig::BradleyTerry(c) => {
+                RankingStrategy::Batch(Box::new(bradley_terry::BradleyTerry::new(c)))
+            }
         };
         Self { strategy }
     }
