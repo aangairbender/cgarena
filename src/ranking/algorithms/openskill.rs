@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use skillratings::MultiTeamOutcome;
 
-use crate::ranking::Algorithm;
+use crate::ranking::{Algorithm, OnlineAlgorithm};
 use skillratings::weng_lin::*;
 
 impl From<Rating> for WengLinRating {
@@ -63,7 +63,9 @@ impl Algorithm for OpenSkill {
     fn default_rating(&self) -> Rating {
         WengLinRating::default().into()
     }
+}
 
+impl OnlineAlgorithm for OpenSkill {
     fn recalc_ratings(&self, input: &[(Rating, u8)]) -> Vec<Rating> {
         let teams: Vec<Vec<WengLinRating>> = input.iter().map(|w| vec![w.0.into()]).collect_vec();
         let ranks = input

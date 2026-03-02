@@ -1,5 +1,5 @@
 use crate::domain::Rating;
-use crate::ranking::Algorithm;
+use crate::ranking::{Algorithm, OnlineAlgorithm};
 use serde::{Deserialize, Serialize};
 use skillratings::{elo::*, Outcomes};
 
@@ -52,7 +52,9 @@ impl Algorithm for Elo {
     fn default_rating(&self) -> Rating {
         EloRating::default().into()
     }
+}
 
+impl OnlineAlgorithm for Elo {
     fn recalc_ratings(&self, input: &[(Rating, u8)]) -> Vec<Rating> {
         assert_eq!(input.len(), 2);
         let p1 = input[0].0.into();

@@ -1,7 +1,7 @@
 use itertools::Itertools;
 
 use crate::domain::{BotId, Match, Rating};
-use crate::ranking::Ranker;
+use crate::ranking::{Ranker, RankingStrategyKind};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default, Clone)]
@@ -38,9 +38,6 @@ impl ComputedStats {
             }
         }
 
-        // rating
-        ranker.recalc_rating(&mut self.ratings, m);
-
         // matches_played and matches_with_error
         for p in &m.participants {
             if p.error {
@@ -68,6 +65,14 @@ impl ComputedStats {
                 std::cmp::Ordering::Less => entry.wins += 1,
                 std::cmp::Ordering::Equal => entry.draws += 1,
                 std::cmp::Ordering::Greater => entry.loses += 1,
+            }
+        }
+
+        // rating
+        match ranker.strategy_kind() {
+            RankingStrategyKind::Online => ranker.recalc_rating(&mut self.ratings, m),
+            RankingStrategyKind::Batch => {
+                self.ratings = ranker.recalc_rating_batch(&self.winrate_stats)
             }
         }
     }

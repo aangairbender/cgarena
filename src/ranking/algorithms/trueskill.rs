@@ -1,5 +1,5 @@
 use crate::domain::Rating;
-use crate::ranking::Algorithm;
+use crate::ranking::{Algorithm, OnlineAlgorithm};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use skillratings::{trueskill::*, MultiTeamOutcome};
@@ -60,7 +60,9 @@ impl Algorithm for Trueskill {
     fn default_rating(&self) -> Rating {
         TrueSkillRating::default().into()
     }
+}
 
+impl OnlineAlgorithm for Trueskill {
     fn recalc_ratings(&self, input: &[(Rating, u8)]) -> Vec<Rating> {
         let teams: Vec<Vec<TrueSkillRating>> = input.iter().map(|w| vec![w.0.into()]).collect();
         let ranks = input
