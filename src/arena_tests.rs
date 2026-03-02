@@ -56,6 +56,7 @@ where
     run(
         config.game,
         config.matchmaking,
+        config.leaderboards,
         config.ranking,
         pool.clone(),
         worker_handle,
@@ -543,7 +544,7 @@ async fn cmd_fetch_leaderboard_e2e() {
     assert_eq!(item1.rank, 0);
     assert_eq!(item2.rank, 1);
 
-    assert!(item1.rating.score() > item2.rating.score());
+    assert!(item1.rating.score(3.0) > item2.rating.score(3.0));
 
     assert_eq!(leaderboard.winrate_stats[&(bot1.id, bot2.id)].wins, 1);
     assert_eq!(leaderboard.winrate_stats[&(bot1.id, bot2.id)].draws, 0);

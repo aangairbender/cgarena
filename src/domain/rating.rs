@@ -11,7 +11,7 @@ impl Rating {
         Self { mu, sigma }
     }
 
-    pub fn score(&self) -> f64 {
-        self.mu - self.sigma * 3.0
+    pub fn score(&self, uncertainty_coefficient: f64) -> f64 {
+        self.mu - self.sigma * uncertainty_coefficient
     }
 }

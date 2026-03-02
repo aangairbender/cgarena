@@ -13,6 +13,8 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub log: LogConfig,
+    #[serde(default)]
+    pub leaderboards: LeaderboardsConfig,
     pub workers: Vec<WorkerConfig>,
 }
 
@@ -67,6 +69,11 @@ pub struct ServerConfig {
 pub struct LogConfig {
     pub level: Option<String>,
     pub file: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct LeaderboardsConfig {
+    pub uncertainty_coefficient: Option<f64>,
 }
 
 impl Default for Config {

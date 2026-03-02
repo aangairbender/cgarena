@@ -149,4 +149,5 @@ pub struct LeaderboardItem {
     pub id: BotId,
     pub rank: usize,
     pub rating: Rating,
+    pub rating_ordinal: f64,
 }

@@ -1,6 +1,6 @@
 use crate::arena_commands::*;
 use crate::async_leaderboard::AsyncLeaderboard;
-use crate::config::{GameConfig, MatchmakingConfig, RankingConfig};
+use crate::config::{GameConfig, LeaderboardsConfig, MatchmakingConfig, RankingConfig};
 use crate::domain::*;
 use crate::matchmaking;
 use crate::ranking::Ranker;
@@ -21,6 +21,7 @@ use tracing::{error, instrument, warn};
 pub async fn run(
     game_config: GameConfig,
     matchmaking_config: MatchmakingConfig,
+    leaderboards_config: LeaderboardsConfig,
     ranking_config: RankingConfig,
     pool: SqlitePool,
     worker_handle: WorkerHandle,
@@ -37,7 +38,14 @@ pub async fn run(
         bail!("Configured ranking algorithm only supports 2 player games");
     }
 
-    let mut arena = Arena::new(game_config, matchmaking_config, ranker, pool, worker_handle);
+    let mut arena = Arena::new(
+        game_config,
+        matchmaking_config,
+        leaderboards_config,
+        ranker,
+        pool,
+        worker_handle,
+    );
 
     arena
         .load_from_db()
@@ -83,6 +91,7 @@ pub async fn run(
 struct Arena {
     game_config: GameConfig,
     matchmaking_config: MatchmakingConfig,
+    uncertainty_coefficient: f64,
     pool: SqlitePool,
     bots: Vec<Bot>,
     builds: Vec<Build>,
@@ -98,6 +107,7 @@ impl Arena {
     fn new(
         game_config: GameConfig,
         matchmaking_config: MatchmakingConfig,
+        leaderboards_config: LeaderboardsConfig,
         ranker: Ranker,
         pool: SqlitePool,
         worker_handle: WorkerHandle,
@@ -105,6 +115,7 @@ impl Arena {
         let ranker = Arc::new(ranker);
         Self {
             game_config,
+            uncertainty_coefficient: leaderboards_config.uncertainty_coefficient.unwrap_or(3.0),
             matchmaking_enabled: matchmaking_config.enabled_on_start.unwrap_or(true),
             matchmaking_config,
             pool: pool.clone(),
@@ -363,10 +374,14 @@ impl Arena {
         let items = self
             .bots
             .iter()
-            .map(|bot| LeaderboardItem {
-                id: bot.id,
-                rank: self.rank(&stats, bot.id),
-                rating: self.rating(&stats, bot.id),
+            .map(|bot| {
+                let rating = self.rating(&stats, bot.id);
+                LeaderboardItem {
+                    id: bot.id,
+                    rank: self.rank(&stats, bot.id),
+                    rating,
+                    rating_ordinal: rating.score(self.uncertainty_coefficient),
+                }
             })
             .sorted_by_key(|item| item.rank)
             .collect_vec();
@@ -453,7 +468,10 @@ impl Arena {
         let stronger_bots_cnt = self
             .bots
             .iter()
-            .filter(|b| my_rating.score() < self.rating(stats, b.id).score())
+            .filter(|b| {
+                my_rating.score(self.uncertainty_coefficient)
+                    < self.rating(stats, b.id).score(self.uncertainty_coefficient)
+            })
             .count();
         stronger_bots_cnt
     }

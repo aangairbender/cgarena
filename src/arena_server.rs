@@ -51,6 +51,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let arena_task_handle = arena::run(
         config.game,
         config.matchmaking,
+        config.leaderboards,
         config.ranking,
         pool,
         worker_handle,
