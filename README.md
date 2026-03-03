@@ -43,7 +43,7 @@ To build CG Arena from source code run the following (make sure `cargo` and `npm
 ```shell
 git clone https://github.com/aangairbender/cgarena.git
 cd cgarena
-cargo build --release
+make build
 ```
 
 You can find the executable in `/target/release` folder.
