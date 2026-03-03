@@ -138,7 +138,7 @@ fn bradley_terry_bayesian(
     // Build index
     // --------------------------------------------------------
     let mut bots = HashMap::<BotId, usize>::new();
-    for ((a, b), _) in winrate_stats {
+    for (a, b) in winrate_stats.keys() {
         if !bots.contains_key(a) {
             let idx = bots.len();
             bots.insert(*a, idx);
@@ -158,8 +158,8 @@ fn bradley_terry_bayesian(
     let mut pairs = Vec::<Pair>::new();
 
     for ((a, b), stats) in winrate_stats {
-        let i = bots[&a];
-        let j = bots[&b];
+        let i = bots[a];
+        let j = bots[b];
 
         let wins_ij = stats.wins as f64 + 0.5 * stats.draws as f64;
         let wins_ji = stats.loses as f64 + 0.5 * stats.draws as f64;
