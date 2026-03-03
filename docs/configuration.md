@@ -40,11 +40,37 @@ Supported algorithms are:
 - `"OpenSkill"`
 - `"TrueSkill"`
 - `"Elo"`
+- `"BradleyTerry"`
 
-Each algorithm has their own configuration parameters which you can also set if desired:
+**Bradley–Terry** → best for global, high-accuracy ranking
 
+**OpenSkill / TrueSkill** → best for uncertainty-driven matchmaking
+
+**Elo** → best for simple, fast, lightweight ranking
+
+Each algorithm has their own configuration parameters which you can also set if desired.
 
 #### OpenSkill:
+
+**Best for**: Flexible, open Bayesian rating system.
+
+Similar to TrueSkill (μ + σ per bot), but open and configurable.
+
+Pros
+
+- Uncertainty modeling
+- Multiplayer support
+- Open implementation
+- Flexible update behavior
+
+Cons
+
+- Approximate inference
+- More tuning required
+
+👉 Use OpenSkill if you want Bayesian ratings with flexibility and transparency.
+
+Config:
 
 - `beta` - The skill-class width, aka the number of difference in rating points needed to have a ~67% win probability against another player.
 By default set to 25 / 6 ≈ 4.167.
@@ -54,6 +80,30 @@ By default set to 0.000_001.
 Do not set this to a negative value.
 
 #### TrueSkill:
+
+**Best for**: Online rating with uncertainty tracking.
+
+Each bot has:
+
+- μ (skill estimate)
+- σ (uncertainty)
+
+Ratings update incrementally after each match using Bayesian inference.
+
+Pros
+
+- Explicit uncertainty modeling
+- Handles teams/multiplayer
+- Good for matchmaking
+
+Cons
+
+- More complex
+- Approximate inference
+
+👉 Use TrueSkill if you need live updates and uncertainty-aware matchmaking.
+
+Config:
 
 - `draw_probability` - The probability of draws occurring in match. The higher the probability, the bigger the updates to the ratings in a non-drawn outcome.
 By default set to 0.1, meaning 10% chance of a draw.
@@ -65,8 +115,64 @@ If your game is more reliant on pure skill, decrease this value, if there are mo
 
 #### Elo:
 
+**Best for**: Simple, fast, online updates.
+
+Each bot has a single rating number. After every match, ratings are adjusted based on expected vs actual outcome.
+
+Pros
+
+- Very fast
+- Easy to understand
+- Good for continuous online updates
+
+Cons
+
+- No uncertainty modeling
+- Fixed learning rate (K-factor tuning required)
+- Less statistically efficient with large datasets
+
+👉 Use Elo if you want simplicity and lightweight real-time updates.
+
+Config:
+
 - `k` - The k-value is the maximum amount of rating change from a single match. In chess, k-values from 40 to 10 are used, with the most common being 32, 24, 16 or 10. The higher the number, the more volatile the ranking.
 Here the default is 32.
+
+#### BradleyTerry:
+
+**Best for**: Accurate ranking from large batches of matches.
+
+Each bot has a real-valued skill parameter. Ratings are estimated by maximizing likelihood over all match results.
+
+Pros
+
+- Statistically principled
+- Very stable rankings with enough data
+- Can compute uncertainty (via covariance matrix)
+- Works well for batch recomputation
+
+Cons
+
+- Requires iterative optimization
+- More computationally expensive
+
+👉 Use Bradley–Terry if you run many matches and want the most statistically accurate global ranking.
+
+Config:
+
+- `max_iter` - The maximum number of optimization iterations allowed when fitting the model.
+
+## `[leaderboards]`
+
+### `uncertainty_coefficient`
+
+Controls how rating is calculated on the leaderboard:
+
+```
+bot.rating = bot.mu + bot.sigma * uncertainty_coefficient
+```
+
+Default value is **3**.
 
 ## `[server]`
 
