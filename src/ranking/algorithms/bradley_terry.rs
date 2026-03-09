@@ -132,6 +132,11 @@ fn bradley_terry_bayesian(
     winrate_stats: &HashMap<(BotId, BotId), WinrateStats>,
     max_iter: usize,
 ) -> HashMap<BotId, Rating> {
+    // 🚨 Handle empty dataset
+    if winrate_stats.is_empty() {
+        return HashMap::new();
+    }
+    
     let scale = 400.0 / std::f64::consts::LN_10;
 
     // --------------------------------------------------------
@@ -228,4 +233,200 @@ fn bradley_terry_bayesian(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn create_stats(w: u64, l: u64, d: u64) -> WinrateStats {
+        WinrateStats {
+            wins: w,
+            loses: l,
+            draws: d,
+        }
+    }
+
+    fn run(stats_map: HashMap<(i64, i64), WinrateStats>) -> HashMap<i64, Rating> {
+        let stats = stats_map.into_iter()
+            .map(|(key, value)| ((key.0.into(), key.1.into()), value))
+            .collect();
+        let res = bradley_terry_bayesian(&stats, 50);
+        return res.into_iter()
+            .map(|(key, value)| (key.into(), value))
+            .collect()
+    }
+
+    #[test]
+    fn empty_dataset_returns_empty() {
+        let stats = HashMap::new();
+        let result = run(stats);
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn single_match_two_bots() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(1, 0, 0));
+
+        let result = run(stats);
+
+        assert_eq!(result.len(), 2);
+
+        let a = result.get(&1).unwrap();
+        let b = result.get(&2).unwrap();
+
+        assert!(a.mu > b.mu);
+    }
+
+    #[test]
+    fn symmetric_results_equal_rating() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(10, 10, 0));
+
+        let result = run(stats);
+
+        let a = result.get(&1).unwrap();
+        let b = result.get(&2).unwrap();
+
+        assert!((a.mu - b.mu).abs() < 1e-6);
+    }
+
+    #[test]
+    fn draw_only_matches() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(0, 0, 100));
+
+        let result = run(stats);
+
+        let a = result.get(&1).unwrap();
+        let b = result.get(&2).unwrap();
+
+        assert!((a.mu - b.mu).abs() < 1e-6);
+    }
+
+    #[test]
+    fn one_sided_matches() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(100, 0, 0));
+
+        let result = run(stats);
+
+        let a = result.get(&1).unwrap();
+        let b = result.get(&2).unwrap();
+
+        assert!(a.mu > b.mu);
+        assert!(a.mu - b.mu > 50.0);
+    }
+
+    #[test]
+    fn transitive_strength() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(20, 0, 0));
+        stats.insert((2, 3), create_stats(20, 0, 0));
+
+        let result = run(stats);
+
+        let r1 = result.get(&1).unwrap();
+        let r2 = result.get(&2).unwrap();
+        let r3 = result.get(&3).unwrap();
+
+        assert!(r1.mu > r2.mu);
+        assert!(r2.mu > r3.mu);
+    }
+
+    #[test]
+    fn disconnected_groups_do_not_crash() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(10, 0, 0));
+        stats.insert((3, 4), create_stats(10, 0, 0));
+
+        let result = run(stats);
+
+        assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn zero_game_pair_is_ignored() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(0, 0, 0));
+
+        let result = run(stats);
+
+        let a = result.get(&1).unwrap();
+        let b = result.get(&2).unwrap();
+
+        assert!((a.mu - b.mu).abs() < 1e-6);
+    }
+
+    #[test]
+    fn large_match_counts_do_not_overflow() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(1_000_000, 0, 0));
+
+        let result = run(stats);
+
+        let a = result.get(&1).unwrap();
+        let b = result.get(&2).unwrap();
+
+        assert!(a.mu > b.mu);
+    }
+
+    #[test]
+    fn chain_of_bots_produces_ordered_ranking() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(50, 0, 0));
+        stats.insert((2, 3), create_stats(50, 0, 0));
+        stats.insert((3, 4), create_stats(50, 0, 0));
+        stats.insert((4, 5), create_stats(50, 0, 0));
+
+        let result = run(stats);
+
+        for i in 1..5 {
+            let a = result.get(&i).unwrap();
+            let b = result.get(&(i + 1)).unwrap();
+
+            assert!(a.mu > b.mu);
+        }
+    }
+
+    #[test]
+    fn ratings_are_finite() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(5, 5, 5));
+        stats.insert((2, 3), create_stats(5, 5, 5));
+        stats.insert((3, 1), create_stats(5, 5, 5));
+
+        let result = run(stats);
+
+        for r in result.values() {
+            assert!(r.mu.is_finite());
+            assert!(r.sigma.is_finite());
+        }
+    }
+
+    #[test]
+    fn uncertainty_is_positive() {
+        let mut stats = HashMap::new();
+
+        stats.insert((1, 2), create_stats(1, 0, 0));
+
+        let result = run(stats);
+
+        for r in result.values() {
+            assert!(r.sigma >= 0.0);
+        }
+    }
 }

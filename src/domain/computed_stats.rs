@@ -105,6 +105,14 @@ impl ComputedStats {
             .sum()
     }
 
+    pub fn matches_played_vs(&self, id: BotId, opp: BotId) -> u64 {
+        self.winrate_stats
+            .iter()
+            .find(|(k, _)| k.0 == id && k.1 == opp)
+            .map(|(_, v)| v.total())
+            .unwrap_or(0)
+    }
+
     pub fn winrate_stats_snapshot(&self) -> HashMap<(BotId, BotId), WinrateStats> {
         self.winrate_stats.clone()
     }

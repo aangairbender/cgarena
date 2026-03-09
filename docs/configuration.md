@@ -21,13 +21,24 @@ Whether the map is symmetric for all the players.
 
 ## `[matchmaking]`
 
-### `min_matches`
+### `enabled_on_start`
 
-Matchmaking prioritizes bots which played less than `min_matches` matches with probability `min_matches_preference`. Otherwise matchmaking picks bots randomly.
+Whether matchmaking is enabled when arena is started. Defaults to `true`.
 
-### `min_matches_preference`
+### `algorithm`
 
-Check the explanation for `min_matches` above.
+Currently 2 algorithms are supported: "v1" and "v2". Defaults to "v1".
+
+If `algorithm` is `"v1"` (or omitted), the following fields are used:
+
+- `min_matches`: matchmaking prioritizes bots which played less than `min_matches` matches with probability `min_matches_preference`. Otherwise matchmaking picks bots randomly.
+- `min_matches_preference`: check the explanation for `min_matches` above.
+
+If `algorithm` is `"v2"`, the following fields are used:
+
+- `min_matches_against_best`: (optional) minimum amount of matches to be played between any bot and the current leaderboard leader. Usually used when you want to run certain amount of matches versus the leader for a newly submitted bot. The main goal is to check winrate and detect regressions early.
+- `min_matches_per_pair`: minimum amount of matches to be played between each pair of bots
+- `max_matches`: (optional) max matches per bot. If all bots have played more than `max_matches` than matchmaking would pause.
 
 ## `[ranking]`
 

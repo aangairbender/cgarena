@@ -2,7 +2,7 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::ranking::algorithms::{bradley_terry, elo, openskill, trueskill};
+use crate::{matchmaking::MatchmakingAlgorithmConfig, ranking::algorithms::{bradley_terry, elo, openskill, trueskill}};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -27,8 +27,8 @@ pub struct GameConfig {
 
 #[derive(Serialize, Deserialize)]
 pub struct MatchmakingConfig {
-    pub min_matches: u32,
-    pub min_matches_preference: f64,
+    #[serde(flatten)]
+    pub algorithm: MatchmakingAlgorithmConfig,
     pub enabled_on_start: Option<bool>,
 }
 
@@ -98,9 +98,6 @@ impl Config {
         if self.game.min_players > self.game.max_players {
             bail!("game.max_players must be not less than game.min_players");
         }
-        if !(0.0..=1.0).contains(&self.matchmaking.min_matches_preference) {
-            bail!("matchmaking.min_matches_preference should be in 0..1 range");
-        }
         for config in &self.workers {
             let WorkerConfig::Embedded(config) = config;
 
@@ -132,5 +129,81 @@ mod test {
     #[test]
     fn default_config_is_valid() {
         let _: Config = toml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
+    }
+
+    #[test]
+    fn test_matchmaking_legacy_fallback_no_tag() {
+        // Old config file: No "algorithm" key exists
+        let toml_str = r#"
+            enabled_on_start = true
+            min_matches = 10
+            min_matches_preference = 0.5
+        "#;
+
+        let config: MatchmakingConfig = toml::from_str(toml_str)
+            .expect("Should parse legacy config by falling back to Legacy variant");
+
+        // Verify it mapped to the Legacy variant containing V1 data
+        match config.algorithm {
+            MatchmakingAlgorithmConfig::Legacy(v1) => {
+                assert_eq!(v1.min_matches, 10);
+                assert_eq!(v1.min_matches_preference, 0.5);
+            }
+            _ => panic!("Expected Legacy variant for missing tag"),
+        }
+    }
+
+    #[test]
+    fn test_matchmaking_explicit_v2_tag() {
+        // New config file: Explicitly using the "v2" algorithm
+        let toml_str = r#"
+            algorithm = "v2"
+            enabled_on_start = true
+            min_matches_per_pair = 20
+        "#;
+
+        let config: MatchmakingConfig = toml::from_str(toml_str)
+            .expect("Should parse V2 algorithm accurately");
+
+        match config.algorithm {
+            MatchmakingAlgorithmConfig::V2(v2) => {
+                assert_eq!(v2.min_matches_per_pair, 20);
+                assert!(v2.max_matches.is_none());
+            }
+            _ => panic!("Expected V2 variant"),
+        }
+    }
+
+    #[test]
+    fn test_matchmaking_explicit_v1_tag() {
+        // User explicitly wants V1 by name
+        let toml_str = r#"
+            algorithm = "v1"
+            min_matches = 5
+            min_matches_preference = 0.1
+        "#;
+
+        let config: MatchmakingConfig = toml::from_str(toml_str)
+            .expect("Should parse explicit V1 tag");
+
+        match config.algorithm {
+            MatchmakingAlgorithmConfig::V1(v1) => {
+                assert_eq!(v1.min_matches, 5);
+            }
+            _ => panic!("Expected V1 variant"),
+        }
+    }
+
+    #[test]
+    fn test_matchmaking_v2_missing_required_field() {
+        // When a tag is provided, Serde becomes strict.
+        // If "algorithm = v2" is set, but required fields are missing, it should fail.
+        let toml_str = r#"
+            algorithm = "v2"
+            enabled_on_start = true
+        "#;
+
+        let result: Result<MatchmakingConfig, _> = toml::from_str(toml_str);
+        assert!(result.is_err(), "Should fail because V2 is missing 'min_matches_per_pair'");
     }
 }

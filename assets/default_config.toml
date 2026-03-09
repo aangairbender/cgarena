@@ -7,16 +7,13 @@ max_players = 2
 # if 'symmetric' = false CG Arena will play n! matches per seed, where n is the amount of players.
 symmetric = true
 
-# matchmaking prioritizes bots which played less than 'min_matches' matches with probability 'min_matches_preference'
-# otherwise matchmaking picks bots randomly
-# note: matches would always have distinct bots
 [matchmaking]
-min_matches = 200
-min_matches_preference = 1.0
+algorithm = "v2"
+min_matches_per_pair = 100
 
-# supported algorithms: ["OpenSkill", "TrueSkill", "Elo"]
+# supported algorithms: ["OpenSkill", "TrueSkill", "Elo", "BradleyTerry"]
 [ranking]
-algorithm = "OpenSkill"
+algorithm = "BradleyTerry"
 
 # 'port' controls web server port. If 'port' is omitted then OS assigns some available port
 # 'expose' controls whether to expose web server to the local network

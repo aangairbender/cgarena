@@ -153,6 +153,8 @@ impl Arena {
             self.perform_matchmaking()?;
         }
 
+        self.send_matches_to_workers()?;
+
         self.process_finished_matches().await;
 
         self.let_leaderboards_catchup_with_live_matches();
@@ -579,6 +581,10 @@ impl Arena {
             self.match_queue.extend(new_matches);
         }
 
+        Ok(())
+    }
+
+    pub fn send_matches_to_workers(&mut self) -> anyhow::Result<()>{
         while let Some(input) = self.match_queue.pop_front() {
             match self.worker_handle.match_tx.try_send(input) {
                 Ok(_) => {}
@@ -701,14 +707,32 @@ impl Arena {
             return vec![];
         };
 
-        let candidates = self
-            .bots
+        let ready_bot_ids = self.bots
             .iter()
             .map(|b| b.id)
             .filter(|id| self.is_bot_ready_for_playing(*id))
-            .map(|id| matchmaking::Candidate {
+            .collect_vec();
+
+        let candidates = ready_bot_ids
+            .iter()
+            .map(|&id| matchmaking::Candidate {
                 id,
-                matches_played: stats.matches_played(id),
+                rating: self.rating(&stats, id).score(self.uncertainty_coefficient),
+                matches_total: {
+                    let played = stats.matches_played(id);
+                    let queued = self.match_queue.iter().filter(|m| m.bots.iter().any(|b| b.bot_id == id)).count() as u64;
+                    played + queued
+                },
+                matches_vs: ready_bot_ids.iter()
+                    .filter(|&opp_id| id != *opp_id)
+                    .map(|opp_id| {
+                        let played = stats.matches_played_vs(id, *opp_id);
+                        let queued = self.match_queue.iter()
+                            .filter(|m| m.bots.iter().any(|b| b.bot_id == id) && m.bots.iter().any(|b| b.bot_id == *opp_id))
+                            .count() as u64;
+                        (*opp_id, played + queued)
+                    })
+                    .collect(),
             })
             .collect_vec();
 
