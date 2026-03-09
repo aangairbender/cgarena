@@ -584,7 +584,7 @@ impl Arena {
         Ok(())
     }
 
-    pub fn send_matches_to_workers(&mut self) -> anyhow::Result<()>{
+    pub fn send_matches_to_workers(&mut self) -> anyhow::Result<()> {
         while let Some(input) = self.match_queue.pop_front() {
             match self.worker_handle.match_tx.try_send(input) {
                 Ok(_) => {}
@@ -707,7 +707,8 @@ impl Arena {
             return vec![];
         };
 
-        let ready_bot_ids = self.bots
+        let ready_bot_ids = self
+            .bots
             .iter()
             .map(|b| b.id)
             .filter(|id| self.is_bot_ready_for_playing(*id))
@@ -720,15 +721,25 @@ impl Arena {
                 rating: self.rating(&stats, id).score(self.uncertainty_coefficient),
                 matches_total: {
                     let played = stats.matches_played(id);
-                    let queued = self.match_queue.iter().filter(|m| m.bots.iter().any(|b| b.bot_id == id)).count() as u64;
+                    let queued = self
+                        .match_queue
+                        .iter()
+                        .filter(|m| m.bots.iter().any(|b| b.bot_id == id))
+                        .count() as u64;
                     played + queued
                 },
-                matches_vs: ready_bot_ids.iter()
+                matches_vs: ready_bot_ids
+                    .iter()
                     .filter(|&opp_id| id != *opp_id)
                     .map(|opp_id| {
                         let played = stats.matches_played_vs(id, *opp_id);
-                        let queued = self.match_queue.iter()
-                            .filter(|m| m.bots.iter().any(|b| b.bot_id == id) && m.bots.iter().any(|b| b.bot_id == *opp_id))
+                        let queued = self
+                            .match_queue
+                            .iter()
+                            .filter(|m| {
+                                m.bots.iter().any(|b| b.bot_id == id)
+                                    && m.bots.iter().any(|b| b.bot_id == *opp_id)
+                            })
                             .count() as u64;
                         (*opp_id, played + queued)
                     })

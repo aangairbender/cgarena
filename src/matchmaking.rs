@@ -57,9 +57,15 @@ pub fn create_match(
     let n_players = rng().random_range(game_config.min_players..=game_config.max_players) as usize;
 
     let bot_ids = match &matchmaking_config.algorithm {
-        MatchmakingAlgorithmConfig::V1(matchmaking_algorithm_v1_config) => pick_participants_v1(n_players, matchmaking_algorithm_v1_config, candidates),
-        MatchmakingAlgorithmConfig::V2(matchmaking_algorithm_v2_config) => pick_participants_v2(n_players, matchmaking_algorithm_v2_config, candidates),
-        MatchmakingAlgorithmConfig::Legacy(matchmaking_algorithm_v1_config) => pick_participants_v1(n_players, matchmaking_algorithm_v1_config, candidates),
+        MatchmakingAlgorithmConfig::V1(matchmaking_algorithm_v1_config) => {
+            pick_participants_v1(n_players, matchmaking_algorithm_v1_config, candidates)
+        }
+        MatchmakingAlgorithmConfig::V2(matchmaking_algorithm_v2_config) => {
+            pick_participants_v2(n_players, matchmaking_algorithm_v2_config, candidates)
+        }
+        MatchmakingAlgorithmConfig::Legacy(matchmaking_algorithm_v1_config) => {
+            pick_participants_v1(n_players, matchmaking_algorithm_v1_config, candidates)
+        }
     };
 
     let Some(bot_ids) = bot_ids else {
@@ -100,13 +106,12 @@ fn pick_participants_v1(
         .map(|c| c.id)
         .collect::<Vec<_>>();
 
-    let first_bot_id = if !bot_ids_min_matches.is_empty()
-        && rng.random::<f64>() < min_matches_preference
-    {
-        bot_ids_min_matches[rng.random_range(0..bot_ids_min_matches.len())]
-    } else {
-        bot_ids[rng.random_range(0..bot_ids.len())]
-    };
+    let first_bot_id =
+        if !bot_ids_min_matches.is_empty() && rng.random::<f64>() < min_matches_preference {
+            bot_ids_min_matches[rng.random_range(0..bot_ids_min_matches.len())]
+        } else {
+            bot_ids[rng.random_range(0..bot_ids.len())]
+        };
 
     let mut players = Vec::with_capacity(n_players);
     players.push(first_bot_id);
@@ -124,13 +129,18 @@ fn pick_participants_v2(
 
     // 1. if some bot has less games vs best than `min_matches_against_best` then create a game with that bot and best.
 
-    let best_bot_ids = candidates.iter()
+    let best_bot_ids = candidates
+        .iter()
         .sorted_by(|a, b| a.rating.total_cmp(&b.rating).reverse())
         .take(2)
         .map(|c| c.id)
         .collect_vec();
 
-    assert_eq!(best_bot_ids.len(), 2, "this function should not be called with less than 2 candidates");
+    assert_eq!(
+        best_bot_ids.len(),
+        2,
+        "this function should not be called with less than 2 candidates"
+    );
     let best_bot_id_for = |id: BotId| -> BotId {
         if best_bot_ids[0] == id {
             best_bot_ids[1]
@@ -148,10 +158,13 @@ fn pick_participants_v2(
     let prio_vs_best = if can_match_top2 {
         Some((best_bot_ids[0], best_bot_ids[1]))
     } else {
-        candidates.iter()
+        candidates
+            .iter()
             .map(|c| {
                 let best_for_me = best_bot_id_for(c.id);
-                let (opp, cnt) = c.matches_vs.iter()
+                let (opp, cnt) = c
+                    .matches_vs
+                    .iter()
                     .find(|&(opp, _)| *opp == best_for_me)
                     .unwrap();
                 (c.id, (*opp, *cnt))
@@ -161,16 +174,26 @@ fn pick_participants_v2(
             .map(|(bot_a, (bot_b, _))| (bot_a, bot_b))
     };
 
-
     // bot with lowest matches playest against some other bot
-    let pair_lower_than_min = candidates.iter()
-        .map(|c| (c.id, c.matches_vs.iter().map(|(opp, cnt)| (*opp, *cnt)).min_by_key(|(_, cnt)| *cnt).unwrap()))
+    let pair_lower_than_min = candidates
+        .iter()
+        .map(|c| {
+            (
+                c.id,
+                c.matches_vs
+                    .iter()
+                    .map(|(opp, cnt)| (*opp, *cnt))
+                    .min_by_key(|(_, cnt)| *cnt)
+                    .unwrap(),
+            )
+        })
         .min_by_key(|(_, (_, cnt))| *cnt)
         .filter(|(_, (_, cnt))| *cnt < matchmaking_config.min_matches_per_pair)
         .map(|(bot_a, (bot_b, _))| (bot_a, bot_b));
 
     let random_lower_than_max = {
-        let bot_ids_with_not_enough_matches = candidates.iter()
+        let bot_ids_with_not_enough_matches = candidates
+            .iter()
             .filter(|c| c.matches_total < matchmaking_config.max_matches.unwrap_or(u64::MAX))
             .map(|c| c.id)
             .collect_vec();
@@ -203,11 +226,7 @@ fn pick_participants_v2(
     Some(players)
 }
 
-fn backfill_random(
-    n_players: usize,
-    players: &mut Vec<BotId>,
-    candidates: &[Candidate],
-) {
+fn backfill_random(n_players: usize, players: &mut Vec<BotId>, candidates: &[Candidate]) {
     let mut rng = rng();
     while players.len() < n_players {
         let next_bot_id = loop {
@@ -234,9 +253,24 @@ mod test {
         };
 
         let candidates = vec![
-            Candidate { id: 1.into(), rating: 2.0, matches_total: 5, matches_vs: [(2.into(), 3), (3.into(), 2)].into() },
-            Candidate { id: 2.into(), rating: 1.0, matches_total: 3, matches_vs: [(1.into(), 3), (3.into(), 0)].into() },
-            Candidate { id: 3.into(), rating: 1.0, matches_total: 2, matches_vs: [(1.into(), 2), (2.into(), 0)].into() },
+            Candidate {
+                id: 1.into(),
+                rating: 2.0,
+                matches_total: 5,
+                matches_vs: [(2.into(), 3), (3.into(), 2)].into(),
+            },
+            Candidate {
+                id: 2.into(),
+                rating: 1.0,
+                matches_total: 3,
+                matches_vs: [(1.into(), 3), (3.into(), 0)].into(),
+            },
+            Candidate {
+                id: 3.into(),
+                rating: 1.0,
+                matches_total: 2,
+                matches_vs: [(1.into(), 2), (2.into(), 0)].into(),
+            },
         ];
 
         let bot_ids: Vec<i64> = pick_participants_v2(2, &config, &candidates)
@@ -258,9 +292,24 @@ mod test {
         };
 
         let candidates = vec![
-            Candidate { id: 1.into(), rating: 2.0, matches_total: 5, matches_vs: [(2.into(), 3), (3.into(), 2)].into() },
-            Candidate { id: 2.into(), rating: 1.0, matches_total: 3, matches_vs: [(1.into(), 3), (3.into(), 0)].into() },
-            Candidate { id: 3.into(), rating: 1.0, matches_total: 2, matches_vs: [(1.into(), 2), (2.into(), 0)].into() },
+            Candidate {
+                id: 1.into(),
+                rating: 2.0,
+                matches_total: 5,
+                matches_vs: [(2.into(), 3), (3.into(), 2)].into(),
+            },
+            Candidate {
+                id: 2.into(),
+                rating: 1.0,
+                matches_total: 3,
+                matches_vs: [(1.into(), 3), (3.into(), 0)].into(),
+            },
+            Candidate {
+                id: 3.into(),
+                rating: 1.0,
+                matches_total: 2,
+                matches_vs: [(1.into(), 2), (2.into(), 0)].into(),
+            },
         ];
 
         let bot_ids: Vec<i64> = pick_participants_v2(2, &config, &candidates)

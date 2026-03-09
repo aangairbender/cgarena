@@ -136,7 +136,7 @@ fn bradley_terry_bayesian(
     if winrate_stats.is_empty() {
         return HashMap::new();
     }
-    
+
     let scale = 400.0 / std::f64::consts::LN_10;
 
     // --------------------------------------------------------
@@ -249,13 +249,15 @@ mod tests {
     }
 
     fn run(stats_map: HashMap<(i64, i64), WinrateStats>) -> HashMap<i64, Rating> {
-        let stats = stats_map.into_iter()
+        let stats = stats_map
+            .into_iter()
             .map(|(key, value)| ((key.0.into(), key.1.into()), value))
             .collect();
         let res = bradley_terry_bayesian(&stats, 50);
-        return res.into_iter()
+        return res
+            .into_iter()
             .map(|(key, value)| (key.into(), value))
-            .collect()
+            .collect();
     }
 
     #[test]

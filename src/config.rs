@@ -2,7 +2,10 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::{matchmaking::MatchmakingAlgorithmConfig, ranking::algorithms::{bradley_terry, elo, openskill, trueskill}};
+use crate::{
+    matchmaking::MatchmakingAlgorithmConfig,
+    ranking::algorithms::{bradley_terry, elo, openskill, trueskill},
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -162,8 +165,8 @@ mod test {
             min_matches_per_pair = 20
         "#;
 
-        let config: MatchmakingConfig = toml::from_str(toml_str)
-            .expect("Should parse V2 algorithm accurately");
+        let config: MatchmakingConfig =
+            toml::from_str(toml_str).expect("Should parse V2 algorithm accurately");
 
         match config.algorithm {
             MatchmakingAlgorithmConfig::V2(v2) => {
@@ -183,8 +186,8 @@ mod test {
             min_matches_preference = 0.1
         "#;
 
-        let config: MatchmakingConfig = toml::from_str(toml_str)
-            .expect("Should parse explicit V1 tag");
+        let config: MatchmakingConfig =
+            toml::from_str(toml_str).expect("Should parse explicit V1 tag");
 
         match config.algorithm {
             MatchmakingAlgorithmConfig::V1(v1) => {
@@ -204,6 +207,9 @@ mod test {
         "#;
 
         let result: Result<MatchmakingConfig, _> = toml::from_str(toml_str);
-        assert!(result.is_err(), "Should fail because V2 is missing 'min_matches_per_pair'");
+        assert!(
+            result.is_err(),
+            "Should fail because V2 is missing 'min_matches_per_pair'"
+        );
     }
 }
