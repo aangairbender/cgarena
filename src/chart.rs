@@ -9,6 +9,8 @@ use crate::{
     domain::{BotId, MatchAttributeValue, MatchFilter, MatchId},
 };
 
+const MATCHES_PER_CHART: usize = 1000;
+
 pub async fn visualize(
     filter: MatchFilter,
     attribute_name: String,
@@ -23,7 +25,10 @@ pub async fn visualize(
         .map(|m| m.id)
         .collect();
 
-    let last_match_ids: Vec<MatchId> = filtered_match_ids.into_iter().rev().take(1000).collect();
+    let last_match_ids: Vec<MatchId> = filtered_match_ids
+        .into_iter()
+        .k_largest_by_key::<_, i64>(MATCHES_PER_CHART, |id| (*id).into())
+        .collect();
 
     let data = db::fetch_turn_attributes(&pool, &last_match_ids, &attribute_name).await?;
 
@@ -48,8 +53,8 @@ pub async fn visualize(
         res.entry(bot_id)
             .or_default()
             .entry(turn)
-            .or_default()
-            .adjust(v);
+            .and_modify(|stats| stats.adjust(v))
+            .or_insert(v.into());
     }
 
     let overview = ChartOverview {
@@ -79,12 +84,22 @@ pub async fn visualize(
     Ok(overview)
 }
 
-#[derive(Default)]
 struct Stats {
     sum: f64,
     min: f64,
     max: f64,
     cnt: u64,
+}
+
+impl From<f64> for Stats {
+    fn from(value: f64) -> Self {
+        Self {
+            sum: value,
+            min: value,
+            max: value,
+            cnt: 1,
+        }
+    }
 }
 
 impl Stats {
