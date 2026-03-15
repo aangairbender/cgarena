@@ -13,6 +13,7 @@ Local bot arena similar to CodinGame.
     - OpenSkill
     - TrueSkill
     - Elo
+    - Bradley-Terry
 - Realtime leaderboard
 - Analytics
   - Custom leaderboards based on some match criteria (e.g. small maps)
