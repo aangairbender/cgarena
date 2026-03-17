@@ -1,5 +1,8 @@
 # CG Arena
 
+[![Crates.io](https://img.shields.io/crates/v/cgarena.svg)](https://crates.io/crates/cgarena)
+[![Crates.io](https://img.shields.io/crates/d/cgarena.svg)](https://crates.io/crates/cgarena)
+
 Local bot arena similar to CodinGame.
 
 ![screenshot](/docs/img/readme_screenshot.png)
