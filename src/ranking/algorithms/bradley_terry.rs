@@ -21,7 +21,7 @@ impl BradleyTerry {
 
 impl Algorithm for BradleyTerry {
     fn supports_multi_team(&self) -> bool {
-        false
+        true
     }
 
     fn default_rating(&self) -> Rating {
