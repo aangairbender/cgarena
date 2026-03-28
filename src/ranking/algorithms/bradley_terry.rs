@@ -223,10 +223,16 @@ fn bradley_terry_bayesian(
     // --------------------------------------------------------
     let base = 1500.0;
     let mut result = HashMap::new();
+    let total_mean_covariance = covariance.iter().sum::<f64>() / (n * n) as f64;
 
     for (bot, idx) in bots {
         let mu = base + s[idx] * scale;
-        let variance = covariance[(idx, idx)].max(0.0);
+        let row_mean_covariance = covariance.row(idx).iter().sum::<f64>() / n as f64;
+        // Bradley-Terry only identifies relative skill. Project uncertainty onto the
+        // zero-mean subspace so sigma reflects evidence about this bot relative to the field
+        // instead of the largely constant global-offset mode.
+        let variance =
+            (covariance[(idx, idx)] - 2.0 * row_mean_covariance + total_mean_covariance).max(0.0);
         let sigma = variance.sqrt() * scale;
 
         result.insert(bot, Rating { mu, sigma });
@@ -430,5 +436,20 @@ mod tests {
         for r in result.values() {
             assert!(r.sigma >= 0.0);
         }
+    }
+
+    #[test]
+    fn uncertainty_shrinks_with_more_matches() {
+        let mut few = HashMap::new();
+        few.insert((1, 2), create_stats(1, 0, 0));
+
+        let mut many = HashMap::new();
+        many.insert((1, 2), create_stats(1000, 0, 0));
+
+        let few = run(few);
+        let many = run(many);
+
+        assert!(many[&1].sigma < few[&1].sigma);
+        assert!(many[&2].sigma < few[&2].sigma);
     }
 }
