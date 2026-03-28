@@ -32,7 +32,13 @@ function AppNavbar() {
   return (
     <Navbar className="bg-body-tertiary">
       <Container>
-        <Navbar.Brand href="/">CG Arena</Navbar.Brand>
+        <Link
+          to="/"
+          className="navbar-brand"
+          search={(prev) => ({ selectedBotId: prev.selectedBotId })}
+        >
+          CG Arena
+        </Link>
         <Navbar.Toggle aria-controls="basic-navbar-nav" />
         <Navbar.Collapse id="basic-navbar-nav">
           <Nav className="me-auto">
