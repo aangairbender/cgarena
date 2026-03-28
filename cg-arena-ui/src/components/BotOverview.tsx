@@ -1,7 +1,4 @@
-import {
-  BuildResponse,
-  BotOverviewResponse,
-} from "@models";
+import { BuildResponse, BotOverviewResponse } from "@models";
 import React from "react";
 import { Badge, Button, Stack, Table } from "react-bootstrap";
 import { FaCode, FaPencil, FaTrash } from "react-icons/fa6";
@@ -57,13 +54,13 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <td>
             <Stack direction="horizontal" gap={2}>
               <Button variant="outline-info" size="sm" onClick={showSourceCode}>
-                <FaCode className="bi"/>
+                <FaCode className="bi" />
               </Button>
               <Button variant="outline-warning" size="sm" onClick={renameBot}>
-                <FaPencil className="bi"/>
+                <FaPencil className="bi" />
               </Button>
               <Button variant="outline-danger" size="sm" onClick={deleteBot}>
-                <FaTrash className="bi"/>
+                <FaTrash className="bi" />
               </Button>
             </Stack>
           </td>

@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { LeaderboardId, LeaderboardOverviewResponse, PatchLeaderboardRequest } from "@models";
+import {
+  LeaderboardId,
+  LeaderboardOverviewResponse,
+  PatchLeaderboardRequest,
+} from "@models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
 
@@ -8,7 +12,9 @@ export interface PatchLeaderboardDialogData {
   onSubmit: (id: LeaderboardId, req: PatchLeaderboardRequest) => Promise<void>;
 }
 
-const PatchLeaderboardDialog = (dialog: DialogProps<PatchLeaderboardDialogData>) => {
+const PatchLeaderboardDialog = (
+  dialog: DialogProps<PatchLeaderboardDialogData>,
+) => {
   const [name, setName] = useState("");
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
@@ -24,8 +30,9 @@ const PatchLeaderboardDialog = (dialog: DialogProps<PatchLeaderboardDialogData>)
 
   if (data === undefined) return null;
 
-  const canSubmit = (name.length > 0 && name != data.leaderboard.name)
-    || (filter.length > 0 && filter != data.leaderboard.filter);
+  const canSubmit =
+    (name.length > 0 && name != data.leaderboard.name) ||
+    (filter.length > 0 && filter != data.leaderboard.filter);
 
   const closeDialog = () => {
     setName("");

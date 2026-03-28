@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Form, Modal, Spinner, ToggleButton, ToggleButtonGroup } from "react-bootstrap";
+import {
+  Alert,
+  Button,
+  Form,
+  Modal,
+  Spinner,
+  ToggleButton,
+  ToggleButtonGroup,
+} from "react-bootstrap";
 import { DialogProps } from "@hooks/useDialog";
-import { BotOverviewResponse, ChartOverviewResponse, ChartRequest, ChartTurnDataResponse } from "@models";
+import {
+  BotOverviewResponse,
+  ChartOverviewResponse,
+  ChartRequest,
+  ChartTurnDataResponse,
+} from "@models";
 import * as api from "@api";
 import { AxisOptions, Chart, UserSerie } from "react-charts";
 import { useTheme } from "@hooks/useTheme";
@@ -30,18 +43,18 @@ const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
 
   const primaryAxis = useMemo(
     (): AxisOptions<ChartTurnDataResponse> => ({
-      getValue: datum => datum.turn,
+      getValue: (datum) => datum.turn,
     }),
-    []
+    [],
   );
 
   const secondaryAxes = useMemo(
     (): AxisOptions<ChartTurnDataResponse>[] => [
       {
-        getValue: datum => datum[metric],
+        getValue: (datum) => datum[metric],
       },
     ],
-    [metric]
+    [metric],
   );
 
   const chartData = useMemo(() => {
@@ -50,14 +63,16 @@ const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
     }
 
     if (chart.items.length == 0) {
-      setError("No matches with such attribute")
+      setError("No matches with such attribute");
       return undefined;
     }
 
-    const mapped: UserSerie<ChartTurnDataResponse>[] = chart.items.map(item => ({
-      label: data.bots.find(b => b.id == item.bot_id)?.name ?? "unknown",
-      data: item.data,
-    }));
+    const mapped: UserSerie<ChartTurnDataResponse>[] = chart.items.map(
+      (item) => ({
+        label: data.bots.find((b) => b.id == item.bot_id)?.name ?? "unknown",
+        data: item.data,
+      }),
+    );
 
     setMetric("avg");
 
@@ -108,7 +123,9 @@ const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
             onChange={(e) => setAttr(e.target.value)}
           />
           <Form.Text className="text-muted">
-            The "key" of the attribute recorded with "[PDATA][turn] key = value". Only last 1000 matches matching the filter would be used for visualization.
+            The "key" of the attribute recorded with "[PDATA][turn] key =
+            value". Only last 1000 matches matching the filter would be used for
+            visualization.
           </Form.Text>
         </Form.Group>
 
@@ -128,38 +145,64 @@ const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
 
         {loading && <Spinner animation="border" />}
 
-        {chartData && <div className="mb-3" style={{height: "400px"}}>
-          <div>
-            <ToggleButtonGroup type="radio" value={metric} name="metric" onChange={(v) => setMetric(v)}>
-              <ToggleButton id="tbg-btn-1" variant="secondary" size="sm" value="avg">
-                avg
-              </ToggleButton>
-              <ToggleButton id="tbg-btn-2" variant="secondary" size="sm" value="min">
-                min
-              </ToggleButton>
-              <ToggleButton id="tbg-btn-3" variant="secondary" size="sm" value="max">
-                max
-              </ToggleButton>
-            </ToggleButtonGroup>
+        {chartData && (
+          <div className="mb-3" style={{ height: "400px" }}>
+            <div>
+              <ToggleButtonGroup
+                type="radio"
+                value={metric}
+                name="metric"
+                onChange={(v) => setMetric(v)}
+              >
+                <ToggleButton
+                  id="tbg-btn-1"
+                  variant="secondary"
+                  size="sm"
+                  value="avg"
+                >
+                  avg
+                </ToggleButton>
+                <ToggleButton
+                  id="tbg-btn-2"
+                  variant="secondary"
+                  size="sm"
+                  value="min"
+                >
+                  min
+                </ToggleButton>
+                <ToggleButton
+                  id="tbg-btn-3"
+                  variant="secondary"
+                  size="sm"
+                  value="max"
+                >
+                  max
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </div>
+            <Chart
+              options={{
+                data: chartData,
+                primaryAxis,
+                secondaryAxes,
+                padding: {
+                  bottom: 16,
+                },
+                dark: theme === "dark",
+              }}
+            />
           </div>
-          <Chart
-            options={{
-              data: chartData,
-              primaryAxis,
-              secondaryAxes,
-              padding: {
-                bottom: 16
-              },
-              dark: theme === "dark"
-            }}
-          />
-        </div>}
+        )}
       </Modal.Body>
       <Modal.Footer>
         <Button variant="secondary" onClick={closeDialog}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={handleCreate} disabled={!canCreate || loading}>
+        <Button
+          variant="primary"
+          onClick={handleCreate}
+          disabled={!canCreate || loading}
+        >
           Visualize
         </Button>
       </Modal.Footer>

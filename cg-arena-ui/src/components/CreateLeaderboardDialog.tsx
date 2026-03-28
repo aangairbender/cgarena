@@ -7,7 +7,9 @@ export interface CreateLeaderboardDialogData {
   onCreate: (req: CreateLeaderboardRequest) => Promise<void>;
 }
 
-const CreateLeaderboardDialog = (dialog: DialogProps<CreateLeaderboardDialogData>) => {
+const CreateLeaderboardDialog = (
+  dialog: DialogProps<CreateLeaderboardDialogData>,
+) => {
   const [name, setName] = useState("");
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");

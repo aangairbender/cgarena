@@ -14,7 +14,7 @@ interface AppNavbarProps {
   loading: boolean;
   status: "connected" | "connecting";
   openSubmitDialog: () => void;
-  matchmakingEnabled: boolean,
+  matchmakingEnabled: boolean;
   enableMatchmaking: (v: boolean) => void;
 }
 
@@ -35,7 +35,9 @@ const AppNavbar: React.FC<AppNavbarProps> = ({
 
         <Stack direction="horizontal" gap={3}>
           {loading && <Spinner animation="border" />}
-          <Badge pill bg={pillBg} text={pillText}>{status}</Badge>
+          <Badge pill bg={pillBg} text={pillText}>
+            {status}
+          </Badge>
           <Form.Switch
             checked={matchmakingEnabled}
             onChange={(e) => enableMatchmaking(e.target.checked)}

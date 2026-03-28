@@ -1,19 +1,29 @@
 import "./App.css";
 import { Button, Card, Container } from "react-bootstrap";
 
-import SubmitBotDialog, { SubmitBotDialogData } from "@components/SubmitBotDialog";
+import SubmitBotDialog, {
+  SubmitBotDialogData,
+} from "@components/SubmitBotDialog";
 import AppNavbar from "@components/AppNavbar";
 import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
 import ViewCodeDialog, { ViewCodeDialogData } from "@components/ViewCodeDialog";
 import ConfirmDialog, { ConfirmDialogData } from "@components/ConfirmDialog";
-import RenameBotDialog, { RenameBotDialogData } from "@components/RenameBotDialog";
+import RenameBotDialog, {
+  RenameBotDialogData,
+} from "@components/RenameBotDialog";
 import { useAppLogic } from "@hooks/useAppLogic";
 import { useDialog } from "@hooks/useDialog";
 import { FaPlus } from "react-icons/fa6";
-import CreateLeaderboardDialog, { CreateLeaderboardDialogData } from "@components/CreateLeaderboardDialog";
-import PatchLeaderboardDialog, { PatchLeaderboardDialogData } from "@components/PatchLeaderboardDialog";
-import ExampleSeedsDialog, { ExampleSeedsDialogData } from "@components/ExampleSeedsDialog";
+import CreateLeaderboardDialog, {
+  CreateLeaderboardDialogData,
+} from "@components/CreateLeaderboardDialog";
+import PatchLeaderboardDialog, {
+  PatchLeaderboardDialogData,
+} from "@components/PatchLeaderboardDialog";
+import ExampleSeedsDialog, {
+  ExampleSeedsDialogData,
+} from "@components/ExampleSeedsDialog";
 import ChartDialog, { ChartDialogData } from "@components/ChartDialog";
 
 function App() {
@@ -42,7 +52,7 @@ function App() {
   const exampleSeedsDialog = useDialog<ExampleSeedsDialogData>();
   const chartDialog = useDialog<ChartDialogData>();
 
-  const selectedBot = bots.find(b => b.id == selectedBotId);
+  const selectedBot = bots.find((b) => b.id == selectedBotId);
 
   return (
     <>
@@ -83,7 +93,7 @@ function App() {
           </Card.Body>
         </Card>
 
-        {leaderboards.map(lb =>
+        {leaderboards.map((lb) => (
           <Leaderboard
             lb={lb}
             bots={bots}
@@ -96,13 +106,15 @@ function App() {
             patchLeaderboardDialog={patchLeaderboardDialog}
             confirmDialog={confirmDialog}
           />
-        )}
+        ))}
 
         <Container className="my-4 d-flex justify-content-center">
           <Button
             className="mx-1"
             variant="outline-secondary"
-            onClick={() => createLeaderboardDialog.show({ onCreate: createLeaderboard })}
+            onClick={() =>
+              createLeaderboardDialog.show({ onCreate: createLeaderboard })
+            }
           >
             <FaPlus className="bi me-2" size={16} />
             New leaderboard

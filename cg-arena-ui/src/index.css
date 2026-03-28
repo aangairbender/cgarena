@@ -17,7 +17,7 @@ body {
   color: #333;
 }
 
-[data-bs-theme=dark] .card-header {
+[data-bs-theme="dark"] .card-header {
   background-color: rgb(14, 48, 65);
   color: rgb(200, 195, 188);
 }
@@ -26,7 +26,8 @@ body {
   background-color: var(--bs-table-hover-bg);
 }
 
-.table th, .table td {
+.table th,
+.table td {
   vertical-align: middle;
 }
 
@@ -35,7 +36,7 @@ body {
 }
 
 .bi {
-  vertical-align: -.125em;
+  vertical-align: -0.125em;
   pointer-events: none;
   fill: currentColor;
 }

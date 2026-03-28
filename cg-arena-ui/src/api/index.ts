@@ -22,7 +22,7 @@ export const fetchStatus = async (): Promise<FetchStatusResponse> => {
 };
 
 export const submitNewBot = async (
-  payload: CreateBotRequest
+  payload: CreateBotRequest,
 ): Promise<BotOverviewResponse> => {
   const req = new Request(`${host}/api/bots`, {
     method: "POST",
@@ -58,7 +58,7 @@ export const deleteBot = async (id: BotId) => {
 };
 
 export const createLeaderboard = async (
-  payload: CreateLeaderboardRequest
+  payload: CreateLeaderboardRequest,
 ): Promise<LeaderboardOverviewResponse> => {
   const req = new Request(`${host}/api/leaderboards`, {
     method: "POST",
@@ -74,7 +74,7 @@ export const createLeaderboard = async (
 
 export const patchLeaderboard = async (
   id: LeaderboardId,
-  payload: PatchLeaderboardRequest
+  payload: PatchLeaderboardRequest,
 ) => {
   const req = new Request(`${host}/api/leaderboards/${id}`, {
     method: "PATCH",
@@ -97,7 +97,7 @@ export const deleteLeaderboard = async (id: LeaderboardId) => {
 };
 
 export const chart = async (
-  payload: ChartRequest
+  payload: ChartRequest,
 ): Promise<ChartOverviewResponse> => {
   const req = new Request(`${host}/api/chart`, {
     method: "POST",

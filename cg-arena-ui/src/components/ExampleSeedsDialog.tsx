@@ -17,8 +17,8 @@ const ExampleSeedsDialog = (dialog: DialogProps<ExampleSeedsDialogData>) => {
     await copyToClipboard(seed);
     setCopied(seed);
     setTimeout(() => {
-      setCopied(c => c == seed ? undefined : c);
-    }, 3000)
+      setCopied((c) => (c == seed ? undefined : c));
+    }, 3000);
   };
 
   return (

@@ -16,7 +16,8 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
   const data = dialog.data;
   if (data === undefined) return null;
 
-  const canSubmit = name.length > 0 && sourceCode.length > 0 && language.length > 0;
+  const canSubmit =
+    name.length > 0 && sourceCode.length > 0 && language.length > 0;
 
   const closeDialog = () => {
     setName("");
@@ -45,7 +46,7 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
   };
 
   const handleSourceFileChanged = (
-    e: React.ChangeEvent<HTMLInputElement>
+    e: React.ChangeEvent<HTMLInputElement>,
   ): void => {
     const files = e.target.files ? Array.from(e.target.files) : [];
     if (files.length == 0) {

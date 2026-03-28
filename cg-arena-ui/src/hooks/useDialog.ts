@@ -4,10 +4,13 @@ export function useDialog<D>(): DialogProps<D> {
   const [isOpen, setIsOpen] = useState(false);
   const [data, setData] = useState<D | undefined>();
 
-  const show = useCallback((data: D) => {
-    setData(data);
-    setIsOpen(true);
-  }, [setData, setIsOpen]);
+  const show = useCallback(
+    (data: D) => {
+      setData(data);
+      setIsOpen(true);
+    },
+    [setData, setIsOpen],
+  );
 
   const hide = useCallback(() => {
     setIsOpen(false);

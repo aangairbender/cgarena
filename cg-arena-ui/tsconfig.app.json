@@ -21,7 +21,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    
+
     /* path aliases */
     "baseUrl": ".",
     "paths": {
@@ -29,8 +29,8 @@
       "@hooks/*": ["src/hooks/*"],
       "@components/*": ["src/components/*"],
       "@models": ["src/models/index"],
-      "@api": ["src/api/index"],
-    },
+      "@api": ["src/api/index"]
+    }
   },
   "include": ["src"]
 }

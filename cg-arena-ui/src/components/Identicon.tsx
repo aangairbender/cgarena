@@ -7,8 +7,8 @@ interface IdenticonProps {
 }
 
 const config: JdenticonConfig = {
-    backColor: "#fff",
-    padding: 0,
+  backColor: "#fff",
+  padding: 0,
 };
 
 const Identicon: React.FC<IdenticonProps> = ({ input, size }) => {

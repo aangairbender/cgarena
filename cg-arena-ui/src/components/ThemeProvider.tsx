@@ -1,8 +1,8 @@
 import { PropsWithChildren, useEffect, useState } from "react";
 import ThemeContext, { Theme } from "src/contexts/ThemeContext";
 
-const ThemeProvider: React.FC<PropsWithChildren> = ({children}) => {
-  const [theme,  setTheme] = useState<Theme>(currentTheme());
+const ThemeProvider: React.FC<PropsWithChildren> = ({ children }) => {
+  const [theme, setTheme] = useState<Theme>(currentTheme());
 
   useEffect(() => {
     document.documentElement.setAttribute(ThemeAttribute, theme);
@@ -10,30 +10,29 @@ const ThemeProvider: React.FC<PropsWithChildren> = ({children}) => {
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme(t => t == "light" ? "dark" : "light");
+    setTheme((t) => (t == "light" ? "dark" : "light"));
   };
 
   return (
-    <ThemeContext.Provider value={{theme, toggleTheme}}>
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
-  )
+  );
 };
-
 
 const ThemeAttribute = "data-bs-theme";
 
 const preferredTheme = (): Theme | undefined => {
   if (!window.matchMedia) return undefined;
 
-  if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
     return "dark";
-  } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+  } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
     return "light";
   } else {
     return undefined;
   }
-}
+};
 
 const localStoredTheme = (): Theme | undefined => {
   const stored = localStorage.getItem(ThemeAttribute);

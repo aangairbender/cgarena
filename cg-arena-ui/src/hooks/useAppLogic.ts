@@ -15,28 +15,27 @@ export const useAppLogic = () => {
   const [loading, setLoading] = useState(false);
   const [selectedBotId, setSelectedBotId] = useState<BotId | undefined>();
   const [bots, setBots] = useState<BotOverviewResponse[]>([]);
-  const [leaderboards, setLeaderboards] = useState<LeaderboardOverviewResponse[]>([]);
+  const [leaderboards, setLeaderboards] = useState<
+    LeaderboardOverviewResponse[]
+  >([]);
   const [matchmakingEnabled, setMatchmakingEnabled] = useState(true);
   const [status, setStatus] = useState<"connected" | "connecting">("connected");
   const [fetchingStatus, setFetchingStatus] = useState(false);
 
-  const fetchStatus = useCallback(
-    async () => {
-      try {
-        setFetchingStatus(true);
-        const res = await api.fetchStatus();
-        setBots(res.bots)
-        setLeaderboards(res.leaderboards);
-        setMatchmakingEnabled(res.matchmaking_enabled);
-        setStatus("connected");
-      } catch {
-        setStatus("connecting");
-      } finally {
-        setFetchingStatus(false);
-      }
-    },
-    [setBots, setLeaderboards, setStatus, setMatchmakingEnabled]
-  );
+  const fetchStatus = useCallback(async () => {
+    try {
+      setFetchingStatus(true);
+      const res = await api.fetchStatus();
+      setBots(res.bots);
+      setLeaderboards(res.leaderboards);
+      setMatchmakingEnabled(res.matchmaking_enabled);
+      setStatus("connected");
+    } catch {
+      setStatus("connecting");
+    } finally {
+      setFetchingStatus(false);
+    }
+  }, [setBots, setLeaderboards, setStatus, setMatchmakingEnabled]);
 
   const refreshLeaderboard = useCallback(() => {
     if (!fetchingStatus) {
@@ -56,7 +55,7 @@ export const useAppLogic = () => {
   useEffect(() => {
     if (selectedBotId) return;
     if (bots.length == 0) return;
-    setSelectedBotId(Math.max(...bots.map(b => b.id)));
+    setSelectedBotId(Math.max(...bots.map((b) => b.id)));
   }, [selectedBotId, bots]);
 
   // load bots initially
@@ -68,7 +67,7 @@ export const useAppLogic = () => {
     (botId: BotId) => {
       setSelectedBotId(botId);
     },
-    [setSelectedBotId]
+    [setSelectedBotId],
   );
 
   // exported functions
@@ -84,7 +83,7 @@ export const useAppLogic = () => {
       // not awaiting intentionally to not block dialog
       fetchStatus();
     },
-    [setBots, setSelectedBotId, setLoading, fetchStatus]
+    [setBots, setSelectedBotId, setLoading, fetchStatus],
   );
 
   const renameBot = useCallback(
@@ -102,7 +101,7 @@ export const useAppLogic = () => {
       });
       setLoading(false);
     },
-    [setBots]
+    [setBots],
   );
 
   const deleteBot = useCallback(
@@ -113,15 +112,16 @@ export const useAppLogic = () => {
 
       setBots((bots) => bots.filter((b) => b.id != botId));
       if (selectedBotId == botId) setSelectedBotId(undefined);
-      setLeaderboards(leaderboards => leaderboards.map(lb => ({ ...lb, status: "computing" })));
+      setLeaderboards((leaderboards) =>
+        leaderboards.map((lb) => ({ ...lb, status: "computing" })),
+      );
 
       // not awaiting intentionally to not block dialog
       fetchStatus();
     },
-    [setBots, selectedBotId, setSelectedBotId, setLoading, fetchStatus]
+    [setBots, selectedBotId, setSelectedBotId, setLoading, fetchStatus],
   );
 
-  
   const createLeaderboard = useCallback(
     async (req: CreateLeaderboardRequest) => {
       setLoading(true);
@@ -129,7 +129,7 @@ export const useAppLogic = () => {
       setLeaderboards((cur) => [...cur, leaderboard]);
       setLoading(false);
     },
-    [setLeaderboards, setLoading]
+    [setLeaderboards, setLoading],
   );
 
   const patchLeaderboard = useCallback(
@@ -151,17 +151,19 @@ export const useAppLogic = () => {
       });
       setLoading(false);
     },
-    [setLeaderboards]
+    [setLeaderboards],
   );
 
   const deleteLeaderboard = useCallback(
     async (leaderboardId: LeaderboardId) => {
       setLoading(true);
-      setLeaderboards((leaderboards) => leaderboards.filter((lb) => lb.id != leaderboardId));
+      setLeaderboards((leaderboards) =>
+        leaderboards.filter((lb) => lb.id != leaderboardId),
+      );
       await api.deleteLeaderboard(leaderboardId);
       setLoading(false);
     },
-    [setLeaderboards, setLoading]
+    [setLeaderboards, setLoading],
   );
 
   const enableMatchmaking = useCallback(
@@ -169,7 +171,7 @@ export const useAppLogic = () => {
       setMatchmakingEnabled(enabled);
       await api.enableMatchmaking(enabled);
     },
-    [setMatchmakingEnabled]
+    [setMatchmakingEnabled],
   );
 
   return {
