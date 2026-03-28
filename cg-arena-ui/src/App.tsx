@@ -1,30 +1,14 @@
 import "./App.css";
 import { Button, Card, Container } from "react-bootstrap";
 
-import SubmitBotDialog, {
-  SubmitBotDialogData,
-} from "@components/SubmitBotDialog";
 import AppNavbar from "@components/AppNavbar";
 import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
-import ViewCodeDialog, { ViewCodeDialogData } from "@components/ViewCodeDialog";
-import ConfirmDialog, { ConfirmDialogData } from "@components/ConfirmDialog";
-import RenameBotDialog, {
-  RenameBotDialogData,
-} from "@components/RenameBotDialog";
+
 import { useAppLogic } from "@hooks/useAppLogic";
-import { useDialog } from "@hooks/useDialog";
 import { FaPlus } from "react-icons/fa6";
-import CreateLeaderboardDialog, {
-  CreateLeaderboardDialogData,
-} from "@components/CreateLeaderboardDialog";
-import PatchLeaderboardDialog, {
-  PatchLeaderboardDialogData,
-} from "@components/PatchLeaderboardDialog";
-import ExampleSeedsDialog, {
-  ExampleSeedsDialogData,
-} from "@components/ExampleSeedsDialog";
-import ChartDialog, { ChartDialogData } from "@components/ChartDialog";
+
+import { useDialogs } from "@hooks/useDialogs";
 
 function App() {
   const {
@@ -43,14 +27,13 @@ function App() {
     patchLeaderboard,
     deleteLeaderboard,
   } = useAppLogic();
-  const submitBotDialog = useDialog<SubmitBotDialogData>();
-  const viewCodeDialog = useDialog<ViewCodeDialogData>();
-  const confirmDialog = useDialog<ConfirmDialogData>();
-  const renameBotDialog = useDialog<RenameBotDialogData>();
-  const createLeaderboardDialog = useDialog<CreateLeaderboardDialogData>();
-  const patchLeaderboardDialog = useDialog<PatchLeaderboardDialogData>();
-  const exampleSeedsDialog = useDialog<ExampleSeedsDialogData>();
-  const chartDialog = useDialog<ChartDialogData>();
+  const {
+    submitBotDialog,
+    viewCodeDialog,
+    confirmDialog,
+    renameBotDialog,
+    createLeaderboardDialog,
+  } = useDialogs();
 
   const selectedBot = bots.find((b) => b.id == selectedBotId);
 
@@ -101,10 +84,6 @@ function App() {
             selectBot={selectBot}
             patchLeaderboard={patchLeaderboard}
             deleteLeaderboard={deleteLeaderboard}
-            chartDialog={chartDialog}
-            exampleSeedsDialog={exampleSeedsDialog}
-            patchLeaderboardDialog={patchLeaderboardDialog}
-            confirmDialog={confirmDialog}
           />
         ))}
 
@@ -121,15 +100,6 @@ function App() {
           </Button>
         </Container>
       </Container>
-
-      <SubmitBotDialog {...submitBotDialog} />
-      <ViewCodeDialog {...viewCodeDialog} />
-      <ConfirmDialog {...confirmDialog} />
-      <RenameBotDialog {...renameBotDialog} />
-      <CreateLeaderboardDialog {...createLeaderboardDialog} />
-      <PatchLeaderboardDialog {...patchLeaderboardDialog} />
-      <ExampleSeedsDialog {...exampleSeedsDialog} />
-      <ChartDialog {...chartDialog} />
     </>
   );
 }

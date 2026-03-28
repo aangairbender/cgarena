@@ -1,5 +1,4 @@
 import Identicon from "@components/Identicon";
-import { DialogProps } from "@hooks/useDialog";
 import { useTheme } from "@hooks/useTheme";
 import {
   BotId,
@@ -26,19 +25,12 @@ import {
   FaCaretDown,
   FaCaretRight,
 } from "react-icons/fa6";
-import { ChartDialogData } from "./ChartDialog";
-import { ExampleSeedsDialogData } from "./ExampleSeedsDialog";
-import { PatchLeaderboardDialogData } from "./PatchLeaderboardDialog";
-import { ConfirmDialogData } from "./ConfirmDialog";
 import { useState } from "react";
+import { useDialogs } from "@hooks/useDialogs";
 
 interface LeaderboardProps {
   lb: LeaderboardOverviewResponse;
   bots: BotOverviewResponse[];
-  chartDialog: DialogProps<ChartDialogData>;
-  exampleSeedsDialog: DialogProps<ExampleSeedsDialogData>;
-  patchLeaderboardDialog: DialogProps<PatchLeaderboardDialogData>;
-  confirmDialog: DialogProps<ConfirmDialogData>;
   selectedBotId: number | undefined;
   selectBot: (botId: number) => void;
   patchLeaderboard: (id: number, req: PatchLeaderboardRequest) => Promise<void>;
@@ -48,15 +40,17 @@ interface LeaderboardProps {
 const Leaderboard = ({
   lb,
   bots,
-  chartDialog,
-  exampleSeedsDialog,
-  patchLeaderboardDialog,
-  confirmDialog,
   selectedBotId,
   selectBot,
   patchLeaderboard,
   deleteLeaderboard,
 }: LeaderboardProps) => {
+  const {
+    chartDialog,
+    exampleSeedsDialog,
+    patchLeaderboardDialog,
+    confirmDialog,
+  } = useDialogs();
   const [expanded, setExpanded] = useState(lb.id == GLOBAL_LEADERBOARD_ID);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const renderTooltip = (props: any) => (

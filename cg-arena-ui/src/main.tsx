@@ -5,11 +5,14 @@ import { createRoot } from "react-dom/client";
 import "bootstrap/dist/css/bootstrap.min.css";
 import App from "./App.tsx";
 import ThemeProvider from "@components/ThemeProvider.tsx";
+import DialogsProvider from "@components/DialogsProvider.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
-      <App />
+      <DialogsProvider>
+        <App />
+      </DialogsProvider>
     </ThemeProvider>
   </StrictMode>,
 );
