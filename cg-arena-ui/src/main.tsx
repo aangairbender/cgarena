@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import "bootstrap/dist/css/bootstrap.min.css";
 import App from "./App.tsx";
 import ThemeProvider from "@components/ThemeProvider.tsx";
-import DialogsProvider from "@components/DialogsProvider.tsx";
 import {
   createRootRoute,
   createRoute,
@@ -24,7 +23,9 @@ const indexRoute = createRoute({
   path: "/",
   component: () => <HomePage />,
   validateSearch: (search) => ({
-    selectedBotId: Number(search.selectedBotId) || undefined,
+    selectedBotId: search.selectedBotId
+      ? Number(search.selectedBotId)
+      : undefined,
   }),
 });
 
@@ -50,9 +51,7 @@ declare module "@tanstack/react-router" {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
-      <DialogsProvider>
-        <RouterProvider router={router} />
-      </DialogsProvider>
+      <RouterProvider router={router} />
     </ThemeProvider>
   </StrictMode>,
 );

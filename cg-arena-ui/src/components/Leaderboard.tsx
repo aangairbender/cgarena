@@ -66,7 +66,7 @@ const Leaderboard = ({
     : { borderBottom: 0, borderRadius: "var(--bs-card-inner-border-radius)" };
 
   return (
-    <Card className="mt-4" key={lb.id}>
+    <Card key={lb.id}>
       <Card.Header
         className="d-flex justify-content-between"
         style={headerStyle}

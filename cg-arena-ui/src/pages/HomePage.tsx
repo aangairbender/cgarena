@@ -2,6 +2,7 @@ import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
 import { useAppStore } from "@hooks/useAppStore";
 import { useDialogs } from "@hooks/useDialogs";
+import useEnsureValidSelectedBot from "@hooks/useEnsureValidSelectedBot";
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Container, Card, Button } from "react-bootstrap";
@@ -10,6 +11,7 @@ import { FaPlus } from "react-icons/fa6";
 const routeApi = getRouteApi("/");
 
 export default function HomePage() {
+  useEnsureValidSelectedBot();
   const {
     viewCodeDialog,
     confirmDialog,
@@ -42,8 +44,8 @@ export default function HomePage() {
   }, []);
 
   return (
-    <Container>
-      <Card className="mt-4">
+    <div className="d-flex flex-column gap-4">
+      <Card>
         <Card.Header>Selected bot</Card.Header>
         <Card.Body>
           {selectedBot && (
@@ -80,7 +82,7 @@ export default function HomePage() {
         />
       ))}
 
-      <Container className="my-4 d-flex justify-content-center">
+      <Container className="d-flex justify-content-center">
         <Button
           className="mx-1"
           variant="outline-secondary"
@@ -92,6 +94,6 @@ export default function HomePage() {
           New leaderboard
         </Button>
       </Container>
-    </Container>
+    </div>
   );
 }
