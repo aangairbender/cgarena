@@ -47,9 +47,9 @@ function AppNavbar() {
             >
               Home
             </Link>
-            <Link to="/config" className="nav-link" search={{}}>
+            {/* <Link to="/config" className="nav-link" search={{}}>
               Config
-            </Link>
+            </Link> */}
           </Nav>
         </Navbar.Collapse>
 
