@@ -4,12 +4,12 @@ use crate::config::{GameConfig, LeaderboardsConfig, MatchmakingConfig, RankingCo
 use crate::domain::*;
 use crate::matchmaking;
 use crate::ranking::Ranker;
-use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, WorkerHandle};
+use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, PlayMatchOutput, WorkerHandle};
 use crate::{chart, db};
 use anyhow::{bail, Context};
 use itertools::Itertools;
 use sqlx::SqlitePool;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
@@ -100,6 +100,8 @@ struct Arena {
     global_leaderboard: AsyncLeaderboard,
     custom_leaderboards: Vec<AsyncLeaderboard>,
     match_queue: VecDeque<PlayMatchInput>,
+    scheduled_matches_total: HashMap<BotId, u64>,
+    scheduled_matches_vs: HashMap<(BotId, BotId), u64>,
     matchmaking_enabled: bool,
 }
 
@@ -125,6 +127,8 @@ impl Arena {
             builds: Default::default(),
             global_leaderboard: AsyncLeaderboard::new(Leaderboard::global(), ranker, pool),
             custom_leaderboards: Default::default(),
+            scheduled_matches_total: Default::default(),
+            scheduled_matches_vs: Default::default(),
             match_queue: Default::default(),
         }
     }
@@ -578,6 +582,9 @@ impl Arena {
             if new_matches.is_empty() {
                 break;
             }
+            for m in &new_matches {
+                self.record_scheduled_match(m);
+            }
             self.match_queue.extend(new_matches);
         }
 
@@ -613,6 +620,8 @@ impl Arena {
     #[instrument(skip(self), level = "debug")]
     pub async fn process_finished_matches(&mut self) {
         while let Ok(output) = self.worker_handle.match_result_rx.try_recv() {
+            self.forget_scheduled_match_result(&output);
+
             // validation
             if output
                 .participants
@@ -721,11 +730,7 @@ impl Arena {
                 rating: self.rating(&stats, id).score(self.uncertainty_coefficient),
                 matches_total: {
                     let played = stats.matches_played(id);
-                    let queued = self
-                        .match_queue
-                        .iter()
-                        .filter(|m| m.bots.iter().any(|b| b.bot_id == id))
-                        .count() as u64;
+                    let queued = self.scheduled_matches_total.get(&id).copied().unwrap_or(0);
                     played + queued
                 },
                 matches_vs: ready_bot_ids
@@ -734,13 +739,10 @@ impl Arena {
                     .map(|opp_id| {
                         let played = stats.matches_played_vs(id, *opp_id);
                         let queued = self
-                            .match_queue
-                            .iter()
-                            .filter(|m| {
-                                m.bots.iter().any(|b| b.bot_id == id)
-                                    && m.bots.iter().any(|b| b.bot_id == *opp_id)
-                            })
-                            .count() as u64;
+                            .scheduled_matches_vs
+                            .get(&(id, *opp_id))
+                            .copied()
+                            .unwrap_or(0);
                         (*opp_id, played + queued)
                     })
                     .collect(),
@@ -770,6 +772,54 @@ impl Arena {
                 seed: m.seed,
             })
             .collect_vec()
+    }
+
+    fn record_scheduled_match(&mut self, input: &PlayMatchInput) {
+        for bot in &input.bots {
+            *self.scheduled_matches_total.entry(bot.bot_id).or_default() += 1;
+        }
+
+        for bot in &input.bots {
+            for opp in &input.bots {
+                if bot.bot_id != opp.bot_id {
+                    *self
+                        .scheduled_matches_vs
+                        .entry((bot.bot_id, opp.bot_id))
+                        .or_default() += 1;
+                }
+            }
+        }
+    }
+
+    fn forget_scheduled_match_result(&mut self, output: &PlayMatchOutput) {
+        for participant in &output.participants {
+            let entry = self
+                .scheduled_matches_total
+                .get_mut(&participant.bot_id)
+                .expect("finished match must have been scheduled");
+            *entry -= 1;
+            if *entry == 0 {
+                self.scheduled_matches_total.remove(&participant.bot_id);
+            }
+        }
+
+        for participant in &output.participants {
+            for opp in &output.participants {
+                if participant.bot_id == opp.bot_id {
+                    continue;
+                }
+
+                let entry = self
+                    .scheduled_matches_vs
+                    .get_mut(&(participant.bot_id, opp.bot_id))
+                    .expect("finished match pair must have been scheduled");
+                *entry -= 1;
+                if *entry == 0 {
+                    self.scheduled_matches_vs
+                        .remove(&(participant.bot_id, opp.bot_id));
+                }
+            }
+        }
     }
 
     fn recalculate_computed_full(&self) {
