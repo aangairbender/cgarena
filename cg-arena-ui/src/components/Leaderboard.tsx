@@ -1,21 +1,116 @@
 import Identicon from "@components/Identicon";
+import { DialogProps } from "@hooks/useDialog";
 import {useTheme} from "@hooks/useTheme";
 import {
     BotId,
     BotOverviewResponse,
+    GLOBAL_LEADERBOARD_ID,
     LeaderboardItemResponse,
     LeaderboardOverviewResponse,
+    PatchLeaderboardRequest,
 } from "@models";
-import {OverlayTrigger, Spinner, Stack, Table, Tooltip} from "react-bootstrap";
+import {Button, Card, OverlayTrigger, Spinner, Stack, Table, Tooltip} from "react-bootstrap";
+import { FaChartLine, FaSeedling, FaPencil, FaTrash } from "react-icons/fa6";
+import { ChartDialogData } from "./ChartDialog";
+import { ExampleSeedsDialogData } from "./ExampleSeedsDialog";
+import { PatchLeaderboardDialogData } from "./PatchLeaderboardDialog";
+import { ConfirmDialogData } from "./ConfirmDialog";
 
 interface LeaderboardProps {
+  lb: LeaderboardOverviewResponse,
+  bots: BotOverviewResponse[],
+  chartDialog: DialogProps<ChartDialogData>,
+  exampleSeedsDialog: DialogProps<ExampleSeedsDialogData>,
+  patchLeaderboardDialog: DialogProps<PatchLeaderboardDialogData>,
+  confirmDialog: DialogProps<ConfirmDialogData>,
+  selectedBotId: number | undefined,
+  selectBot: (botId: number) => void,
+  patchLeaderboard: (id: number, req: PatchLeaderboardRequest) => Promise<void>,
+  deleteLeaderboard: (leaderboardId: number) => Promise<void>,
+}
+
+const Leaderboard = ({
+  lb,
+  bots,
+  chartDialog,
+  exampleSeedsDialog,
+  patchLeaderboardDialog,
+  confirmDialog,
+  selectedBotId,
+  selectBot,
+  patchLeaderboard,
+  deleteLeaderboard,
+}: LeaderboardProps) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderTooltip = (props: any) => (
+    <Tooltip
+      id={`lb-${lb.id}-tooltip`}
+      {...props}
+    >
+      <div>
+        <div>{`Matches: ${lb.total_matches}`}</div>
+        {lb.id != GLOBAL_LEADERBOARD_ID && <div>{`Filter: ${lb.filter}`}</div>}
+      </div>
+    </Tooltip>
+  );
+
+  return <Card className="mt-4" key={lb.id}>
+    <Card.Header className="d-flex justify-content-between align-items-center">
+      <OverlayTrigger overlay={renderTooltip} placement="right">
+        <div>{lb.name}</div>
+      </OverlayTrigger>
+      <div className="d-flex gap-2">
+        <Button
+          variant="outline-info"
+          size="sm"
+          onClick={() => chartDialog.show({filter: lb.filter, bots})}
+        >
+          <FaChartLine  className="bi"/>
+        </Button>
+
+        {lb.id != GLOBAL_LEADERBOARD_ID && (
+          <>
+            <Button
+              variant="outline-info"
+              size="sm"
+              onClick={() => exampleSeedsDialog.show({example_seeds: lb.example_seeds})}
+            >
+              <FaSeedling className="bi"/>
+            </Button>
+
+            <Button
+              variant="outline-warning"
+              size="sm"
+              onClick={() => patchLeaderboardDialog.show({leaderboard: lb, onSubmit: patchLeaderboard})}
+            >
+              <FaPencil className="bi"/>
+            </Button>
+
+            <Button
+              variant="outline-danger"
+              size="sm"
+              onClick={() => confirmDialog.show({ prompt: `Do you really want to delete leaderboard '${lb.name}'?`, action: () => deleteLeaderboard(lb.id)})}
+            >
+              <FaTrash className="bi"/>
+            </Button>
+          </>
+        )}
+      </div>
+    </Card.Header>
+    <Card.Body>
+      <LeaderboardTable bots={bots} data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
+    </Card.Body>
+  </Card>;
+};
+
+interface LeaderboardTableProps {
     bots: BotOverviewResponse[];
     data: LeaderboardOverviewResponse;
     selectedBotId: BotId | undefined;
     selectBot: (botId: BotId) => void;
 }
 
-const Leaderboard = ({bots, data, selectedBotId, selectBot}: LeaderboardProps) => {
+const LeaderboardTable = ({bots, data, selectedBotId, selectBot}: LeaderboardTableProps) => {
     if (data.status === "computing") {
         return (
             <Stack direction="horizontal">

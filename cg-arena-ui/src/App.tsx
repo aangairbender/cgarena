@@ -1,5 +1,5 @@
 import "./App.css";
-import { Button, Card, Container, OverlayTrigger, Tooltip } from "react-bootstrap";
+import { Button, Card, Container } from "react-bootstrap";
 
 import SubmitBotDialog, { SubmitBotDialogData } from "@components/SubmitBotDialog";
 import AppNavbar from "@components/AppNavbar";
@@ -10,10 +10,9 @@ import ConfirmDialog, { ConfirmDialogData } from "@components/ConfirmDialog";
 import RenameBotDialog, { RenameBotDialogData } from "@components/RenameBotDialog";
 import { useAppLogic } from "@hooks/useAppLogic";
 import { useDialog } from "@hooks/useDialog";
-import { FaChartLine, FaPencil, FaPlus, FaSeedling, FaTrash } from "react-icons/fa6";
+import { FaPlus } from "react-icons/fa6";
 import CreateLeaderboardDialog, { CreateLeaderboardDialogData } from "@components/CreateLeaderboardDialog";
 import PatchLeaderboardDialog, { PatchLeaderboardDialogData } from "@components/PatchLeaderboardDialog";
-import { GLOBAL_LEADERBOARD_ID } from "@models";
 import ExampleSeedsDialog, { ExampleSeedsDialogData } from "@components/ExampleSeedsDialog";
 import ChartDialog, { ChartDialogData } from "@components/ChartDialog";
 
@@ -84,68 +83,20 @@ function App() {
           </Card.Body>
         </Card>
 
-        {leaderboards.map(lb => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const renderTooltip = (props: any) => (
-            <Tooltip
-              id={`lb-${lb.id}-tooltip`}
-              {...props}
-            >
-              <div>
-                <div>{`Matches: ${lb.total_matches}`}</div>
-                {lb.id != GLOBAL_LEADERBOARD_ID && <div>{`Filter: ${lb.filter}`}</div>}
-              </div>
-            </Tooltip>
-          );
-
-          return <Card className="mt-4" key={lb.id}>
-            <Card.Header className="d-flex justify-content-between align-items-center">
-              <OverlayTrigger overlay={renderTooltip} placement="right">
-                <div>{lb.name}</div>
-              </OverlayTrigger>
-              <div className="d-flex gap-2">
-                <Button
-                  variant="outline-info"
-                  size="sm"
-                  onClick={() => chartDialog.show({filter: lb.filter, bots})}
-                >
-                  <FaChartLine  className="bi"/>
-                </Button>
-
-                {lb.id != GLOBAL_LEADERBOARD_ID && (
-                  <>
-                    <Button
-                      variant="outline-info"
-                      size="sm"
-                      onClick={() => exampleSeedsDialog.show({example_seeds: lb.example_seeds})}
-                    >
-                      <FaSeedling className="bi"/>
-                    </Button>
-
-                    <Button
-                      variant="outline-warning"
-                      size="sm"
-                      onClick={() => patchLeaderboardDialog.show({leaderboard: lb, onSubmit: patchLeaderboard})}
-                    >
-                      <FaPencil className="bi"/>
-                    </Button>
-
-                    <Button
-                      variant="outline-danger"
-                      size="sm"
-                      onClick={() => confirmDialog.show({ prompt: `Do you really want to delete leaderboard '${lb.name}'?`, action: () => deleteLeaderboard(lb.id)})}
-                    >
-                      <FaTrash className="bi"/>
-                    </Button>
-                  </>
-                )}
-              </div>
-            </Card.Header>
-            <Card.Body>
-              <Leaderboard bots={bots} data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
-            </Card.Body>
-          </Card>;
-        })}
+        {leaderboards.map(lb =>
+          <Leaderboard
+            lb={lb}
+            bots={bots}
+            selectedBotId={selectedBotId}
+            selectBot={selectBot}
+            patchLeaderboard={patchLeaderboard}
+            deleteLeaderboard={deleteLeaderboard}
+            chartDialog={chartDialog}
+            exampleSeedsDialog={exampleSeedsDialog}
+            patchLeaderboardDialog={patchLeaderboardDialog}
+            confirmDialog={confirmDialog}
+          />
+        )}
 
         <Container className="my-4 d-flex justify-content-center">
           <Button
