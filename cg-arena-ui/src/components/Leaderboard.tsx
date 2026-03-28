@@ -10,11 +10,12 @@ import {
     PatchLeaderboardRequest,
 } from "@models";
 import {Button, Card, OverlayTrigger, Spinner, Stack, Table, Tooltip} from "react-bootstrap";
-import { FaChartLine, FaSeedling, FaPencil, FaTrash } from "react-icons/fa6";
+import { FaChartLine, FaSeedling, FaPencil, FaTrash, FaCaretDown, FaCaretRight } from "react-icons/fa6";
 import { ChartDialogData } from "./ChartDialog";
 import { ExampleSeedsDialogData } from "./ExampleSeedsDialog";
 import { PatchLeaderboardDialogData } from "./PatchLeaderboardDialog";
 import { ConfirmDialogData } from "./ConfirmDialog";
+import { useState } from "react";
 
 interface LeaderboardProps {
   lb: LeaderboardOverviewResponse,
@@ -41,6 +42,7 @@ const Leaderboard = ({
   patchLeaderboard,
   deleteLeaderboard,
 }: LeaderboardProps) => {
+  const [expanded, setExpanded] = useState(lb.id == GLOBAL_LEADERBOARD_ID);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const renderTooltip = (props: any) => (
     <Tooltip
@@ -54,11 +56,23 @@ const Leaderboard = ({
     </Tooltip>
   );
 
+  const headerStyle = expanded ? {} : {borderBottom: 0, borderRadius: "var(--bs-card-inner-border-radius)"};
+
   return <Card className="mt-4" key={lb.id}>
-    <Card.Header className="d-flex justify-content-between align-items-center">
-      <OverlayTrigger overlay={renderTooltip} placement="right">
-        <div>{lb.name}</div>
-      </OverlayTrigger>
+    <Card.Header className="d-flex justify-content-between" style={headerStyle}>
+      <div className="d-flex align-items-center gap-2">
+        <Button
+          variant="link"
+          size="lg"
+          className="p-0 text-body text-decoration-none"
+          onClick={() => setExpanded(s => !s)}
+        >
+          {expanded ? <FaCaretDown className="bi"/> : <FaCaretRight className="bi"/>}
+        </Button>
+        <OverlayTrigger overlay={renderTooltip} placement="right">
+          <div>{lb.name}</div>
+        </OverlayTrigger>
+      </div>
       <div className="d-flex gap-2">
         <Button
           variant="outline-info"
@@ -97,9 +111,11 @@ const Leaderboard = ({
         )}
       </div>
     </Card.Header>
-    <Card.Body>
-      <LeaderboardTable bots={bots} data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
-    </Card.Body>
+    {expanded && (
+      <Card.Body>
+        <LeaderboardTable bots={bots} data={lb} selectedBotId={selectedBotId} selectBot={selectBot} />
+      </Card.Body>
+    )}
   </Card>;
 };
 
