@@ -183,7 +183,7 @@ const LeaderboardTable = ({
           <th>Name</th>
           <th style={{ width: "6%" }}>Rating</th>
           <th style={{ width: "15%" }}>Winrate</th>
-          <th style={{ width: "15%" }}>Wins / Loses / Draws</th>
+          <th style={{ width: "12%" }}>W / L / D</th>
           <th style={{ width: "7%" }}>Total</th>
         </tr>
       </thead>

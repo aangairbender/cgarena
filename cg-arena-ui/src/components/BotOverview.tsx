@@ -30,11 +30,11 @@ const BotOverview: React.FC<BotOverviewProps> = ({
     <Table hover className="mb-0">
       <thead>
         <tr>
-          <th>Id</th>
+          <th>ID</th>
           <th>Name</th>
           <th>Language</th>
-          <th>Matches played</th>
-          <th>Matches with error</th>
+          <th>Matches</th>
+          <th>Errors</th>
           <th>Build</th>
           <th>Submitted</th>
           <th>Actions</th>
