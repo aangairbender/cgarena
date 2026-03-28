@@ -129,50 +129,21 @@ fn pick_participants_v2(
 
     // 1. if some bot has less games vs best than `min_matches_against_best` then create a game with that bot and best.
 
-    let best_bot_ids = candidates
+    let best_id = candidates
         .iter()
-        .sorted_by(|a, b| a.rating.total_cmp(&b.rating).reverse())
-        .take(2)
+        .max_by(|a, b| a.rating.total_cmp(&b.rating))
         .map(|c| c.id)
-        .collect_vec();
+        .expect("this function should not be called with less than 2 candidates");
 
-    assert_eq!(
-        best_bot_ids.len(),
-        2,
-        "this function should not be called with less than 2 candidates"
-    );
-    let best_bot_id_for = |id: BotId| -> BotId {
-        if best_bot_ids[0] == id {
-            best_bot_ids[1]
-        } else {
-            best_bot_ids[0]
-        }
-    };
-
-    let can_match_top2 = {
-        let top1 = candidates.iter().find(|c| c.id == best_bot_ids[0]).unwrap();
-        let top2_cnt = *top1.matches_vs.get(&best_bot_ids[1]).unwrap_or(&0);
-        top2_cnt < matchmaking_config.min_matches_against_best.unwrap_or(0)
-    };
-
-    let prio_vs_best = if can_match_top2 {
-        Some((best_bot_ids[0], best_bot_ids[1]))
-    } else {
-        candidates
-            .iter()
-            .map(|c| {
-                let best_for_me = best_bot_id_for(c.id);
-                let (opp, cnt) = c
-                    .matches_vs
-                    .iter()
-                    .find(|&(opp, _)| *opp == best_for_me)
-                    .unwrap();
-                (c.id, (*opp, *cnt))
-            })
-            .min_by_key(|(_, (_, cnt))| *cnt)
-            .filter(|(_, (_, cnt))| *cnt < matchmaking_config.min_matches_against_best.unwrap_or(0))
-            .map(|(bot_a, (bot_b, _))| (bot_a, bot_b))
-    };
+    let prio_vs_best = candidates
+        .iter()
+        // The current leader will already be scheduled as "the best" by the other bots.
+        // Excluding it here avoids overscheduling leader-vs-runner-up matches.
+        .filter(|c| c.id != best_id)
+        .map(|c| (c.id, c.matches_vs[&best_id]))
+        .min_by_key(|(_, cnt)| *cnt)
+        .filter(|(_, cnt)| *cnt < matchmaking_config.min_matches_against_best.unwrap_or(0))
+        .map(|(bot_a, _)| (bot_a, best_id));
 
     // bot with lowest matches playest against some other bot
     let pair_lower_than_min = candidates
@@ -320,5 +291,44 @@ mod test {
             .collect();
 
         assert_eq!(&bot_ids, &[2, 3]);
+    }
+
+    #[test]
+    fn v2_prio_best_does_not_force_leader_vs_runner_up() {
+        let config = MatchmakingAlgorithmV2Config {
+            min_matches_against_best: Some(5),
+            min_matches_per_pair: 0,
+            max_matches: None,
+        };
+
+        let candidates = vec![
+            Candidate {
+                id: 1.into(),
+                rating: 3.0,
+                matches_total: 3,
+                matches_vs: [(2.into(), 3), (3.into(), 2)].into(),
+            },
+            Candidate {
+                id: 2.into(),
+                rating: 2.0,
+                matches_total: 3,
+                matches_vs: [(1.into(), 3), (3.into(), 1)].into(),
+            },
+            Candidate {
+                id: 3.into(),
+                rating: 1.0,
+                matches_total: 2,
+                matches_vs: [(1.into(), 2), (2.into(), 1)].into(),
+            },
+        ];
+
+        let bot_ids: Vec<i64> = pick_participants_v2(2, &config, &candidates)
+            .unwrap()
+            .into_iter()
+            .map(|id| id.into())
+            .sorted()
+            .collect();
+
+        assert_eq!(&bot_ids, &[1, 3]);
     }
 }
