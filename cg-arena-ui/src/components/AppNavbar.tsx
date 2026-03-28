@@ -12,8 +12,10 @@ import ThemeSwitcher from "./ThemeSwitcher";
 import { useDialogs } from "@hooks/useDialogs";
 import { useAppStore } from "@hooks/useAppStore";
 import { Link } from "@tanstack/react-router";
+import useEnsureValidSelectedBot from "@hooks/useEnsureValidSelectedBot";
 
 function AppNavbar() {
+  useEnsureValidSelectedBot();
   const { submitBotDialog } = useDialogs();
   const loading = useAppStore((state) => state.loading);
   const status = useAppStore((state) => state.status);
@@ -34,7 +36,11 @@ function AppNavbar() {
         <Navbar.Toggle aria-controls="basic-navbar-nav" />
         <Navbar.Collapse id="basic-navbar-nav">
           <Nav className="me-auto">
-            <Link to="/" className="nav-link">
+            <Link
+              to="/"
+              className="nav-link"
+              search={(prev) => ({ selectedBotId: prev.selectedBotId })}
+            >
               Home
             </Link>
             <Link to="/config" className="nav-link">

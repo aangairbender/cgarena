@@ -23,6 +23,9 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: () => <HomePage />,
+  validateSearch: (search) => ({
+    selectedBotId: Number(search.selectedBotId) || undefined,
+  }),
 });
 
 const configRoute = createRoute({

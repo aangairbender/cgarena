@@ -2,9 +2,12 @@ import BotOverview from "@components/BotOverview";
 import Leaderboard from "@components/Leaderboard";
 import { useAppStore } from "@hooks/useAppStore";
 import { useDialogs } from "@hooks/useDialogs";
+import { getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Container, Card, Button } from "react-bootstrap";
 import { FaPlus } from "react-icons/fa6";
+
+const routeApi = getRouteApi("/");
 
 export default function HomePage() {
   const {
@@ -14,12 +17,12 @@ export default function HomePage() {
     createLeaderboardDialog,
   } = useDialogs();
 
-  const selectedBotId = useAppStore((state) => state.selectedBotId);
+  const { selectedBotId } = routeApi.useSearch();
+
   const bots = useAppStore((state) => state.bots);
   const leaderboards = useAppStore((state) => state.leaderboards);
   const deleteBot = useAppStore((state) => state.deleteBot);
   const renameBot = useAppStore((state) => state.renameBot);
-  const selectBot = useAppStore((state) => state.selectBot);
   const patchLeaderboard = useAppStore((state) => state.patchLeaderboard);
   const deleteLeaderboard = useAppStore((state) => state.deleteLeaderboard);
   const createLeaderboard = useAppStore((state) => state.createLeaderboard);
@@ -72,7 +75,6 @@ export default function HomePage() {
           lb={lb}
           bots={bots}
           selectedBotId={selectedBotId}
-          selectBot={selectBot}
           patchLeaderboard={patchLeaderboard}
           deleteLeaderboard={deleteLeaderboard}
         />

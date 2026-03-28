@@ -27,12 +27,12 @@ import {
 } from "react-icons/fa6";
 import { useState } from "react";
 import { useDialogs } from "@hooks/useDialogs";
+import { Link } from "@tanstack/react-router";
 
 interface LeaderboardProps {
   lb: LeaderboardOverviewResponse;
   bots: BotOverviewResponse[];
   selectedBotId: number | undefined;
-  selectBot: (botId: number) => void;
   patchLeaderboard: (id: number, req: PatchLeaderboardRequest) => Promise<void>;
   deleteLeaderboard: (leaderboardId: number) => Promise<void>;
 }
@@ -41,7 +41,6 @@ const Leaderboard = ({
   lb,
   bots,
   selectedBotId,
-  selectBot,
   patchLeaderboard,
   deleteLeaderboard,
 }: LeaderboardProps) => {
@@ -145,7 +144,6 @@ const Leaderboard = ({
             bots={bots}
             data={lb}
             selectedBotId={selectedBotId}
-            selectBot={selectBot}
           />
         </Card.Body>
       )}
@@ -157,14 +155,12 @@ interface LeaderboardTableProps {
   bots: BotOverviewResponse[];
   data: LeaderboardOverviewResponse;
   selectedBotId: BotId | undefined;
-  selectBot: (botId: BotId) => void;
 }
 
 const LeaderboardTable = ({
   bots,
   data,
   selectedBotId,
-  selectBot,
 }: LeaderboardTableProps) => {
   if (data.status === "computing") {
     return (
@@ -201,7 +197,6 @@ const LeaderboardTable = ({
               bot={bots.find((b) => b.id == item.id)}
               stats={stats}
               selected={item.id == selectedBotId}
-              select={() => selectBot(item.id)}
             />
           );
         })}
@@ -222,10 +217,9 @@ interface RowProps {
   stats: WinrateStats | undefined;
   bot: BotOverviewResponse | undefined;
   selected: boolean;
-  select: () => void;
 }
 
-const Row = ({ lb, item, stats, bot, selected, select }: RowProps) => {
+const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
   if (!bot) {
     return null;
   }
@@ -244,9 +238,13 @@ const Row = ({ lb, item, stats, bot, selected, select }: RowProps) => {
         <Stack direction="horizontal">
           <Identicon input={item.id + ""} size={24} />
           <OverlayTrigger overlay={renderTooltip} placement="right">
-            <a href="#" style={{ marginLeft: "8px" }} onClick={select}>
+            <Link
+              to="/"
+              style={{ marginLeft: "8px" }}
+              search={(prev) => ({ ...prev, selectedBotId: bot.id })}
+            >
               {bot.name}
-            </a>
+            </Link>
           </OverlayTrigger>
         </Stack>
       </td>

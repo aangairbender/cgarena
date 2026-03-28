@@ -19,17 +19,15 @@ type AppState = {
   fetchingStatus: boolean;
   status: Status;
   matchmakingEnabled: boolean;
+  initialFetchCompleted: boolean;
 
   bots: BotOverviewResponse[];
-  selectedBotId?: BotId;
 
   leaderboards: LeaderboardOverviewResponse[];
 
   // actions
   fetchStatus: () => Promise<void>;
   refreshLeaderboard: () => void;
-
-  selectBot: (id: BotId) => void;
 
   submitNewBot: (req: CreateBotRequest) => Promise<void>;
   renameBot: (id: BotId, req: RenameBotRequest) => Promise<void>;
@@ -51,6 +49,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   fetchingStatus: false,
   status: "connected",
   matchmakingEnabled: true,
+  initialFetchCompleted: false,
 
   bots: [],
   selectedBotId: undefined,
@@ -69,15 +68,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         leaderboards: res.leaderboards,
         matchmakingEnabled: res.matchmaking_enabled,
         status: "connected",
+        initialFetchCompleted: true,
       });
-
-      // auto-select bot
-      const { selectedBotId } = get();
-      if (!selectedBotId && res.bots.length > 0) {
-        set({
-          selectedBotId: Math.max(...res.bots.map((b) => b.id)),
-        });
-      }
     } catch {
       set({ status: "connecting" });
     } finally {
@@ -92,8 +84,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // ---------------- bots ----------------
-  selectBot: (id) => set({ selectedBotId: id }),
-
   submitNewBot: async (req) => {
     set({ loading: true });
 
@@ -127,8 +117,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set((state) => ({
       bots: state.bots.filter((b) => b.id !== id),
-      selectedBotId:
-        state.selectedBotId === id ? undefined : state.selectedBotId,
       leaderboards: state.leaderboards.map((lb) => ({
         ...lb,
         status: "computing",
