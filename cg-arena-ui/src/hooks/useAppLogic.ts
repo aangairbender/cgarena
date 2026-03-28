@@ -56,7 +56,7 @@ export const useAppLogic = () => {
   useEffect(() => {
     if (selectedBotId) return;
     if (bots.length == 0) return;
-    setSelectedBotId(bots[0].id);
+    setSelectedBotId(Math.max(...bots.map(b => b.id)));
   }, [selectedBotId, bots]);
 
   // load bots initially
