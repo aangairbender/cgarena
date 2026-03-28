@@ -1,37 +1,47 @@
-import React from "react";
 import {
   Badge,
   Button,
   Container,
   Form,
+  Nav,
   Navbar,
   Spinner,
   Stack,
 } from "react-bootstrap";
 import ThemeSwitcher from "./ThemeSwitcher";
+import { useDialogs } from "@hooks/useDialogs";
+import { useAppStore } from "@hooks/useAppStore";
+import { Link } from "@tanstack/react-router";
 
-interface AppNavbarProps {
-  loading: boolean;
-  status: "connected" | "connecting";
-  openSubmitDialog: () => void;
-  matchmakingEnabled: boolean;
-  enableMatchmaking: (v: boolean) => void;
-}
+function AppNavbar() {
+  const { submitBotDialog } = useDialogs();
+  const loading = useAppStore((state) => state.loading);
+  const status = useAppStore((state) => state.status);
+  const matchmakingEnabled = useAppStore((state) => state.matchmakingEnabled);
+  const enableMatchmaking = useAppStore((state) => state.enableMatchmaking);
+  const submitNewBot = useAppStore((state) => state.submitNewBot);
 
-const AppNavbar: React.FC<AppNavbarProps> = ({
-  loading,
-  status,
-  openSubmitDialog,
-  matchmakingEnabled,
-  enableMatchmaking,
-}) => {
+  const openSubmitDialog = () => {
+    submitBotDialog.show({ onSubmit: submitNewBot });
+  };
   const pillBg = status == "connected" ? "success" : "warning";
   const pillText = status == "connected" ? "light" : "dark";
 
   return (
     <Navbar className="bg-body-tertiary">
       <Container>
-        <Navbar.Brand href="#home">CG Arena</Navbar.Brand>
+        <Navbar.Brand href="/">CG Arena</Navbar.Brand>
+        <Navbar.Toggle aria-controls="basic-navbar-nav" />
+        <Navbar.Collapse id="basic-navbar-nav">
+          <Nav className="me-auto">
+            <Link to="/" className="nav-link">
+              Home
+            </Link>
+            <Link to="/config" className="nav-link">
+              Config
+            </Link>
+          </Nav>
+        </Navbar.Collapse>
 
         <Stack direction="horizontal" gap={3}>
           {loading && <Spinner animation="border" />}
@@ -51,6 +61,6 @@ const AppNavbar: React.FC<AppNavbarProps> = ({
       </Container>
     </Navbar>
   );
-};
+}
 
 export default AppNavbar;
