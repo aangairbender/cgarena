@@ -8,6 +8,7 @@ pub struct Match {
     pub attributes: Vec<MatchAttribute>,
 }
 
+#[derive(Clone)]
 pub struct Participant {
     pub bot_id: BotId,
     pub rank: u8,

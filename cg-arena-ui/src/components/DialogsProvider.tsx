@@ -14,7 +14,7 @@ import PatchLeaderboardDialog, {
 import RenameBotDialog, { RenameBotDialogData } from "./RenameBotDialog";
 import SubmitBotDialog, { SubmitBotDialogData } from "./SubmitBotDialog";
 import ViewCodeDialog, { ViewCodeDialogData } from "./ViewCodeDialog";
-import DialogsContext from "src/contexts/DialogsContext";
+import DialogsContext from "@contexts/DialogsContext";
 
 const DialogsProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const submitBotDialog = useDialog<SubmitBotDialogData>();

@@ -98,6 +98,31 @@ export interface EnableMatchmakingRequest {
   enabled: boolean;
 }
 
+export interface FetchMatchesRequest {
+  filter: string;
+  includingBots: number[];
+  offset: number;
+  limit: number;
+}
+
+export interface FetchMatchesResponse {
+  matches: MatchOverviewResponse[];
+}
+
+export interface MatchOverviewResponse {
+  id: number;
+  participants: ParticipantOverviewResponse[];
+  seed: number;
+}
+
+export interface ParticipantOverviewResponse {
+  rank: number;
+  index: number;
+  bot_id: BotId;
+  bot_name: string;
+  error: boolean;
+}
+
 export type BotId = number;
 export type LeaderboardId = number;
 

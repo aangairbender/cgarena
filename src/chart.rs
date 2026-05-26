@@ -16,8 +16,7 @@ pub async fn visualize(
     attribute_name: String,
     pool: SqlitePool,
 ) -> anyhow::Result<ChartOverview> {
-    let needed_attrs = filter.needed_attributes();
-    let matches = db::fetch_matches_with_attrs(&pool, &needed_attrs).await?;
+    let matches = db::fetch_matches_all(&pool, &filter).await?;
 
     let filtered_match_ids: Vec<MatchId> = matches
         .iter()

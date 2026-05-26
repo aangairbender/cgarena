@@ -262,6 +262,47 @@ impl Arena {
         self.matchmaking_enabled = enabled;
     }
 
+    async fn cmd_fetch_matches(
+        &mut self,
+        filter: MatchFilter,
+        including_bots: Vec<BotId>,
+        offset: usize,
+        limit: usize,
+    ) -> FetchMatchesResult {
+        let bot_names: HashMap<BotId, BotName> =
+            self.bots.iter().map(|b| (b.id, b.name.clone())).collect();
+        let matches = db::fetch_matches(
+            &self.pool,
+            &filter,
+            including_bots,
+            Some(offset),
+            Some(limit),
+        )
+        .await
+        .expect("Can't fetch matches from DB");
+        let filtered = matches
+            .iter()
+            .filter(|m| filter.matches(m))
+            .map(|m| MatchOverview {
+                id: m.id,
+                participants: m
+                    .participants
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| ParticipantOverview {
+                        bot_id: p.bot_id,
+                        bot_name: bot_names[&p.bot_id].clone(),
+                        rank: p.rank,
+                        index: i,
+                        error: p.error,
+                    })
+                    .collect(),
+                seed: m.seed,
+            })
+            .collect();
+        FetchMatchesResult { matches: filtered }
+    }
+
     async fn cmd_create_bot(
         &mut self,
         name: BotName,
@@ -566,6 +607,19 @@ impl Arena {
             ArenaCommand::EnableMatchmaking(command) => {
                 self.cmd_enable_matchmaking(command.enabled);
                 if command.response.send(()).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::FetchMatches(command) => {
+                let res = self
+                    .cmd_fetch_matches(
+                        command.filter,
+                        command.including_bots,
+                        command.offset,
+                        command.limit,
+                    )
+                    .await;
+                if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }
             }

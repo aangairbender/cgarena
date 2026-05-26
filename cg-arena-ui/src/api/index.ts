@@ -12,6 +12,8 @@ import {
   ChartOverviewResponse,
   BotSourceCode,
   EnableMatchmakingRequest,
+  FetchMatchesResponse,
+  FetchMatchesRequest,
 } from "@models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -129,6 +131,30 @@ export const enableMatchmaking = async (enabled: boolean): Promise<void> => {
 
   const response = await fetch(req);
   await checkForErrors(response);
+};
+
+export const fetchMatches = async (
+  req: FetchMatchesRequest,
+): Promise<FetchMatchesResponse> => {
+  const query_args = [
+    `filter=${req.filter}`,
+    `including_bots=${req.includingBots.join(",")}`,
+    `offset=${req.offset}`,
+    `limit=${req.limit}`,
+  ];
+  const response = await fetch(`${host}/api/matches?${query_args.join("&")}`);
+  return await parseResponse<FetchMatchesResponse>(response);
+};
+
+export const validateFilter = async (filter: string): Promise<boolean> => {
+  const response = await fetch(`${host}/api/validate-filter?filter=${filter}`);
+  if (response.status >= 500) {
+    throw new Error("Internal server error");
+  } else if (response.ok) {
+    return true;
+  } else {
+    return false;
+  }
 };
 
 async function checkForErrors(response: Response) {

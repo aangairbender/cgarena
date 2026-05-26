@@ -29,7 +29,98 @@ impl MatchFilter {
         }
         res
     }
+
+    // pub fn build_sql(&self, cfg: &SqlCfg) -> anyhow::Result<String> {
+    //     if let Some(ref expr) = self.expr {
+    //         build_sql_where(expr, cfg)
+    //     } else {
+    //         Ok("1=1".to_string())
+    //     }
+    // }
 }
+
+// pub struct SqlCfg {
+//     pub table: &'static str,
+//     pub attr_name_col: &'static str,
+//     pub attr_turn_col: &'static str,
+//     pub attr_bot_id_col: &'static str,
+//     pub attr_val_i_col: &'static str,
+//     pub attr_val_f_col: &'static str,
+//     pub attr_val_s_col: &'static str,
+// }
+
+// fn build_sql_where(expr: &ast::Expr, cfg: &SqlCfg) -> anyhow::Result<String> {
+//     Ok(match expr {
+//         ast::Expr::Condition(argument1, condition_op, argument2) => {
+//             let (name, turn, bot_id) = match argument1 {
+//                 ast::Argument::MatchAttr(match_attr) => (&match_attr.name, match_attr.turn, None),
+//                 ast::Argument::BotAttr(bot_attr) => {
+//                     (&bot_attr.name, bot_attr.turn, Some(bot_attr.bot_id))
+//                 }
+//                 ast::Argument::Value(_) => {
+//                     bail!("Value not supported on the left side of the condition")
+//                 }
+//             };
+//             let ast::Argument::Value(value) = argument2 else {
+//                 bail!("Only value supported on the right side of the condition")
+//             };
+//             let op = match condition_op {
+//                 ast::ConditionOp::Eq => "=",
+//                 ast::ConditionOp::NotEq => "!=",
+//                 ast::ConditionOp::Less => "<",
+//                 ast::ConditionOp::LessOrEqual => "<=",
+//                 ast::ConditionOp::Greater => ">",
+//                 ast::ConditionOp::GreaterOrEqual => ">=",
+//             };
+
+//             let q_name = format!("{}.{} = {}", cfg.table, cfg.attr_name_col, name);
+//             let q_turn = if let Some(turn) = turn {
+//                 format!("{}.{} = {}", cfg.table, cfg.attr_turn_col, turn)
+//             } else {
+//                 format!("{}.{} IS NULL", cfg.table, cfg.attr_turn_col)
+//             };
+//             let q_bot_id = if let Some(bot_id) = bot_id {
+//                 format!(
+//                     "{}.{} = {}",
+//                     cfg.table,
+//                     cfg.attr_bot_id_col,
+//                     i64::from(bot_id)
+//                 )
+//             } else {
+//                 format!("{}.{} IS NULL", cfg.table, cfg.attr_bot_id_col)
+//             };
+//             let q_value = match value {
+//                 ast::Value::Number(x) => {
+//                     let a = format!("{}.{} {} {}", cfg.table, cfg.attr_val_i_col, op, x);
+//                     let b = format!("{}.{} {} {}", cfg.table, cfg.attr_val_f_col, op, x);
+//                     format!("({}) OR ({})", a, b)
+//                 }
+//                 ast::Value::String(s) => {
+//                     format!("{}.{} {} {}", cfg.table, cfg.attr_val_s_col, op, s)
+//                 }
+//             };
+//             format!(
+//                 "({} AND {} AND {} AND {})",
+//                 q_name, q_turn, q_bot_id, q_value
+//             )
+//         }
+//         ast::Expr::Paren(expr) => build_sql_where(&expr, cfg)?,
+//         ast::Expr::And(expr1, expr2) => {
+//             let a = build_sql_where(&expr1, cfg)?;
+//             let b = build_sql_where(&expr2, cfg)?;
+//             format!("({}) AND ({})", a, b)
+//         }
+//         ast::Expr::Or(expr1, expr2) => {
+//             let a = build_sql_where(&expr1, cfg)?;
+//             let b = build_sql_where(&expr2, cfg)?;
+//             format!("({}) OR ({})", a, b)
+//         }
+//         ast::Expr::Not(expr) => {
+//             let a = build_sql_where(&expr, cfg)?;
+//             format!("NOT ({})", a)
+//         }
+//     })
+// }
 
 fn collect_needed_attributes(expr: &ast::Expr, res: &mut Vec<MatchAttribute>) {
     match expr {
@@ -203,7 +294,7 @@ mod ast {
 
     use crate::domain::BotId;
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum Expr {
         Condition(Argument, ConditionOp, Argument),
         Paren(Box<Expr>),
@@ -212,14 +303,14 @@ mod ast {
         Not(Box<Expr>),
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum Argument {
         Value(Value),
         MatchAttr(MatchAttr),
         BotAttr(BotAttr),
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum ConditionOp {
         Eq,
         NotEq,
@@ -229,19 +320,19 @@ mod ast {
         GreaterOrEqual,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum Value {
         Number(f64),
         String(String),
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct MatchAttr {
         pub name: String,
         pub turn: Option<u16>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct BotAttr {
         pub name: String,
         pub turn: Option<u16>,

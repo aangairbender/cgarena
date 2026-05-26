@@ -23,13 +23,13 @@
     "noUncheckedSideEffectImports": true,
 
     /* path aliases */
-    "baseUrl": ".",
     "paths": {
       // "@routes": ["src/routes/index.ts"],
-      "@hooks/*": ["src/hooks/*"],
-      "@components/*": ["src/components/*"],
-      "@models": ["src/models/index"],
-      "@api": ["src/api/index"]
+      "@hooks/*": ["./src/hooks/*"],
+      "@components/*": ["./src/components/*"],
+      "@models": ["./src/models/index"],
+      "@api": ["./src/api/index"],
+      "@contexts/*": ["./src/contexts/*"]
     }
   },
   "include": ["src"]

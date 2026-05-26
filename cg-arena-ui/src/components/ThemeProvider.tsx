@@ -1,5 +1,5 @@
 import { PropsWithChildren, useEffect, useState } from "react";
-import ThemeContext, { Theme } from "src/contexts/ThemeContext";
+import ThemeContext, { Theme } from "@contexts/ThemeContext";
 
 const ThemeProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [theme, setTheme] = useState<Theme>(currentTheme());

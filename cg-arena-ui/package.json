@@ -11,6 +11,7 @@
     "format": "npx prettier --write ."
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.95.2",
     "@tanstack/react-router": "^1.168.7",
     "bootstrap": "^5.3.3",
     "jdenticon": "^3.3.0",

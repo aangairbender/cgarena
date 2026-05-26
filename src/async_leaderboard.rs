@@ -59,8 +59,7 @@ impl AsyncLeaderboard {
         let filter = self.leaderboard.filter.clone();
         let pool = self.pool.clone();
         tokio::spawn(async move {
-            let attrs = filter.needed_attributes();
-            let matches = db::fetch_matches_with_attrs(&pool, &attrs).await;
+            let matches = db::fetch_matches_all(&pool, &filter).await;
 
             match matches {
                 Ok(matches) => {

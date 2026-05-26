@@ -1,6 +1,6 @@
 use crate::domain::{
     Bot, BotId, Build, BuildResult, BuildStatus, Leaderboard, LeaderboardId, Match, MatchAttribute,
-    MatchAttributeValue, MatchId, Participant,
+    MatchAttributeValue, MatchFilter, MatchId, Participant,
 };
 use anyhow::bail;
 use chrono::{DateTime, Utc};
@@ -499,18 +499,21 @@ pub async fn wipe_old_matches<F: Fn(usize) -> bool>(
     Ok(amount_to_delete as usize)
 }
 
-pub async fn fetch_matches_with_attrs(
+pub async fn fetch_matches_all(
     pool: &SqlitePool,
-    attrs: &[MatchAttribute],
+    filter: &MatchFilter,
 ) -> anyhow::Result<Vec<Match>> {
-    let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
-        .fetch_all(pool)
-        .await?;
+    fetch_matches(pool, filter, vec![], None, None).await
+}
 
-    let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
-        .fetch_all(pool)
-        .await?;
-
+pub async fn fetch_matches(
+    pool: &SqlitePool,
+    filter: &MatchFilter,
+    including_bots: Vec<BotId>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> anyhow::Result<Vec<Match>> {
+    let attrs = filter.needed_attributes();
     let attributes: Vec<MatchAttributesJoinedRow> = if attrs.is_empty() {
         vec![]
     } else {
@@ -555,6 +558,27 @@ pub async fn fetch_matches_with_attrs(
         sqlx::query_as(&sql).fetch_all(pool).await?
     };
 
+    // let matches: Vec<MatchesRow> = {
+    //     let q = if !attributes.is_empty() {
+    //         let match_ids: Vec<i64> = attributes.iter().map(|a| a.match_id).unique().collect();
+    //         format!("id IN {}", match_ids.iter().join(","))
+    //     } else {
+    //         "1=1".to_string()
+    //     };
+
+    //     sqlx::query_as(&format!("SELECT * from matches WHERE {}", q))
+    //         .fetch_all(pool)
+    //         .await?
+    // };
+
+    let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
+        .fetch_all(pool)
+        .await?;
+
+    let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
+        .fetch_all(pool)
+        .await?;
+
     let mut combined = HashMap::with_capacity(matches.len());
     for m in matches {
         combined.insert(m.id, (m, vec![], vec![]));
@@ -574,7 +598,7 @@ pub async fn fetch_matches_with_attrs(
         target.2.push(attr);
     }
 
-    let matches = combined
+    let mut matches: Vec<Match> = combined
         .into_values()
         .filter_map(|item| {
             let id = item.0.id;
@@ -583,6 +607,31 @@ pub async fn fetch_matches_with_attrs(
                 .ok()
         })
         .collect();
+
+    matches.retain(|m| filter.matches(m));
+
+    if !including_bots.is_empty() {
+        matches.retain(|m| {
+            including_bots
+                .iter()
+                .all(|id| m.participants.iter().any(|p| p.bot_id == *id))
+        });
+    }
+
+    if offset.is_none() && limit.is_none() {
+        return Ok(matches);
+    }
+
+    // important for offset & limit
+    matches.sort_by_key(|m| i64::from(m.id));
+
+    if let Some(offset) = offset {
+        drop(matches.drain(0..offset));
+    }
+    if let Some(limit) = limit {
+        matches.truncate(limit);
+    }
+
     Ok(matches)
 }
 

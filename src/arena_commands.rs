@@ -16,6 +16,33 @@ pub enum ArenaCommand {
     Chart(ChartCommand),
     FetchBotSourceCode(FetchBotSourceCodeCommand),
     EnableMatchmaking(EnableMatchmakingCommand),
+    FetchMatches(FetchMatchesCommand),
+}
+
+pub struct FetchMatchesCommand {
+    pub filter: MatchFilter,
+    pub including_bots: Vec<BotId>,
+    pub offset: usize,
+    pub limit: usize,
+    pub response: oneshot::Sender<FetchMatchesResult>,
+}
+
+pub struct FetchMatchesResult {
+    pub matches: Vec<MatchOverview>,
+}
+
+pub struct MatchOverview {
+    pub id: MatchId,
+    pub participants: Vec<ParticipantOverview>,
+    pub seed: i64,
+}
+
+pub struct ParticipantOverview {
+    pub bot_id: BotId,
+    pub bot_name: BotName,
+    pub rank: u8,
+    pub index: usize,
+    pub error: bool,
 }
 
 pub struct EnableMatchmakingCommand {
