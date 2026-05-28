@@ -15,6 +15,7 @@ import HomePage from "./pages/HomePage.tsx";
 import ConfigPage from "./pages/ConfigPage.tsx";
 import MatchesPage from "./pages/MatchesPage.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { z } from "zod";
 
 const rootRoute = createRootRoute({
   component: () => <App />,
@@ -24,10 +25,8 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: () => <HomePage />,
-  validateSearch: (search) => ({
-    selectedBotId: search.selectedBotId
-      ? Number(search.selectedBotId)
-      : undefined,
+  validateSearch: z.object({
+    selectedBotId: z.number().optional(),
   }),
 });
 
@@ -35,15 +34,11 @@ const matchesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/matches",
   component: () => <MatchesPage />,
-  validateSearch: (search) => ({
-    filter: typeof search.filter === "string" ? search.filter : "",
-    withBots: Array.isArray(search.withBots)
-      ? search.withBots.map(Number)
-      : typeof search.withBots === "string"
-        ? search.withBots.split(",").map(Number)
-        : [],
-    page: search.page ? Number(search.page) : undefined,
-    pageSize: search.pageSize ? Number(search.pageSize) : undefined,
+  validateSearch: z.object({
+    filter: z.string().default(""),
+    withBots: z.array(z.int()).default([]),
+    page: z.int().default(1),
+    pageSize: z.int().default(10),
   }),
 });
 

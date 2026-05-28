@@ -47,10 +47,10 @@ function AppNavbar() {
             >
               Home
             </Link>
-            <Link to="/matches" className="nav-link" search={{ filter: "" }}>
+            <Link to="/matches" className="nav-link">
               Matches
             </Link>
-            {/* <Link to="/config" className="nav-link" search={{}}>
+            {/* <Link to="/config" className="nav-link">
               Config
             </Link> */}
           </Nav>
