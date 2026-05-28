@@ -1,9 +1,9 @@
-import { BuildResponse, BotOverviewResponse } from "@models";
+import { BuildResponse, BotOverviewResponse } from "@/models";
 import React from "react";
 import { Badge, Button, Stack, Table } from "react-bootstrap";
 import { FaCode, FaPencil, FaTrash } from "react-icons/fa6";
 import { ViewCodeDialogData } from "./ViewCodeDialog";
-import { fetchBotSourceCode } from "@api";
+import { fetchBotSourceCode } from "@/api";
 import { Link } from "@tanstack/react-router";
 
 interface BotOverviewProps {

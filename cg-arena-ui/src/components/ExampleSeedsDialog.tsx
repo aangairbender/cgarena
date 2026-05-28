@@ -1,4 +1,4 @@
-import { DialogProps } from "@hooks/useDialog";
+import { DialogProps } from "@/hooks/useDialog";
 import { useState } from "react";
 import { Button, Modal, Table } from "react-bootstrap";
 import { FaCopy } from "react-icons/fa6";

@@ -1,5 +1,5 @@
-import NumbericInput from "@components/form/NumericInput";
-import { Config, configSchema } from "@models";
+import NumbericInput from "@/components/form/NumericInput";
+import { Config, configSchema } from "@/models";
 import { useForm } from "@tanstack/react-form";
 import { Button, Card, Form, FormGroup } from "react-bootstrap";
 

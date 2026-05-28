@@ -9,8 +9,8 @@ import {
   Stack,
 } from "react-bootstrap";
 import ThemeSwitcher from "./ThemeSwitcher";
-import { useDialogs } from "@hooks/useDialogs";
-import { useAppStore } from "@hooks/useAppStore";
+import { useDialogs } from "@/hooks/useDialogs";
+import { useAppStore } from "@/hooks/useAppStore";
 import { Link } from "@tanstack/react-router";
 
 function AppNavbar() {

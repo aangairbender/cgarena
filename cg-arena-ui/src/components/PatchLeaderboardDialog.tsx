@@ -3,9 +3,9 @@ import {
   LeaderboardId,
   LeaderboardOverviewResponse,
   PatchLeaderboardRequest,
-} from "@models";
+} from "@/models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
-import { DialogProps } from "@hooks/useDialog";
+import { DialogProps } from "@/hooks/useDialog";
 
 export interface PatchLeaderboardDialogData {
   leaderboard: LeaderboardOverviewResponse;

@@ -1,5 +1,5 @@
-import Identicon from "@components/Identicon";
-import { useTheme } from "@hooks/useTheme";
+import Identicon from "@/components/Identicon";
+import { useTheme } from "@/hooks/useTheme";
 import {
   BotId,
   BotOverviewResponse,
@@ -7,7 +7,7 @@ import {
   LeaderboardItemResponse,
   LeaderboardOverviewResponse,
   PatchLeaderboardRequest,
-} from "@models";
+} from "@/models";
 import {
   Button,
   Card,
@@ -26,7 +26,7 @@ import {
   FaCaretRight,
 } from "react-icons/fa6";
 import { useState } from "react";
-import { useDialogs } from "@hooks/useDialogs";
+import { useDialogs } from "@/hooks/useDialogs";
 import { Link } from "@tanstack/react-router";
 
 interface LeaderboardProps {
@@ -174,13 +174,23 @@ const LeaderboardTable = ({
   return (
     <Table hover className="mb-0">
       <thead>
-        <tr>
-          <th style={{ width: "4%" }}>Rank</th>
-          <th>Name</th>
-          <th style={{ width: "6%" }}>Rating</th>
-          <th style={{ width: "15%" }}>Winrate</th>
-          <th style={{ width: "12%" }}>W / L / D</th>
-          <th style={{ width: "7%" }}>Total</th>
+        <tr className="uppercase text-xs font-medium tracking-wider bg-muted/30">
+          <th style={{ width: "4%" }} className="text-muted">
+            Rank
+          </th>
+          <th className="text-muted">Name</th>
+          <th style={{ width: "6%" }} className="text-muted">
+            Rating
+          </th>
+          <th style={{ width: "15%" }} className="text-muted">
+            Winrate
+          </th>
+          <th style={{ width: "12%" }} className="text-muted">
+            W / L / D
+          </th>
+          <th style={{ width: "7%" }} className="text-muted">
+            Total
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -196,7 +206,7 @@ const LeaderboardTable = ({
               item={item}
               bot={bots.find((b) => b.id == item.id)}
               stats={stats}
-              selected={item.id == selectedBotId}
+              selectedBotId={selectedBotId}
             />
           );
         })}
@@ -216,13 +226,15 @@ interface RowProps {
   item: LeaderboardItemResponse;
   stats: WinrateStats | undefined;
   bot: BotOverviewResponse | undefined;
-  selected: boolean;
+  selectedBotId: number | undefined;
 }
 
-const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
+const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
   if (!bot) {
     return null;
   }
+
+  const selected = selectedBotId === bot.id;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const renderTooltip = (props: any) => (
@@ -231,9 +243,9 @@ const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
     </Tooltip>
   );
 
-  const winsFilter = `bot(${lb.id}).rank < bot(${bot.id}).rank`;
-  const losesFilter = `bot(${lb.id}).rank > bot(${bot.id}).rank`;
-  const drawsFilter = `bot(${lb.id}).rank == < bot(${bot.id}).rank`;
+  const winsFilter = `bot(${selectedBotId}).rank < bot(${bot.id}).rank`;
+  const losesFilter = `bot(${selectedBotId}).rank > bot(${bot.id}).rank`;
+  const drawsFilter = `bot(${selectedBotId}).rank == bot(${bot.id}).rank`;
 
   return (
     <tr className={selected ? "highlighted-row" : ""}>
@@ -259,7 +271,7 @@ const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
           <Link
             to="/matches"
             search={{
-              withBots: [lb.id, bot.id],
+              withBots: [bot.id, item.id],
               filter: lb.filter
                 ? `(${lb.filter}) AND (${winsFilter})`
                 : winsFilter,
@@ -271,7 +283,7 @@ const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
           <Link
             to="/matches"
             search={{
-              withBots: [lb.id, bot.id],
+              withBots: [bot.id, item.id],
               filter: lb.filter
                 ? `(${lb.filter}) AND (${losesFilter})`
                 : losesFilter,
@@ -283,7 +295,7 @@ const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
           <Link
             to="/matches"
             search={{
-              withBots: [lb.id, bot.id],
+              withBots: [bot.id, item.id],
               filter: lb.filter
                 ? `(${lb.filter}) AND (${drawsFilter})`
                 : drawsFilter,
@@ -299,7 +311,7 @@ const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
         <td>
           <Link
             to="/matches"
-            search={{ withBots: [lb.id, bot.id], filter: lb.filter }}
+            search={{ withBots: [bot.id, item.id], filter: lb.filter }}
           >
             {stats.wins + stats.loses + stats.draws}
           </Link>

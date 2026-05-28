@@ -1,8 +1,8 @@
-import BotOverview from "@components/BotOverview";
-import Leaderboard from "@components/Leaderboard";
-import { useAppStore } from "@hooks/useAppStore";
-import { useDialogs } from "@hooks/useDialogs";
-import useEnsureValidSelectedBot from "@hooks/useEnsureValidSelectedBot";
+import BotOverview from "@/components/BotOverview";
+import Leaderboard from "@/components/Leaderboard";
+import { useAppStore } from "@/hooks/useAppStore";
+import { useDialogs } from "@/hooks/useDialogs";
+import useEnsureValidSelectedBot from "@/hooks/useEnsureValidSelectedBot";
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Container, Card, Button } from "react-bootstrap";
@@ -84,14 +84,14 @@ export default function HomePage() {
 
       <Container className="d-flex justify-content-center">
         <Button
-          className="mx-1"
+          className="d-flex items-center"
           variant="outline-secondary"
           onClick={() =>
             createLeaderboardDialog.show({ onCreate: createLeaderboard })
           }
         >
           <FaPlus className="bi me-2" size={16} />
-          New leaderboard
+          <span>New leaderboard</span>
         </Button>
       </Container>
     </div>

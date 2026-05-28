@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { CreateBotRequest } from "@models";
+import { CreateBotRequest } from "@/models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
-import { DialogProps } from "@hooks/useDialog";
+import { DialogProps } from "@/hooks/useDialog";
 
 export interface SubmitBotDialogData {
   onSubmit: (req: CreateBotRequest) => Promise<void>;

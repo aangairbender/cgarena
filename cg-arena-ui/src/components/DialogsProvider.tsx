@@ -1,4 +1,4 @@
-import { useDialog } from "@hooks/useDialog";
+import { useDialog } from "@/hooks/useDialog";
 import { PropsWithChildren } from "react";
 import ChartDialog, { ChartDialogData } from "./ChartDialog";
 import ConfirmDialog, { ConfirmDialogData } from "./ConfirmDialog";
@@ -14,7 +14,7 @@ import PatchLeaderboardDialog, {
 import RenameBotDialog, { RenameBotDialogData } from "./RenameBotDialog";
 import SubmitBotDialog, { SubmitBotDialogData } from "./SubmitBotDialog";
 import ViewCodeDialog, { ViewCodeDialogData } from "./ViewCodeDialog";
-import DialogsContext from "@contexts/DialogsContext";
+import DialogsContext from "@/contexts/DialogsContext";
 
 const DialogsProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const submitBotDialog = useDialog<SubmitBotDialogData>();

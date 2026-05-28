@@ -1,5 +1,5 @@
-import { DialogProps } from "@hooks/useDialog";
-import { useTheme } from "@hooks/useTheme";
+import { DialogProps } from "@/hooks/useDialog";
+import { useTheme } from "@/hooks/useTheme";
 import { Button, Modal } from "react-bootstrap";
 import { FaRegClipboard } from "react-icons/fa6";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";

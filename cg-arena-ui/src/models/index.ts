@@ -114,6 +114,14 @@ export interface MatchOverviewResponse {
   id: number;
   participants: ParticipantOverviewResponse[];
   seed: number;
+  attributes: MatchAttributeResponse[];
+}
+
+export interface MatchAttributeResponse {
+  name: string;
+  bot_id?: BotId;
+  turn?: number;
+  value: number | string;
 }
 
 export interface ParticipantOverviewResponse {

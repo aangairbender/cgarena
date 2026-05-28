@@ -8,16 +8,16 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from "react-bootstrap";
-import { DialogProps } from "@hooks/useDialog";
+import { DialogProps } from "@/hooks/useDialog";
 import {
   BotOverviewResponse,
   ChartOverviewResponse,
   ChartRequest,
   ChartTurnDataResponse,
-} from "@models";
-import * as api from "@api";
+} from "@/models";
+import * as api from "@/api";
 import { AxisOptions, Chart, UserSerie } from "react-charts";
-import { useTheme } from "@hooks/useTheme";
+import { useTheme } from "@/hooks/useTheme";
 
 export interface ChartDialogData {
   bots: BotOverviewResponse[];

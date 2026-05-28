@@ -1,12 +1,12 @@
-import { ChartDialogData } from "@components/ChartDialog";
-import { ConfirmDialogData } from "@components/ConfirmDialog";
-import { CreateLeaderboardDialogData } from "@components/CreateLeaderboardDialog";
-import { ExampleSeedsDialogData } from "@components/ExampleSeedsDialog";
-import { PatchLeaderboardDialogData } from "@components/PatchLeaderboardDialog";
-import { RenameBotDialogData } from "@components/RenameBotDialog";
-import { SubmitBotDialogData } from "@components/SubmitBotDialog";
-import { ViewCodeDialogData } from "@components/ViewCodeDialog";
-import { DialogProps } from "@hooks/useDialog";
+import { ChartDialogData } from "@/components/ChartDialog";
+import { ConfirmDialogData } from "@/components/ConfirmDialog";
+import { CreateLeaderboardDialogData } from "@/components/CreateLeaderboardDialog";
+import { ExampleSeedsDialogData } from "@/components/ExampleSeedsDialog";
+import { PatchLeaderboardDialogData } from "@/components/PatchLeaderboardDialog";
+import { RenameBotDialogData } from "@/components/RenameBotDialog";
+import { SubmitBotDialogData } from "@/components/SubmitBotDialog";
+import { ViewCodeDialogData } from "@/components/ViewCodeDialog";
+import { DialogProps } from "@/hooks/useDialog";
 import { createContext } from "react";
 
 const DialogsContext = createContext<DialogsContextType | undefined>(undefined);

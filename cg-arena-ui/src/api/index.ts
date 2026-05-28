@@ -14,7 +14,7 @@ import {
   EnableMatchmakingRequest,
   FetchMatchesResponse,
   FetchMatchesRequest,
-} from "@models";
+} from "@/models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
 

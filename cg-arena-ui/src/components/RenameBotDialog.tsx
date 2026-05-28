@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { BotId, RenameBotRequest } from "@models";
+import { BotId, RenameBotRequest } from "@/models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
-import { DialogProps } from "@hooks/useDialog";
+import { DialogProps } from "@/hooks/useDialog";
 
 export interface RenameBotDialogData {
   botId: BotId;

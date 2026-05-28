@@ -1,5 +1,6 @@
-import { fetchMatches } from "@api";
-import { MatchOverviewResponse, ParticipantOverviewResponse } from "@models";
+import { fetchMatches } from "@/api";
+import { MatchCard } from "@/components/MatchCard";
+import { MatchOverviewResponse, ParticipantOverviewResponse } from "@/models";
 import { getRouteApi } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Form, Pagination, Table } from "react-bootstrap";
@@ -38,31 +39,36 @@ export default function MatchesPage() {
   }, [initialFilter, search]);
 
   return (
-    <Card>
-      <Card.Header>Matches</Card.Header>
-      <Card.Body>
-        <MatchesFilters initialFilter={initialFilter} onSearch={search} />
-        {error && <span>Error: {error}</span>}
-        {loading && <span>Loading...</span>}
-        <MatchesTable matches={matches} />
-        <div className="d-flex justify-content-center">
-          <Pagination>
-            <Pagination.Prev
-              disabled={page == 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Prev
-            </Pagination.Prev>
-            <Pagination.Item active disabled>
-              {page}
-            </Pagination.Item>
-            <Pagination.Next onClick={() => setPage((p) => p + 1)}>
-              Next
-            </Pagination.Next>
-          </Pagination>
-        </div>
-      </Card.Body>
-    </Card>
+    <div className="d-flex flex-column gap-3">
+      <Card>
+        <Card.Header>Matches</Card.Header>
+        <Card.Body>
+          <MatchesFilters initialFilter={initialFilter} onSearch={search} />
+          {error && <span>Error: {error}</span>}
+          {loading && <span>Loading...</span>}
+          {/* <MatchesTable matches={matches} /> */}
+        </Card.Body>
+      </Card>
+
+      <MatchList matches={matches} />
+
+      <div className="d-flex justify-content-center">
+        <Pagination>
+          <Pagination.Prev
+            disabled={page == 1}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Prev
+          </Pagination.Prev>
+          <Pagination.Item active disabled>
+            {page}
+          </Pagination.Item>
+          <Pagination.Next onClick={() => setPage((p) => p + 1)}>
+            Next
+          </Pagination.Next>
+        </Pagination>
+      </div>
+    </div>
   );
 }
 
@@ -96,6 +102,28 @@ function MatchesFilters({ initialFilter, onSearch }: MatchesFiltersProps) {
 
       {/* {error && <Alert variant="danger">{error}</Alert>} */}
     </>
+  );
+}
+
+interface MatchListProps {
+  matches: MatchOverviewResponse[];
+}
+
+export function MatchList({ matches }: MatchListProps) {
+  if (matches.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12">
+        <p className="text-muted-foreground">No matches found</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {matches.map((match) => (
+        <MatchCard key={match.id} match={match} />
+      ))}
+    </div>
   );
 }
 

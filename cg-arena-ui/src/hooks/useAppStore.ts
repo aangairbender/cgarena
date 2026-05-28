@@ -7,8 +7,8 @@ import {
   CreateLeaderboardRequest,
   LeaderboardId,
   PatchLeaderboardRequest,
-} from "@models";
-import * as api from "@api";
+} from "@/models";
+import * as api from "@/api";
 import { create } from "zustand";
 
 type Status = "connected" | "connecting";

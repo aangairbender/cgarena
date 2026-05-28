@@ -1,7 +1,7 @@
 import "./App.css";
 
-import AppNavbar from "@components/AppNavbar";
-import DialogsProvider from "@components/DialogsProvider";
+import AppNavbar from "@/components/AppNavbar";
+import DialogsProvider from "@/components/DialogsProvider";
 import { Outlet } from "@tanstack/react-router";
 import { Container } from "react-bootstrap";
 

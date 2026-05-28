@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
-import { DialogProps } from "@hooks/useDialog";
-import { CreateLeaderboardRequest } from "@models";
+import { DialogProps } from "@/hooks/useDialog";
+import { CreateLeaderboardRequest } from "@/models";
 
 export interface CreateLeaderboardDialogData {
   onCreate: (req: CreateLeaderboardRequest) => Promise<void>;

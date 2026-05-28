@@ -1,4 +1,4 @@
-import { DialogProps } from "@hooks/useDialog";
+import { DialogProps } from "@/hooks/useDialog";
 import { Button, Modal } from "react-bootstrap";
 
 export interface ConfirmDialogData {

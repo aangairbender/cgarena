@@ -1,3 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cg-legend: #f96249;
+  --color-cg-gold: #f4ae3d;
+  --color-cg-silver: #849aa4;
+  --color-cg-bronze: #b6a28b;
+  --color-cg-bronze: #7cc576;
+}
+
 body {
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
 }

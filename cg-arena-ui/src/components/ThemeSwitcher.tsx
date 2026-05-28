@@ -1,4 +1,4 @@
-import { useTheme } from "@hooks/useTheme";
+import { useTheme } from "@/hooks/useTheme";
 import { Button } from "react-bootstrap";
 import { MdDarkMode, MdLightMode } from "react-icons/md";
 
