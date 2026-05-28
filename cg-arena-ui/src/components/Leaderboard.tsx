@@ -231,6 +231,10 @@ const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
     </Tooltip>
   );
 
+  const winsFilter = `bot(${lb.id}).rank < bot(${bot.id}).rank`;
+  const losesFilter = `bot(${lb.id}).rank > bot(${bot.id}).rank`;
+  const drawsFilter = `bot(${lb.id}).rank == < bot(${bot.id}).rank`;
+
   return (
     <tr className={selected ? "highlighted-row" : ""}>
       <td>{item.rank + 1}</td>
@@ -251,11 +255,58 @@ const Row = ({ lb, item, stats, bot, selected }: RowProps) => {
       <RatingCell item={item} />
       {stats ? <WinrateCell stats={stats} /> : <td></td>}
       {stats ? (
-        <td>{`${stats.wins} / ${stats.loses} / ${stats.draws}`}</td>
+        <td>
+          <Link
+            to="/matches"
+            search={{
+              withBots: [lb.id, bot.id],
+              filter: lb.filter
+                ? `(${lb.filter}) AND (${winsFilter})`
+                : winsFilter,
+            }}
+          >
+            {stats.wins}
+          </Link>
+          {" / "}
+          <Link
+            to="/matches"
+            search={{
+              withBots: [lb.id, bot.id],
+              filter: lb.filter
+                ? `(${lb.filter}) AND (${losesFilter})`
+                : losesFilter,
+            }}
+          >
+            {stats.loses}
+          </Link>
+          {" / "}
+          <Link
+            to="/matches"
+            search={{
+              withBots: [lb.id, bot.id],
+              filter: lb.filter
+                ? `(${lb.filter}) AND (${drawsFilter})`
+                : drawsFilter,
+            }}
+          >
+            {stats.draws}
+          </Link>
+        </td>
       ) : (
         <td></td>
       )}
-      {stats ? <td>{stats.wins + stats.loses + stats.draws}</td> : <td></td>}
+      {stats ? (
+        <td>
+          <Link
+            to="/matches"
+            search={{ withBots: [lb.id, bot.id], filter: lb.filter }}
+          >
+            {stats.wins + stats.loses + stats.draws}
+          </Link>
+        </td>
+      ) : (
+        <td></td>
+      )}
     </tr>
   );
 };

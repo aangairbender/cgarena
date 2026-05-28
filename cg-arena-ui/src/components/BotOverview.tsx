@@ -4,6 +4,7 @@ import { Badge, Button, Stack, Table } from "react-bootstrap";
 import { FaCode, FaPencil, FaTrash } from "react-icons/fa6";
 import { ViewCodeDialogData } from "./ViewCodeDialog";
 import { fetchBotSourceCode } from "@api";
+import { Link } from "@tanstack/react-router";
 
 interface BotOverviewProps {
   bot: BotOverviewResponse;
@@ -45,8 +46,22 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <td>{bot.id}</td>
           <td>{bot.name}</td>
           <td>{bot.language}</td>
-          <td>{bot.matches_played}</td>
-          <td>{bot.matches_with_error}</td>
+          <td>
+            <Link to="/matches" search={{ withBots: [bot.id] }}>
+              {bot.matches_played}
+            </Link>
+          </td>
+          <td>
+            <Link
+              to="/matches"
+              search={{
+                withBots: [bot.id],
+                filter: `bot(${bot.id}).error == 1`,
+              }}
+            >
+              {bot.matches_with_error}
+            </Link>
+          </td>
           <td>
             <Builds builds={bot.builds} showCodeDialog={showCodeDialog} />
           </td>
