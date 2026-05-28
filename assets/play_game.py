@@ -11,7 +11,7 @@ if __name__ == '__main__':
     
     cmd = f'java --add-opens java.base/java.lang=ALL-UNNAMED -jar "{REFEREE_PATH}"' + ''.join([f' -p{i} "{sys.argv[i + 1]}"' for i in range(1, n_players+1)]) + f' -seed {seed} -l "{log_file}"'
     task = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    with open(log_file, 'r') as f:
+    with open(log_file, 'r', encoding='utf-8') as f:
         json_log = json.load(f)
     
     p_scores = []

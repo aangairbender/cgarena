@@ -31,8 +31,6 @@ impl CgReferee {
             return Ok(());
         }
 
-        eprintln!("{}", self.fs_path.to_str().unwrap());
-
         let output = std::process::Command::new("git")
             .arg("clone")
             .arg(&self.git_url)
@@ -67,6 +65,13 @@ impl CgReferee {
             return Ok(());
         }
 
+        let Some(dep_end_index) = pom_lines
+            .iter()
+            .position(|line| line.contains("</dependencies>"))
+        else {
+            bail!("invalid pom.xml file: no '</dependencies>' terminator")
+        };
+
         let Some(last_line_index) = pom_lines
             .iter()
             .position(|line| line.contains("</project>"))
@@ -74,10 +79,24 @@ impl CgReferee {
             bail!("invalid pom.xml file: no '</projects>' terminator")
         };
 
+        assert!(
+            dep_end_index < last_line_index,
+            "invalid pom.xml: deps after end"
+        );
+
         let mut new_pom = String::new();
-        for i in 0..last_line_index {
+        for i in 0..dep_end_index {
             new_pom.push_str(pom_lines[i]);
         }
+
+        if !pom_lines.iter().any(|line| line.contains("commons-cli")) {
+            new_pom.push_str("<dependency><groupId>commons-cli</groupId><artifactId>commons-cli</artifactId><version>1.3.1</version></dependency>");
+        }
+
+        for i in dep_end_index..last_line_index {
+            new_pom.push_str(pom_lines[i]);
+        }
+
         new_pom.push_str(POM_BUILD_SECTION_CONTENTS);
         for i in last_line_index..pom_lines.len() {
             new_pom.push_str(pom_lines[i]);
