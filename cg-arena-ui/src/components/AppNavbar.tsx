@@ -50,11 +50,9 @@ function AppNavbar() {
             <Link to="/matches" className="nav-link" search={{ filter: "" }}>
               Matches
             </Link>
-            {
-              <Link to="/config" className="nav-link" search={{}}>
-                Config
-              </Link>
-            }
+            {/* <Link to="/config" className="nav-link" search={{}}>
+              Config
+            </Link> */}
           </Nav>
         </Navbar.Collapse>
 
