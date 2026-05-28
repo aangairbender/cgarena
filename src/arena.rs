@@ -280,9 +280,9 @@ impl Arena {
         )
         .await
         .expect("Can't fetch matches from DB");
-        let filtered = matches
-            .iter()
-            .filter(|m| filter.matches(m))
+
+        let res = matches
+            .into_iter()
             .map(|m| MatchOverview {
                 id: m.id,
                 participants: m
@@ -298,9 +298,10 @@ impl Arena {
                     })
                     .collect(),
                 seed: m.seed,
+                attributes: m.attributes,
             })
             .collect();
-        FetchMatchesResult { matches: filtered }
+        FetchMatchesResult { matches: res }
     }
 
     async fn cmd_create_bot(
@@ -706,12 +707,21 @@ impl Arena {
 
             new_match.attributes.retain(|attr| attr.name != "index");
             new_match.attributes.retain(|attr| attr.name != "error");
+            new_match.attributes.retain(|attr| attr.name != "rank");
+
             for (index, p) in new_match.participants.iter().enumerate() {
                 new_match.attributes.push(MatchAttribute {
                     name: "index".to_string(),
                     bot_id: Some(p.bot_id),
                     turn: None,
                     value: MatchAttributeValue::Integer(index as _),
+                });
+
+                new_match.attributes.push(MatchAttribute {
+                    name: "rank".to_string(),
+                    bot_id: Some(p.bot_id),
+                    turn: None,
+                    value: MatchAttributeValue::Integer(p.rank as _),
                 });
 
                 if p.error {

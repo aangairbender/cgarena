@@ -1,6 +1,7 @@
 use crate::config::EmbeddedWorkerConfig;
 use crate::domain::{
-    BotId, BuildResult, Language, MatchAttribute, Participant, SourceCode, WorkerName,
+    BotId, BuildResult, Language, MatchAttribute, MatchAttributeValue, Participant, SourceCode,
+    WorkerName,
 };
 use anyhow::{bail, Context};
 use itertools::Itertools;
@@ -282,6 +283,22 @@ async fn spawn_play_match_command(
             .attributes
             .into_iter()
             .map(|attr| to_match_attribute(&input, attr))
+            .chain(if result.scores.is_empty() {
+                vec![].into_iter()
+            } else {
+                input
+                    .bots
+                    .iter()
+                    .zip_eq(result.scores)
+                    .map(|(b, s)| MatchAttribute {
+                        name: "score".to_string(),
+                        bot_id: Some(b.bot_id),
+                        turn: None,
+                        value: MatchAttributeValue::Integer(s as _),
+                    })
+                    .collect_vec()
+                    .into_iter()
+            })
             .collect(),
     };
 
@@ -322,6 +339,8 @@ pub struct PlayMatchOutput {
 
 #[derive(Deserialize)]
 pub struct CmdPlayMatchStdout {
+    #[serde(default)]
+    pub scores: Vec<i32>,
     pub ranks: Vec<u8>,
     pub errors: Vec<u8>,
     #[serde(default)]

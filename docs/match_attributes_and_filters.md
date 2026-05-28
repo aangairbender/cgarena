@@ -4,10 +4,10 @@
 
 - [Match attributes overview](#match-attributes-overview)
 - [Emitting match attributes](#emitting-match-attributes)
-    - [Match data](#match-data)
-    - [Turn-specific match data](#turn-specific-match-data)
-    - [Player data](#player-data)
-    - [Turn-specific player data](#turn-specific-player-data)
+  - [Match data](#match-data)
+  - [Turn-specific match data](#turn-specific-match-data)
+  - [Player data](#player-data)
+  - [Turn-specific player data](#turn-specific-player-data)
 
 ## Match attributes overview
 
@@ -83,11 +83,13 @@ eprintln!("[PDATA][{}] money = {}", turn, money);
 CG Arena injects several match arguments by default for every match. It will overwrite any bot-emitted data with same conflicting name.
 
 - Match data:
-    - `seed` - match seed
-    - `player_count` - amount of players in match. Only recorded if `min_players != max_players` inthe config
+  - `seed` - match seed
+  - `player_count` - amount of players in match. Only recorded if `min_players != max_players` inthe config
 - Player data:
-    - `index` - index of a bot in match (e.g. if bot was the 1st player then index is 0)
-    - `error` - set to `1` if bot crashed in the matched, otherwise is not set
+  - `index` - index of a bot in match (e.g. if bot was the 1st player then index is 0)
+  - `rank` - rank of a bot in match (e.g. if bot was the winner the rank is 0. In case of a draw in a 2-player match, both bots will have rank 0).
+  - `error` - set to `1` if bot crashed in the matched, otherwise is not set
+  - `score` - set to bot's score computed by the game referee
 
 ## Match filters
 
@@ -107,10 +109,10 @@ The condition consists of 2 arguments and operator between them.
 Condition argument can be:
 
 - match attribute
-    - match data, e.g. `match.map_size`
-    - turn-specific match data, e.g. `match[10].empty_cells`
-    - player data, e.g. `bot(5).final_score` where `5` is the bot ID.
-    - turn-specific player data, e.g. `bot(5)[50].money`
+  - match data, e.g. `match.map_size`
+  - turn-specific match data, e.g. `match[10].empty_cells`
+  - player data, e.g. `bot(5).final_score` where `5` is the bot ID.
+  - turn-specific player data, e.g. `bot(5)[50].money`
 - number, e.g `5` or `0.3`
 - string, e.g. `"small"`
 

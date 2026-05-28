@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::{errors::ApiError, AppState},
     arena_commands::{FetchMatchesResult, MatchOverview, ParticipantOverview},
-    domain::MatchFilter,
+    domain::{MatchAttribute, MatchAttributeValue, MatchFilter},
 };
 
 #[derive(Deserialize)]
@@ -50,6 +50,7 @@ pub struct MatchOverviewResponse {
     pub id: i64,
     pub participants: Vec<ParticipantOverviewResponse>,
     pub seed: i64,
+    pub attributes: Vec<MatchAttributeResponse>,
 }
 
 #[derive(Serialize)]
@@ -59,6 +60,22 @@ pub struct ParticipantOverviewResponse {
     pub bot_id: i64,
     pub bot_name: String,
     pub error: bool,
+}
+
+#[derive(Serialize)]
+pub struct MatchAttributeResponse {
+    pub name: String,
+    pub bot_id: Option<i64>,
+    pub turn: Option<u16>,
+    pub value: MatchAttributeValueResponse,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum MatchAttributeValueResponse {
+    Integer(i64),
+    Float(f64),
+    String(String),
 }
 
 impl From<FetchMatchesResult> for FetchMatchesResponse {
@@ -75,6 +92,7 @@ impl From<MatchOverview> for MatchOverviewResponse {
             id: value.id.into(),
             participants: value.participants.into_iter().map(Into::into).collect(),
             seed: value.seed,
+            attributes: value.attributes.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -87,6 +105,27 @@ impl From<ParticipantOverview> for ParticipantOverviewResponse {
             bot_id: value.bot_id.into(),
             bot_name: value.bot_name.to_string(),
             error: value.error,
+        }
+    }
+}
+
+impl From<MatchAttribute> for MatchAttributeResponse {
+    fn from(value: MatchAttribute) -> Self {
+        Self {
+            name: value.name,
+            bot_id: value.bot_id.map(|id| id.into()),
+            turn: value.turn.into(),
+            value: value.value.into(),
+        }
+    }
+}
+
+impl From<MatchAttributeValue> for MatchAttributeValueResponse {
+    fn from(value: MatchAttributeValue) -> Self {
+        match value {
+            MatchAttributeValue::Integer(x) => Self::Integer(x),
+            MatchAttributeValue::Float(x) => Self::Float(x),
+            MatchAttributeValue::String(x) => Self::String(x),
         }
     }
 }

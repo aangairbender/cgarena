@@ -16,18 +16,12 @@ pub async fn visualize(
     attribute_name: String,
     pool: SqlitePool,
 ) -> anyhow::Result<ChartOverview> {
-    let matches = db::fetch_matches_all(&pool, &filter).await?;
-
-    let filtered_match_ids: Vec<MatchId> = matches
-        .iter()
-        .filter(|&m| filter.matches(m))
-        .map(|m| m.id)
-        .collect();
-
-    let last_match_ids: Vec<MatchId> = filtered_match_ids
-        .into_iter()
-        .k_largest_by_key::<_, i64>(MATCHES_PER_CHART, |id| (*id).into())
-        .collect();
+    let last_match_ids: Vec<MatchId> =
+        db::fetch_matches(&pool, &filter, vec![], Some(0), Some(MATCHES_PER_CHART))
+            .await?
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
 
     let data = db::fetch_turn_attributes(&pool, &last_match_ids, &attribute_name).await?;
 

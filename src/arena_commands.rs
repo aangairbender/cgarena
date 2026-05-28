@@ -35,6 +35,7 @@ pub struct MatchOverview {
     pub id: MatchId,
     pub participants: Vec<ParticipantOverview>,
     pub seed: i64,
+    pub attributes: Vec<MatchAttribute>,
 }
 
 pub struct ParticipantOverview {

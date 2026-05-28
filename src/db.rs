@@ -416,11 +416,7 @@ pub async fn fetch_turn_attributes(
         return Ok(vec![]);
     }
 
-    let match_ids_joined = match_ids
-        .iter()
-        .map::<i64, _>(|&id| id.into())
-        .map(|id| id.to_string())
-        .join(",");
+    let match_ids_joined = match_ids.iter().join(",");
 
     let sql = formatdoc! {
         "SELECT
@@ -499,6 +495,7 @@ pub async fn wipe_old_matches<F: Fn(usize) -> bool>(
     Ok(amount_to_delete as usize)
 }
 
+/// newest would come first
 pub async fn fetch_matches_all(
     pool: &SqlitePool,
     filter: &MatchFilter,
@@ -506,6 +503,7 @@ pub async fn fetch_matches_all(
     fetch_matches(pool, filter, vec![], None, None).await
 }
 
+/// newest would come first
 pub async fn fetch_matches(
     pool: &SqlitePool,
     filter: &MatchFilter,
@@ -514,7 +512,7 @@ pub async fn fetch_matches(
     limit: Option<usize>,
 ) -> anyhow::Result<Vec<Match>> {
     let attrs = filter.needed_attributes();
-    let attributes: Vec<MatchAttributesJoinedRow> = if attrs.is_empty() {
+    let filter_attributes: Vec<MatchAttributesJoinedRow> = if attrs.is_empty() {
         vec![]
     } else {
         let names_joined = attrs.iter().map(|a| format!("'{}'", a.name)).join(",");
@@ -590,7 +588,7 @@ pub async fn fetch_matches(
         };
         target.1.push(p);
     }
-    for attr in attributes {
+    for attr in filter_attributes {
         let target = combined.get_mut(&attr.match_id);
         let Some(target) = target else {
             continue;
@@ -623,13 +621,47 @@ pub async fn fetch_matches(
     }
 
     // important for offset & limit
-    matches.sort_by_key(|m| i64::from(m.id));
+    // sorting by negative it for having the newest matches first
+    matches.sort_by_key(|m| -i64::from(m.id));
 
     if let Some(offset) = offset {
         drop(matches.drain(0..offset));
     }
     if let Some(limit) = limit {
         matches.truncate(limit);
+    }
+
+    // does not include turn attrs
+    let mut match_attrs = {
+        let match_ids_joined = matches.iter().map(|m| m.id).join(",");
+        let sql = formatdoc! {
+            "SELECT
+                n.name as name,
+                ma.match_id as match_id,
+                ma.bot_id as bot_id,
+                ma.turn as turn,
+                ma.value_int as value_int,
+                ma.value_float as value_float,
+                NULL as value_string
+            FROM match_attributes ma
+            INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
+            WHERE ma.match_id IN ({match_ids_joined})
+            AND ma.turn IS NULL"
+        };
+
+        sqlx::query_as::<_, MatchAttributesJoinedRow>(&sql)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|e| (MatchId::from(e.match_id), e))
+            .into_group_map()
+    };
+
+    for m in &mut matches {
+        let Some(attrs) = match_attrs.remove(&m.id) else {
+            continue;
+        };
+        m.attributes = attrs.into_iter().map(|a| a.try_into()).try_collect()?;
     }
 
     Ok(matches)

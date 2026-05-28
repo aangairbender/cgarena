@@ -17,3 +17,9 @@ impl From<MatchId> for i64 {
         id.0
     }
 }
+
+impl std::fmt::Display for MatchId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}

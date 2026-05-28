@@ -20,6 +20,7 @@ if __name__ == '__main__':
         print(json_log['failCause'], file=sys.stderr)
         exit(1)
     rv = {}
+    rv['scores'] = p_scores
     rv['ranks'] = [sum([int(p_score < p2_score) for p2_score in p_scores]) for p_score in p_scores] # assumes higher score is better
     rv['errors'] = [int(p_score < 0) for p_score in p_scores] # assumes negative score means error
     rv['attributes'] = []
