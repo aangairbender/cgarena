@@ -1,5 +1,7 @@
 use crate::arena_handle::ArenaHandle;
+use crate::cg_referee::CgReferee;
 use crate::config::{Config, WorkerConfig};
+use crate::replay_viewer::ReplayViewer;
 use crate::{api, arena, db, worker};
 use anyhow::{bail, Context};
 use std::fs::OpenOptions;
@@ -35,6 +37,13 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         .with_span_events(FmtSpan::CLOSE)
         .init();
 
+    if let Some(ref git_url) = config.game.referee_git_url {
+        if !git_url.is_empty() {
+            let cg_referee = CgReferee::new(git_url.clone(), arena_path.join("referee"));
+            cg_referee.ensure_initialized()?;
+        }
+    }
+
     let pool = db::connect(arena_path)
         .await
         .context("Cannot connect to db")?;
@@ -46,6 +55,12 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let worker_handle = worker::run_embedded_worker(arena_path, cfg.clone())
         .context("Cannot start embedded worker")?;
 
+    let replay_viewer = ReplayViewer::new(
+        pool.clone(),
+        arena_path.to_owned(),
+        cfg.cmd_watch_replay.clone(),
+    );
+
     let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
 
     let arena_task_handle = arena::run(
@@ -55,6 +70,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         config.ranking,
         pool,
         worker_handle,
+        replay_viewer,
         arena_rx,
         token.clone(),
     )
@@ -120,6 +136,13 @@ static DEFAULT_FILES: &[(&str, &str)] = &[
     (
         "play_game.py",
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/play_game.py")),
+    ),
+    (
+        "watch_replay.py",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/watch_replay.py"
+        )),
     ),
 ];
 

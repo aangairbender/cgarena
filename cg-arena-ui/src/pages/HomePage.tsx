@@ -74,6 +74,7 @@ export default function HomePage() {
 
       {leaderboards.map((lb) => (
         <Leaderboard
+          key={lb.id}
           lb={lb}
           bots={bots}
           selectedBotId={selectedBotId}

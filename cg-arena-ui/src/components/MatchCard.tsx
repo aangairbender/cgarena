@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { LuCircleAlert } from "react-icons/lu";
 import { Badge, Button, Card, Table } from "react-bootstrap";
 import Identicon from "./Identicon";
+import { useDialogs } from "@/hooks/useDialogs";
 
 interface MatchCardProps {
   match: MatchOverviewResponse;
@@ -23,6 +24,8 @@ function trophyColorByRank(rank: number): string {
 }
 
 export function MatchCard({ match }: MatchCardProps) {
+  const { replayDialog } = useDialogs();
+
   const hasErrors = match.participants.some((p) => p.error);
   const sortedParticipants = [...match.participants].sort(
     (a, b) => a.index - b.index,
@@ -82,7 +85,11 @@ export function MatchCard({ match }: MatchCardProps) {
             ))}
           </div>
           <div className="flex items-center gap-1.5">
-            <Button variant="outline-warning" size="sm">
+            <Button
+              variant="outline-warning"
+              size="sm"
+              onClick={() => replayDialog.show({ match_id: match.id })}
+            >
               Watch replay
             </Button>
           </div>
@@ -168,7 +175,7 @@ export function MatchCard({ match }: MatchCardProps) {
                           "text-muted-foreground",
                         )}
                       >
-                        {value ?? "—"}
+                        {value?.toString() ?? "—"}
                       </span>
                     </td>
                   );

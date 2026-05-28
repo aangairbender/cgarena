@@ -33,7 +33,7 @@ export interface LeaderboardOverviewResponse {
   items: LeaderboardItemResponse[];
   winrate_stats: WinrateStatsResponse[];
   total_matches: number;
-  example_seeds: number[];
+  example_seeds: bigint[];
 }
 
 export interface WinrateStatsResponse {
@@ -113,7 +113,7 @@ export interface FetchMatchesResponse {
 export interface MatchOverviewResponse {
   id: number;
   participants: ParticipantOverviewResponse[];
-  seed: number;
+  seed: bigint;
   attributes: MatchAttributeResponse[];
 }
 
@@ -121,7 +121,7 @@ export interface MatchAttributeResponse {
   name: string;
   bot_id?: BotId;
   turn?: number;
-  value: number | string;
+  value: string;
 }
 
 export interface ParticipantOverviewResponse {
@@ -132,7 +132,12 @@ export interface ParticipantOverviewResponse {
   error: boolean;
 }
 
+export interface WatchReplayResponse {
+  viewer_url: string;
+}
+
 export type BotId = number;
+export type MatchId = number;
 export type LeaderboardId = number;
 
 export const GLOBAL_LEADERBOARD_ID = 0 as LeaderboardId;

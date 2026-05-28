@@ -67,15 +67,7 @@ pub struct MatchAttributeResponse {
     pub name: String,
     pub bot_id: Option<i64>,
     pub turn: Option<u16>,
-    pub value: MatchAttributeValueResponse,
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-pub enum MatchAttributeValueResponse {
-    Integer(i64),
-    Float(f64),
-    String(String),
+    pub value: String,
 }
 
 impl From<FetchMatchesResult> for FetchMatchesResponse {
@@ -120,12 +112,12 @@ impl From<MatchAttribute> for MatchAttributeResponse {
     }
 }
 
-impl From<MatchAttributeValue> for MatchAttributeValueResponse {
+impl From<MatchAttributeValue> for String {
     fn from(value: MatchAttributeValue) -> Self {
         match value {
-            MatchAttributeValue::Integer(x) => Self::Integer(x),
-            MatchAttributeValue::Float(x) => Self::Float(x),
-            MatchAttributeValue::String(x) => Self::String(x),
+            MatchAttributeValue::Integer(x) => x.to_string(),
+            MatchAttributeValue::Float(x) => x.to_string(),
+            MatchAttributeValue::String(x) => x,
         }
     }
 }

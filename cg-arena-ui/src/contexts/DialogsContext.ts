@@ -4,6 +4,7 @@ import { CreateLeaderboardDialogData } from "@/components/CreateLeaderboardDialo
 import { ExampleSeedsDialogData } from "@/components/ExampleSeedsDialog";
 import { PatchLeaderboardDialogData } from "@/components/PatchLeaderboardDialog";
 import { RenameBotDialogData } from "@/components/RenameBotDialog";
+import { ReplayDialogData } from "@/components/ReplayDialog";
 import { SubmitBotDialogData } from "@/components/SubmitBotDialog";
 import { ViewCodeDialogData } from "@/components/ViewCodeDialog";
 import { DialogProps } from "@/hooks/useDialog";
@@ -20,6 +21,7 @@ interface DialogsContextType {
   patchLeaderboardDialog: DialogProps<PatchLeaderboardDialogData>;
   exampleSeedsDialog: DialogProps<ExampleSeedsDialogData>;
   chartDialog: DialogProps<ChartDialogData>;
+  replayDialog: DialogProps<ReplayDialogData>;
 }
 
 export default DialogsContext;

@@ -6,10 +6,12 @@ max_players = 2
 # if 'symmetric' = true CG Arena will play 1 match per seed.
 # if 'symmetric' = false CG Arena will play n! matches per seed, where n is the amount of players.
 symmetric = true
+referee_git_url = ""
 
 [matchmaking]
 algorithm = "v2"
 min_matches_per_pair = 100
+max_matches = 1000
 
 # supported algorithms: ["OpenSkill", "TrueSkill", "Elo", "BradleyTerry"]
 [ranking]
@@ -18,7 +20,7 @@ algorithm = "BradleyTerry"
 # 'port' controls web server port. If 'port' is omitted then OS assigns some available port
 # 'expose' controls whether to expose web server to the local network
 [server]
-# port = 1234
+port = 1234
 expose = false
 
 [log]
@@ -40,6 +42,7 @@ file = "cgarena.log"
 #
 # 'cmd_build' is a command to build a bot
 # 'cmd_run' is a command to run bot
+# 'cmd_watch_replay' is a command to watch replay
 # the above commands will have the following replacements applied:
 # - {SEED} would be replaced with match seed
 # - {P1}, {P2}, etc. would be replaced with 'cmd_run' configured for match participant 1, 2, etc.
@@ -52,6 +55,7 @@ file = "cgarena.log"
 type = "embedded"
 threads = 1
 cmd_play_match = "python play_game.py {SEED} {PLAYERS}"
+cmd_watch_replay = "python watch_replay.py {SEED}"
 cmd_build = "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a"
 cmd_run = "./{DIR}/a"
 

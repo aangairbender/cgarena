@@ -4,16 +4,16 @@ import { Button, Modal, Table } from "react-bootstrap";
 import { FaCopy } from "react-icons/fa6";
 
 export interface ExampleSeedsDialogData {
-  example_seeds: number[];
+  example_seeds: bigint[];
 }
 
 const ExampleSeedsDialog = (dialog: DialogProps<ExampleSeedsDialogData>) => {
-  const [copied, setCopied] = useState<number>();
+  const [copied, setCopied] = useState<bigint>();
 
   const data = dialog.data;
   if (data === undefined) return null;
 
-  const copy = async (seed: number) => {
+  const copy = async (seed: bigint) => {
     await copyToClipboard(seed);
     setCopied(seed);
     setTimeout(() => {
@@ -39,7 +39,7 @@ const ExampleSeedsDialog = (dialog: DialogProps<ExampleSeedsDialogData>) => {
             {data.example_seeds.map((seed, index) => (
               <tr key={index}>
                 <td>{index + 1}</td>
-                <td>{seed}</td>
+                <td>{seed.toString()}</td>
                 <td style={{ textAlign: "right" }}>
                   <Button
                     variant="outline-secondary"
@@ -63,7 +63,7 @@ const ExampleSeedsDialog = (dialog: DialogProps<ExampleSeedsDialogData>) => {
   );
 };
 
-const copyToClipboard = async (seed: number) => {
+const copyToClipboard = async (seed: bigint) => {
   try {
     await navigator.clipboard.writeText(seed.toString());
   } catch (err) {

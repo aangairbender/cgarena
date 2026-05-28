@@ -26,6 +26,7 @@ pub struct GameConfig {
     pub min_players: u32,
     pub max_players: u32,
     pub symmetric: bool,
+    pub referee_git_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,6 +57,7 @@ pub enum WorkerConfig {
 pub struct EmbeddedWorkerConfig {
     pub threads: u8,
     pub cmd_play_match: String,
+    pub cmd_watch_replay: String,
     pub cmd_build: String,
     pub cmd_run: String,
 }

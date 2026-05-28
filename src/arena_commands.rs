@@ -17,6 +17,22 @@ pub enum ArenaCommand {
     FetchBotSourceCode(FetchBotSourceCodeCommand),
     EnableMatchmaking(EnableMatchmakingCommand),
     FetchMatches(FetchMatchesCommand),
+    WatchReplay(WatchReplayCommand),
+    CloseReplay(CloseReplayCommand),
+}
+
+pub struct WatchReplayCommand {
+    pub match_id: MatchId,
+    pub response: oneshot::Sender<WatchReplayResult>,
+}
+
+pub struct WatchReplayResult {
+    pub viewer_url: String,
+}
+
+pub struct CloseReplayCommand {
+    pub match_id: MatchId,
+    pub response: oneshot::Sender<()>,
 }
 
 pub struct FetchMatchesCommand {

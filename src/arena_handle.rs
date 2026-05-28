@@ -1,12 +1,13 @@
 use crate::arena_commands::{
-    ArenaCommand, BotSourceCode, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
-    CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand, EnableMatchmakingCommand,
-    FetchBotSourceCodeCommand, FetchMatchesCommand, FetchMatchesResult, FetchStatusCommand,
-    FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand, PatchLeaderboardResult,
-    RenameBotCommand, RenameBotResult,
+    ArenaCommand, BotSourceCode, ChartCommand, ChartOverview, CloseReplayCommand, CreateBotCommand,
+    CreateBotResult, CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand,
+    EnableMatchmakingCommand, FetchBotSourceCodeCommand, FetchMatchesCommand, FetchMatchesResult,
+    FetchStatusCommand, FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand,
+    PatchLeaderboardResult, RenameBotCommand, RenameBotResult, WatchReplayCommand,
+    WatchReplayResult,
 };
 use crate::domain::{
-    BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
+    BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, MatchId, SourceCode,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -150,6 +151,26 @@ impl ArenaHandle {
                 including_bots,
                 offset,
                 limit,
+                response: tx,
+            })
+        })
+        .await
+    }
+
+    pub async fn watch_replay(&self, match_id: MatchId) -> anyhow::Result<WatchReplayResult> {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::WatchReplay(WatchReplayCommand {
+                match_id,
+                response: tx,
+            })
+        })
+        .await
+    }
+
+    pub async fn close_replay(&self, match_id: MatchId) -> anyhow::Result<()> {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::CloseReplay(CloseReplayCommand {
+                match_id,
                 response: tx,
             })
         })

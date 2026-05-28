@@ -4,6 +4,7 @@ use crate::config::{GameConfig, LeaderboardsConfig, MatchmakingConfig, RankingCo
 use crate::domain::*;
 use crate::matchmaking;
 use crate::ranking::Ranker;
+use crate::replay_viewer::ReplayViewer;
 use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, PlayMatchOutput, WorkerHandle};
 use crate::{chart, db};
 use anyhow::{bail, Context};
@@ -25,6 +26,7 @@ pub async fn run(
     ranking_config: RankingConfig,
     pool: SqlitePool,
     worker_handle: WorkerHandle,
+    replay_viewer: ReplayViewer,
     mut commands_rx: Receiver<ArenaCommand>,
     cancellation_token: CancellationToken,
 ) -> anyhow::Result<JoinHandle<()>> {
@@ -45,6 +47,7 @@ pub async fn run(
         ranker,
         pool,
         worker_handle,
+        replay_viewer,
     );
 
     arena
@@ -96,6 +99,7 @@ struct Arena {
     bots: Vec<Bot>,
     builds: Vec<Build>,
     worker_handle: WorkerHandle,
+    replay_viewer: ReplayViewer,
     ranker: Arc<Ranker>,
     global_leaderboard: AsyncLeaderboard,
     custom_leaderboards: Vec<AsyncLeaderboard>,
@@ -113,6 +117,7 @@ impl Arena {
         ranker: Ranker,
         pool: SqlitePool,
         worker_handle: WorkerHandle,
+        replay_viewer: ReplayViewer,
     ) -> Self {
         let ranker = Arc::new(ranker);
         Self {
@@ -122,6 +127,7 @@ impl Arena {
             matchmaking_config,
             pool: pool.clone(),
             worker_handle,
+            replay_viewer,
             ranker: Arc::clone(&ranker),
             bots: Default::default(),
             builds: Default::default(),
@@ -260,6 +266,21 @@ impl Arena {
 
     fn cmd_enable_matchmaking(&mut self, enabled: bool) {
         self.matchmaking_enabled = enabled;
+    }
+
+    async fn cmd_watch_replay(&mut self, match_id: MatchId) -> WatchReplayResult {
+        let url = self
+            .replay_viewer
+            .watch(match_id)
+            .await
+            .expect("Can't start replay");
+        WatchReplayResult { viewer_url: url }
+    }
+
+    async fn cmd_close_replay(&mut self, match_id: MatchId) -> () {
+        self.replay_viewer
+            .close(match_id)
+            .expect("Cannot close replay");
     }
 
     async fn cmd_fetch_matches(
@@ -620,6 +641,18 @@ impl Arena {
                         command.limit,
                     )
                     .await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::WatchReplay(command) => {
+                let res = self.cmd_watch_replay(command.match_id).await;
+                if command.response.send(res).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::CloseReplay(command) => {
+                let res = self.cmd_close_replay(command.match_id).await;
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }

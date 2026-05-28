@@ -1,18 +1,19 @@
 import sys, subprocess, json, tempfile, os, re
 
-if __name__ == '__main__':
-    f, log_file = tempfile.mkstemp(prefix='log_')
-    os.close(f)
+REFEREE_PATH = "referee/target/referee.jar"
 
+if __name__ == '__main__':
     n_players = len(sys.argv) - 2
     seed = sys.argv[1]
     
-    # assumes brutaltester-compatible referee.jar is placed in the same folder
-    cmd = 'java --add-opens java.base/java.lang=ALL-UNNAMED -jar referee.jar' + ''.join([f' -p{i} "{sys.argv[i + 1]}"' for i in range(1, n_players+1)]) + f' -seed {seed} -l "{log_file}"'
+    os.makedirs("logs", exist_ok=True)
+    log_file = f"logs/log_{seed}.json"
+    
+    cmd = f'java --add-opens java.base/java.lang=ALL-UNNAMED -jar "{REFEREE_PATH}"' + ''.join([f' -p{i} "{sys.argv[i + 1]}"' for i in range(1, n_players+1)]) + f' -seed {seed} -l "{log_file}"'
     task = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(log_file, 'r') as f:
         json_log = json.load(f)
-    os.remove(log_file)
+    
     p_scores = []
     try:
         p_scores = [int(json_log['scores'][str(i)]) for i in range(n_players)]

@@ -1,16 +1,16 @@
 import { fetchMatches } from "@/api";
 import { MatchCard } from "@/components/MatchCard";
-import { MatchOverviewResponse, ParticipantOverviewResponse } from "@/models";
+import { BotId, MatchOverviewResponse } from "@/models";
 import { getRouteApi } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, Form, Pagination, Table } from "react-bootstrap";
+import { Button, Card, Form, Pagination } from "react-bootstrap";
 
 const routeApi = getRouteApi("/matches");
 
 const PAGE_SIZE = 10;
 
 export default function MatchesPage() {
-  const { filter: initialFilter } = routeApi.useSearch();
+  const { filter: initialFilter, withBots } = routeApi.useSearch();
   const [page, setPage] = useState(1);
   const [matches, setMatches] = useState<MatchOverviewResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -43,7 +43,11 @@ export default function MatchesPage() {
       <Card>
         <Card.Header>Matches</Card.Header>
         <Card.Body>
-          <MatchesFilters initialFilter={initialFilter} onSearch={search} />
+          <MatchesFilters
+            initialFilter={initialFilter}
+            initialWithBots={withBots}
+            onSearch={search}
+          />
           {error && <span>Error: {error}</span>}
           {loading && <span>Loading...</span>}
           {/* <MatchesTable matches={matches} /> */}
@@ -74,12 +78,17 @@ export default function MatchesPage() {
 
 type MatchesFiltersProps = {
   initialFilter?: string;
+  initialWithBots?: BotId[];
   onSearch: (filter: string, includingBots: number[]) => void;
 };
 
-function MatchesFilters({ initialFilter, onSearch }: MatchesFiltersProps) {
+function MatchesFilters({
+  initialFilter,
+  initialWithBots,
+  onSearch,
+}: MatchesFiltersProps) {
   const [filter, setFilter] = useState(initialFilter ?? "");
-  const [withBots, setWithBots] = useState<number[]>([]);
+  const [withBots, setWithBots] = useState<number[]>(initialWithBots ?? []);
 
   return (
     <>
@@ -124,74 +133,5 @@ export function MatchList({ matches }: MatchListProps) {
         <MatchCard key={match.id} match={match} />
       ))}
     </div>
-  );
-}
-
-type MatchesTableProps = {
-  matches: MatchOverviewResponse[];
-};
-
-function MatchesTable({ matches }: MatchesTableProps) {
-  return (
-    <Table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Participants</th>
-          <th>Seed</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {matches.map((m) => (
-          <Row key={m.id} match={m} />
-        ))}
-      </tbody>
-    </Table>
-  );
-}
-
-type RowProps = {
-  match: MatchOverviewResponse;
-};
-
-function Row({ match }: RowProps) {
-  return (
-    <tr>
-      <td>{match.id}</td>
-      <td>
-        <ParticipantsCell participants={match.participants} />
-      </td>
-      <td>{match.seed}</td>
-      <td>
-        <Button variant="outline-warning">Watch replay</Button>
-      </td>
-    </tr>
-  );
-}
-
-type ParticipantsCellProps = {
-  participants: ParticipantOverviewResponse[];
-};
-
-function ParticipantsCell({ participants }: ParticipantsCellProps) {
-  return (
-    <div className="container">
-      {participants.map((p) => (
-        <div className="row" key={p.bot_id}>
-          <Participant data={p} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-type ParticipantProps = {
-  data: ParticipantOverviewResponse;
-};
-
-function Participant({ data }: ParticipantProps) {
-  return (
-    <div className="d-flex">{`#${data.rank} - ${data.bot_name} (player ${data.index + 1}) ${data.error ? "err" : ""}`}</div>
   );
 }

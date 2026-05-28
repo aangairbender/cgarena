@@ -1,10 +1,11 @@
-use std::{ops::Deref, time::Duration};
+use std::{ops::Deref, path::PathBuf, time::Duration};
 
 use crate::{
     arena_handle::ArenaHandle,
     config::Config,
     db,
     domain::*,
+    replay_viewer::ReplayViewer,
     worker::{BuildBotInput, BuildBotOutput, PlayMatchOutput, WorkerHandle},
 };
 use chrono::{DateTime, Utc};
@@ -37,6 +38,7 @@ where
         build_tx,
         known_bot_ids: vec![],
     };
+    let replay_viewer = ReplayViewer::new(pool.clone(), PathBuf::new(), "".to_string());
 
     tokio::spawn(async move {
         while let Some(cmd) = build_rx.recv().await {
@@ -60,6 +62,7 @@ where
         config.ranking,
         pool.clone(),
         worker_handle,
+        replay_viewer,
         commands_rx,
         cancellation_token.clone(),
     )

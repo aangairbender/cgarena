@@ -6,12 +6,14 @@ mod arena_server;
 #[cfg(test)]
 mod arena_tests;
 mod async_leaderboard;
+mod cg_referee;
 mod chart;
 mod config;
 mod db;
 mod domain;
 mod matchmaking;
 mod ranking;
+mod replay_viewer;
 mod worker;
 
 use anyhow::Context;

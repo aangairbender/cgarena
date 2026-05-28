@@ -15,6 +15,7 @@ import RenameBotDialog, { RenameBotDialogData } from "./RenameBotDialog";
 import SubmitBotDialog, { SubmitBotDialogData } from "./SubmitBotDialog";
 import ViewCodeDialog, { ViewCodeDialogData } from "./ViewCodeDialog";
 import DialogsContext from "@/contexts/DialogsContext";
+import ReplayDialog, { ReplayDialogData } from "./ReplayDialog";
 
 const DialogsProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const submitBotDialog = useDialog<SubmitBotDialogData>();
@@ -25,6 +26,7 @@ const DialogsProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const patchLeaderboardDialog = useDialog<PatchLeaderboardDialogData>();
   const exampleSeedsDialog = useDialog<ExampleSeedsDialogData>();
   const chartDialog = useDialog<ChartDialogData>();
+  const replayDialog = useDialog<ReplayDialogData>();
 
   const dialogs = {
     submitBotDialog,
@@ -35,6 +37,7 @@ const DialogsProvider: React.FC<PropsWithChildren> = ({ children }) => {
     patchLeaderboardDialog,
     exampleSeedsDialog,
     chartDialog,
+    replayDialog,
   };
 
   return (
@@ -50,6 +53,7 @@ const DialogsProvider: React.FC<PropsWithChildren> = ({ children }) => {
         <PatchLeaderboardDialog {...patchLeaderboardDialog} />
         <ExampleSeedsDialog {...exampleSeedsDialog} />
         <ChartDialog {...chartDialog} />
+        <ReplayDialog {...replayDialog} />
       </>
     </DialogsContext.Provider>
   );

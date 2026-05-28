@@ -14,6 +14,8 @@ import {
   EnableMatchmakingRequest,
   FetchMatchesResponse,
   FetchMatchesRequest,
+  MatchId,
+  WatchReplayResponse,
 } from "@/models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -155,6 +157,21 @@ export const validateFilter = async (filter: string): Promise<boolean> => {
   } else {
     return false;
   }
+};
+
+export const watchReplay = async (
+  id: MatchId,
+): Promise<WatchReplayResponse> => {
+  const response = await fetch(`${host}/api/matches/${id}/replay`);
+  return await parseResponse<WatchReplayResponse>(response);
+};
+
+export const closeReplay = async (id: MatchId) => {
+  const req = new Request(`${host}/api/matches/${id}/replay`, {
+    method: "DELETE",
+  });
+  const response = await fetch(req);
+  await checkForErrors(response);
 };
 
 async function checkForErrors(response: Response) {
