@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { BotId, RenameBotRequest } from "@/models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@/hooks/useDialog";
@@ -10,16 +10,11 @@ export interface RenameBotDialogData {
 }
 
 const RenameBotDialog = (dialog: DialogProps<RenameBotDialogData>) => {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(dialog.data?.currentName ?? "");
   const [error, setError] = useState("");
 
   const data = dialog.data;
 
-  useEffect(() => {
-    if (dialog.isOpen && data) {
-      setName(data.currentName);
-    }
-  }, [dialog.isOpen, data]);
 
   if (data === undefined) return null;
 
@@ -55,7 +50,7 @@ const RenameBotDialog = (dialog: DialogProps<RenameBotDialogData>) => {
           <Form.Label>Name</Form.Label>
           <Form.Control
             placeholder="Bot's name"
-            defaultValue={data.currentName}
+            value={name}
             onChange={(e) => setName(e.target.value)}
           />
           <Form.Text className="text-muted">

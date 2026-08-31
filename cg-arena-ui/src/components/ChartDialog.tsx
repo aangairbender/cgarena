@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -16,7 +16,16 @@ import {
   ChartTurnDataResponse,
 } from "@/models";
 import * as api from "@/api";
-import { AxisOptions, Chart, UserSerie } from "react-charts";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useTheme } from "@/hooks/useTheme";
 
 export interface ChartDialogData {
@@ -24,60 +33,64 @@ export interface ChartDialogData {
   filter: string;
 }
 
+type ChartMetric = "avg" | "min" | "max";
+
+type ChartPoint = {
+  turn: number;
+  [seriesKey: string]: number;
+};
+
+const SERIES_COLORS = [
+  "#0d6efd",
+  "#dc3545",
+  "#198754",
+  "#fd7e14",
+  "#6f42c1",
+  "#0dcaf0",
+];
+
 const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState(dialog.data?.filter ?? "");
   const [attr, setAttr] = useState("");
   const [error, setError] = useState("");
   const [chart, setChart] = useState<ChartOverviewResponse>();
   const [loading, setLoading] = useState(false);
-  const [metric, setMetric] = useState<"avg" | "min" | "max">("avg");
+  const [metric, setMetric] = useState<ChartMetric>("avg");
   const { theme } = useTheme();
 
   const data = dialog.data;
 
-  useEffect(() => {
-    if (dialog.isOpen && data) {
-      setFilter(data.filter);
-    }
-  }, [dialog.isOpen, data]);
 
-  const primaryAxis = useMemo(
-    (): AxisOptions<ChartTurnDataResponse> => ({
-      getValue: (datum) => datum.turn,
-    }),
-    [],
-  );
-
-  const secondaryAxes = useMemo(
-    (): AxisOptions<ChartTurnDataResponse>[] => [
-      {
-        getValue: (datum) => datum[metric],
-      },
-    ],
-    [metric],
-  );
-
-  const chartData = useMemo(() => {
-    if (chart === undefined || data === undefined) {
+  const chartView = useMemo(() => {
+    if (chart === undefined || data === undefined || chart.items.length === 0) {
       return undefined;
     }
 
-    if (chart.items.length == 0) {
-      setError("No matches with such attribute");
-      return undefined;
-    }
+    const pointsByTurn = new Map<number, ChartPoint>();
+    const series = chart.items.map((item, index) => {
+      const key = `bot-${item.bot_id}`;
 
-    const mapped: UserSerie<ChartTurnDataResponse>[] = chart.items.map(
-      (item) => ({
-        label: data.bots.find((b) => b.id == item.bot_id)?.name ?? "unknown",
-        data: item.data,
-      }),
-    );
+      item.data.forEach((datum: ChartTurnDataResponse) => {
+        const point = pointsByTurn.get(datum.turn) ?? { turn: datum.turn };
+        point[key] = datum[metric];
+        pointsByTurn.set(datum.turn, point);
+      });
 
-    setMetric("avg");
+      return {
+        key,
+        label:
+          data.bots.find((bot) => bot.id === item.bot_id)?.name ?? "unknown",
+        color: SERIES_COLORS[index % SERIES_COLORS.length],
+      };
+    });
 
-    return mapped;
-  }, [chart, data]);
+    return {
+      points: Array.from(pointsByTurn.values()).sort(
+        (left, right) => left.turn - right.turn,
+      ),
+      series,
+    };
+  }, [chart, data, metric]);
 
   if (data === undefined) return null;
 
@@ -93,19 +106,26 @@ const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
 
   const handleCreate = async () => {
     const req: ChartRequest = { filter, attribute_name: attr };
+    setError("");
+    setLoading(true);
+    setChart(undefined);
+    setMetric("avg");
+
     try {
-      setError("");
-      setLoading(true);
-      setChart(undefined);
-      const res = await api.chart(req);
-      setLoading(false);
-      setChart(res);
+      const response = await api.chart(req);
+      if (response.items.length === 0) {
+        setError("No matches with such attribute");
+      } else {
+        setChart(response);
+      }
     } catch (e) {
       if (e instanceof Error) {
         setError(e.message);
       } else {
         setError(String(e));
       }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -145,14 +165,14 @@ const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
 
         {loading && <Spinner animation="border" />}
 
-        {chartData && (
+        {chartView && (
           <div className="mb-3" style={{ height: "400px" }}>
             <div>
               <ToggleButtonGroup
                 type="radio"
                 value={metric}
                 name="metric"
-                onChange={(v) => setMetric(v)}
+                onChange={(value: ChartMetric) => setMetric(value)}
               >
                 <ToggleButton
                   id="tbg-btn-1"
@@ -180,17 +200,32 @@ const ChartDialog = (dialog: DialogProps<ChartDialogData>) => {
                 </ToggleButton>
               </ToggleButtonGroup>
             </div>
-            <Chart
-              options={{
-                data: chartData,
-                primaryAxis,
-                secondaryAxes,
-                padding: {
-                  bottom: 16,
-                },
-                dark: theme === "dark",
-              }}
-            />
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={chartView.points}
+                margin={{ top: 16, right: 24, bottom: 16, left: 8 }}
+              >
+                <CartesianGrid
+                  stroke={theme === "dark" ? "#495057" : "#dee2e6"}
+                  strokeDasharray="3 3"
+                />
+                <XAxis dataKey="turn" type="number" allowDecimals={false} />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                {chartView.series.map((item) => (
+                  <Line
+                    key={item.key}
+                    type="monotone"
+                    dataKey={item.key}
+                    name={item.label}
+                    stroke={item.color}
+                    dot={false}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         )}
       </Modal.Body>

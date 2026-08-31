@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   LeaderboardId,
   LeaderboardOverviewResponse,
@@ -15,18 +15,14 @@ export interface PatchLeaderboardDialogData {
 const PatchLeaderboardDialog = (
   dialog: DialogProps<PatchLeaderboardDialogData>,
 ) => {
-  const [name, setName] = useState("");
-  const [filter, setFilter] = useState("");
+  const [name, setName] = useState(dialog.data?.leaderboard.name ?? "");
+  const [filter, setFilter] = useState(
+    dialog.data?.leaderboard.filter ?? "",
+  );
   const [error, setError] = useState("");
 
   const data = dialog.data;
 
-  useEffect(() => {
-    if (dialog.isOpen && data) {
-      setName(data.leaderboard.name);
-      setFilter(data.leaderboard.filter);
-    }
-  }, [dialog.isOpen, data]);
 
   if (data === undefined) return null;
 
@@ -65,7 +61,7 @@ const PatchLeaderboardDialog = (
           <Form.Label>Name</Form.Label>
           <Form.Control
             placeholder="Leaderboard's name"
-            defaultValue={data.leaderboard.name}
+            value={name}
             onChange={(e) => setName(e.target.value)}
           />
           <Form.Text className="text-muted">
@@ -77,7 +73,7 @@ const PatchLeaderboardDialog = (
           <Form.Label>Match filter</Form.Label>
           <Form.Control
             placeholder=""
-            defaultValue={data.leaderboard.filter}
+            value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
           <Form.Text className="text-muted">
