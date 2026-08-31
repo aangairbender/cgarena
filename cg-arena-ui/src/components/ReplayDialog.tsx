@@ -15,8 +15,6 @@ const ReplayDialog = (dialog: DialogProps<ReplayDialogData>) => {
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
-    setUrl("");
-    setError("");
     if (data?.match_id === undefined) return;
 
     api

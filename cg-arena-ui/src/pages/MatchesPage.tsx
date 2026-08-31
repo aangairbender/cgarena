@@ -1,8 +1,9 @@
 import { fetchMatches } from "@/api";
 import { MatchCard } from "@/components/MatchCard";
 import { BotId, MatchOverviewResponse } from "@/models";
+import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Card, Form, Pagination } from "react-bootstrap";
 
 const routeApi = getRouteApi("/matches");
@@ -12,31 +13,25 @@ const PAGE_SIZE = 10;
 export default function MatchesPage() {
   const { filter: initialFilter, withBots } = routeApi.useSearch();
   const [page, setPage] = useState(1);
-  const [matches, setMatches] = useState<MatchOverviewResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [criteria, setCriteria] = useState({
+    filter: initialFilter ?? "",
+    includingBots: withBots,
+  });
 
-  const search = useCallback(
-    (filter: string, includingBots: number[]) => {
-      const req = {
-        filter,
-        includingBots,
+  const matchesQuery = useQuery({
+    queryKey: ["matches", criteria.filter, criteria.includingBots, page],
+    queryFn: () =>
+      fetchMatches({
+        ...criteria,
         offset: (page - 1) * PAGE_SIZE,
         limit: PAGE_SIZE,
-      };
-      setLoading(true);
-      setError("");
-      fetchMatches(req)
-        .then((resp) => setMatches(resp.matches))
-        .catch((e) => setError(e.toString()))
-        .finally(() => setLoading(false));
-    },
-    [setLoading, setError, setMatches, page],
-  );
+      }),
+  });
 
-  useEffect(() => {
-    search(initialFilter ?? "", []);
-  }, [initialFilter, search]);
+  const handleSearch = (filter: string, includingBots: number[]) => {
+    setPage(1);
+    setCriteria({ filter, includingBots });
+  };
 
   return (
     <div className="d-flex flex-column gap-3">
@@ -46,28 +41,31 @@ export default function MatchesPage() {
           <MatchesFilters
             initialFilter={initialFilter}
             initialWithBots={withBots}
-            onSearch={search}
+            onSearch={handleSearch}
           />
-          {error && <span>Error: {error}</span>}
-          {loading && <span>Loading...</span>}
-          {/* <MatchesTable matches={matches} /> */}
+          {matchesQuery.error && (
+            <span>Error: {String(matchesQuery.error)}</span>
+          )}
+          {matchesQuery.isFetching && <span>Loading...</span>}
         </Card.Body>
       </Card>
 
-      <MatchList matches={matches} />
+      <MatchList matches={matchesQuery.data?.matches ?? []} />
 
       <div className="d-flex justify-content-center">
         <Pagination>
           <Pagination.Prev
-            disabled={page == 1}
-            onClick={() => setPage((p) => p - 1)}
+            disabled={page === 1}
+            onClick={() => setPage((currentPage) => currentPage - 1)}
           >
             Prev
           </Pagination.Prev>
           <Pagination.Item active disabled>
             {page}
           </Pagination.Item>
-          <Pagination.Next onClick={() => setPage((p) => p + 1)}>
+          <Pagination.Next
+            onClick={() => setPage((currentPage) => currentPage + 1)}
+          >
             Next
           </Pagination.Next>
         </Pagination>
@@ -88,7 +86,7 @@ function MatchesFilters({
   onSearch,
 }: MatchesFiltersProps) {
   const [filter, setFilter] = useState(initialFilter ?? "");
-  const [withBots, setWithBots] = useState<number[]>(initialWithBots ?? []);
+  const withBots = initialWithBots ?? [];
 
   return (
     <>

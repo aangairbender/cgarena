@@ -45,15 +45,21 @@ const DialogsProvider: React.FC<PropsWithChildren> = ({ children }) => {
       <>
         {children}
 
-        <SubmitBotDialog {...submitBotDialog} />
-        <ViewCodeDialog {...viewCodeDialog} />
-        <ConfirmDialog {...confirmDialog} />
-        <RenameBotDialog {...renameBotDialog} />
-        <CreateLeaderboardDialog {...createLeaderboardDialog} />
-        <PatchLeaderboardDialog {...patchLeaderboardDialog} />
-        <ExampleSeedsDialog {...exampleSeedsDialog} />
-        <ChartDialog {...chartDialog} />
-        <ReplayDialog {...replayDialog} />
+        {submitBotDialog.isOpen && <SubmitBotDialog {...submitBotDialog} />}
+        {viewCodeDialog.isOpen && <ViewCodeDialog {...viewCodeDialog} />}
+        {confirmDialog.isOpen && <ConfirmDialog {...confirmDialog} />}
+        {renameBotDialog.isOpen && <RenameBotDialog {...renameBotDialog} />}
+        {createLeaderboardDialog.isOpen && (
+          <CreateLeaderboardDialog {...createLeaderboardDialog} />
+        )}
+        {patchLeaderboardDialog.isOpen && (
+          <PatchLeaderboardDialog {...patchLeaderboardDialog} />
+        )}
+        {exampleSeedsDialog.isOpen && (
+          <ExampleSeedsDialog {...exampleSeedsDialog} />
+        )}
+        {chartDialog.isOpen && <ChartDialog {...chartDialog} />}
+        {replayDialog.isOpen && <ReplayDialog {...replayDialog} />}
       </>
     </DialogsContext.Provider>
   );
