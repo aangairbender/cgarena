@@ -1,5 +1,5 @@
 use axum::http::{header, StatusCode, Uri};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use rust_embed::Embed;
@@ -11,7 +11,7 @@ pub fn create_web_router() -> Router {
         .route("/assets/{*file}", get(static_handler))
         .route("/favicon-16x16.png", get(static_handler))
         .route("/favicon-32x32.png", get(static_handler))
-        .fallback_service(get(not_found))
+        .fallback_service(get(index_handler))
 }
 
 // We use static route matchers ("/" and "/index.html") to serve our home
@@ -26,11 +26,6 @@ async fn index_handler() -> impl IntoResponse {
 async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/').to_string();
     StaticFile(path)
-}
-
-// Finally, we use a fallback route for anything that didn't match.
-async fn not_found() -> Html<&'static str> {
-    Html("<h1>404</h1><p>Not Found</p>")
 }
 
 #[derive(Embed)]

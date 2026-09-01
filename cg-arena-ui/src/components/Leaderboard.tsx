@@ -266,12 +266,12 @@ const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
       </td>
       <RatingCell item={item} />
       {stats ? <WinrateCell stats={stats} /> : <td></td>}
-      {stats ? (
+      {stats && selectedBotId !== undefined ? (
         <td>
           <Link
             to="/matches"
             search={{
-              withBots: [bot.id, item.id],
+              withBots: [selectedBotId, item.id],
               filter: lb.filter
                 ? `(${lb.filter}) AND (${winsFilter})`
                 : winsFilter,
@@ -283,7 +283,7 @@ const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
           <Link
             to="/matches"
             search={{
-              withBots: [bot.id, item.id],
+              withBots: [selectedBotId, item.id],
               filter: lb.filter
                 ? `(${lb.filter}) AND (${losesFilter})`
                 : losesFilter,
@@ -295,7 +295,7 @@ const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
           <Link
             to="/matches"
             search={{
-              withBots: [bot.id, item.id],
+              withBots: [selectedBotId, item.id],
               filter: lb.filter
                 ? `(${lb.filter}) AND (${drawsFilter})`
                 : drawsFilter,
@@ -307,11 +307,11 @@ const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
       ) : (
         <td></td>
       )}
-      {stats ? (
+      {stats && selectedBotId !== undefined ? (
         <td>
           <Link
             to="/matches"
-            search={{ withBots: [bot.id, item.id], filter: lb.filter }}
+            search={{ withBots: [selectedBotId, item.id], filter: lb.filter }}
           >
             {stats.wins + stats.loses + stats.draws}
           </Link>

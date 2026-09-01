@@ -8,6 +8,9 @@
   - [Turn-specific match data](#turn-specific-match-data)
   - [Player data](#player-data)
   - [Turn-specific player data](#turn-specific-player-data)
+- [Builtin match attributes](#builtin-match-attributes)
+- [Match filters](#match-filters)
+- [Browsing matching matches](#browsing-matching-matches)
 
 ## Match attributes overview
 
@@ -93,7 +96,7 @@ CG Arena injects several match arguments by default for every match. It will ove
 
 ## Match filters
 
-When creating custom leaderboards or charts you are prompted to input match filter.
+Match filters are used by custom leaderboards and charts, and can be searched directly from the **Matches** page.
 
 Match filter is a boolean expression which can use match attributes.
 
@@ -135,6 +138,26 @@ bot(1)[50].protein_a > 20 AND bot(1)[50].protein_c < 10
 match.map_kind == "small"
 match.initial_stones > 20 AND (match.x > 1 OR match.y < 1)
 bot(1).error == 1
+bot(12).rank > bot(34).rank
 ```
 
 Keywords in the match filters are case-insensitive, **but match attributes names are case-sensitive**.
+
+Ranks are zero-based, and a lower rank is a better result. For example, `bot(12).rank > bot(34).rank` matches games where bot 12 placed worse than bot 34.
+
+## Browsing matching matches
+
+Open the **Matches** page to search recorded matches directly. A search can combine:
+
+- a match filter expression; and
+- required bots, which restrict results to matches containing every listed bot.
+
+Required bots are added automatically when you follow match links from a bot overview or leaderboard. They are shown above the filter as removable labels. Remove a label and select **Search** to broaden the results. The applied filter, required bot IDs, page, and page size are stored in the URL, so a copied or reloaded URL opens the same result page.
+
+Leaderboard match links use the bot selected on the Home page as the point of view. A row's **Total** link requires both the selected bot and the row's opponent and preserves the leaderboard filter. Its **W / L / D** links add one of these result conditions:
+
+- win: `bot(selected).rank < bot(opponent).rank`
+- loss: `bot(selected).rank > bot(opponent).rank`
+- draw: `bot(selected).rank == bot(opponent).rank`
+
+These links are only available when a bot is selected. If the server rejects a direct search, the Matches page keeps the entered criteria and any previous results visible so the filter can be corrected and submitted again.

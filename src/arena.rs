@@ -274,40 +274,44 @@ impl Arena {
         including_bots: Vec<BotId>,
         offset: usize,
         limit: usize,
-    ) -> FetchMatchesResult {
+    ) -> anyhow::Result<FetchMatchesResult> {
         let bot_names: HashMap<BotId, BotName> =
             self.bots.iter().map(|b| (b.id, b.name.clone())).collect();
-        let matches = db::fetch_matches(
-            &self.pool,
-            &filter,
-            including_bots,
-            Some(offset),
-            Some(limit),
-        )
-        .await
-        .expect("Can't fetch matches from DB");
+        let page = db::fetch_matches(&self.pool, &filter, including_bots, offset, limit).await?;
 
-        let res = matches
+        let matches = page
+            .matches
             .into_iter()
-            .map(|m| MatchOverview {
-                id: m.id,
-                participants: m
+            .map(|m| -> anyhow::Result<MatchOverview> {
+                let participants = m
                     .participants
                     .iter()
                     .enumerate()
-                    .map(|(i, p)| ParticipantOverview {
-                        bot_id: p.bot_id,
-                        bot_name: bot_names[&p.bot_id].clone(),
-                        rank: p.rank,
-                        index: i,
-                        error: p.error,
+                    .map(|(i, p)| -> anyhow::Result<ParticipantOverview> {
+                        Ok(ParticipantOverview {
+                            bot_id: p.bot_id,
+                            bot_name: bot_names
+                                .get(&p.bot_id)
+                                .cloned()
+                                .with_context(|| format!("Bot {} is missing", p.bot_id))?,
+                            rank: p.rank,
+                            index: i,
+                            error: p.error,
+                        })
                     })
-                    .collect(),
-                seed: m.seed,
-                attributes: m.attributes,
+                    .try_collect()?;
+                Ok(MatchOverview {
+                    id: m.id,
+                    participants,
+                    seed: m.seed,
+                    attributes: m.attributes,
+                })
             })
-            .collect();
-        FetchMatchesResult { matches: res }
+            .try_collect()?;
+        Ok(FetchMatchesResult {
+            matches,
+            has_more: page.has_more,
+        })
     }
 
     async fn cmd_create_bot(

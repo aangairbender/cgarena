@@ -4,7 +4,7 @@ mod routes;
 mod web_router;
 
 use crate::api::routes::{
-    bots, charts, enable_matchmaking, fetch_status, leaderboards, matches, replays, validate_filter,
+    bots, charts, enable_matchmaking, fetch_status, leaderboards, matches, replays,
 };
 use crate::api::web_router::create_web_router;
 use crate::arena_handle::ArenaHandle;
@@ -55,7 +55,6 @@ async fn create_router(app_state: AppState) -> Router {
         .route("/matches/{id}/replay", get(replays::watch_replay))
         .route("/replays/{session_id}", delete(replays::close_replay))
         .route("/replays/{session_id}/{*path}", get(replays::replay_asset))
-        .route("/validate-filter", get(validate_filter::validate_filter))
         .with_state(app_state);
 
     create_web_router()

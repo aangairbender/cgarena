@@ -6,8 +6,8 @@ use anyhow::bail;
 use chrono::{DateTime, Utc};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools;
-use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, SqlitePool};
-use std::collections::HashMap;
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, QueryBuilder, Sqlite, SqlitePool};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::warn;
@@ -546,176 +546,355 @@ pub async fn wipe_old_matches<F: Fn(usize) -> bool>(
     Ok(amount_to_delete as usize)
 }
 
-/// newest would come first
+pub struct MatchPage {
+    pub matches: Vec<Match>,
+    pub has_more: bool,
+}
+
+/// Fetches every matching match, newest first.
 pub async fn fetch_matches_all(
     pool: &SqlitePool,
     filter: &MatchFilter,
 ) -> anyhow::Result<Vec<Match>> {
-    fetch_matches(pool, filter, vec![], None, None).await
+    collect_matching_matches(pool, filter, &HashSet::new(), 0, None).await
 }
 
-/// newest would come first
+/// Fetches a page of matching matches, newest first.
+///
+/// Candidate matches are read in bounded batches because filters are evaluated
+/// in Rust. Bot requirements and candidate ordering are applied by SQLite.
 pub async fn fetch_matches(
     pool: &SqlitePool,
     filter: &MatchFilter,
     including_bots: Vec<BotId>,
-    offset: Option<usize>,
-    limit: Option<usize>,
-) -> anyhow::Result<Vec<Match>> {
-    let attrs = filter.needed_attributes();
-    let filter_attributes: Vec<MatchAttributesJoinedRow> = if attrs.is_empty() {
-        vec![]
+    offset: usize,
+    limit: usize,
+) -> anyhow::Result<MatchPage> {
+    let including_bots = including_bots
+        .into_iter()
+        .map(i64::from)
+        .collect::<HashSet<_>>();
+    let requested_matches = limit.saturating_add(1);
+    let mut matches = if filter.needed_attributes().is_empty() {
+        let empty_match = Match::new(0, vec![], vec![], None);
+        if !filter.matches(&empty_match) {
+            return Ok(MatchPage {
+                matches: vec![],
+                has_more: false,
+            });
+        }
+        fetch_unfiltered_matches(pool, &including_bots, offset, requested_matches).await?
     } else {
-        let names_joined = attrs.iter().map(|a| format!("'{}'", a.name)).join(",");
-        let turns = attrs.iter().flat_map(|a| a.turn).collect_vec();
-        let turns_condition = if turns.is_empty() {
-            "ma.turn IS NULL".to_string()
-        } else {
-            format!(
-                "(ma.turn is NULL OR ma.turn IN ({}))",
-                turns.iter().join(",")
-            )
-        };
-        let bot_ids: Vec<i64> = attrs
-            .iter()
-            .flat_map(|a| a.bot_id)
-            .map(|id| id.into())
-            .collect_vec();
-        let bots_condition = if bot_ids.is_empty() {
-            "ma.bot_id IS NULL".to_string()
-        } else {
-            format!(
-                "(ma.bot_id is NULL OR ma.bot_id IN ({}))",
-                bot_ids.iter().join(",")
-            )
-        };
-
-        let sql = formatdoc! {
-            "SELECT
-                n.name as name,
-                ma.match_id as match_id,
-                ma.bot_id as bot_id,
-                ma.turn as turn,
-                ma.value_int as value_int,
-                ma.value_float as value_float,
-                v.value as value_string
-            FROM match_attributes ma
-            INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
-            LEFT JOIN match_attribute_string_values v ON (v.id = ma.value_string_id)
-            WHERE n.name IN ({names_joined}) AND {turns_condition} AND {bots_condition}"
-        };
-        sqlx::query_as(&sql).fetch_all(pool).await?
+        collect_matching_matches(
+            pool,
+            filter,
+            &including_bots,
+            offset,
+            Some(requested_matches),
+        )
+        .await?
     };
 
-    // let matches: Vec<MatchesRow> = {
-    //     let q = if !attributes.is_empty() {
-    //         let match_ids: Vec<i64> = attributes.iter().map(|a| a.match_id).unique().collect();
-    //         format!("id IN {}", match_ids.iter().join(","))
-    //     } else {
-    //         "1=1".to_string()
-    //     };
+    let has_more = matches.len() > limit;
+    matches.truncate(limit);
+    hydrate_non_turn_attributes(pool, &mut matches).await?;
 
-    //     sqlx::query_as(&format!("SELECT * from matches WHERE {}", q))
-    //         .fetch_all(pool)
-    //         .await?
-    // };
+    Ok(MatchPage { matches, has_more })
+}
 
-    let matches: Vec<MatchesRow> = sqlx::query_as("SELECT * from matches")
-        .fetch_all(pool)
-        .await?;
+async fn fetch_unfiltered_matches(
+    pool: &SqlitePool,
+    including_bots: &HashSet<i64>,
+    offset: usize,
+    limit: usize,
+) -> anyhow::Result<Vec<Match>> {
+    let candidates = fetch_match_candidates(pool, including_bots, None, offset, limit).await?;
+    let candidate_ids = candidates
+        .iter()
+        .map(|candidate| candidate.id)
+        .collect_vec();
+    let mut participations = fetch_participations(pool, &candidate_ids).await?;
 
-    let participations: Vec<ParticipationsRow> = sqlx::query_as("SELECT * from participations")
-        .fetch_all(pool)
-        .await?;
-
-    let mut combined = HashMap::with_capacity(matches.len());
-    for m in matches {
-        combined.insert(m.id, (m, vec![], vec![]));
-    }
-    for p in participations {
-        let target = combined.get_mut(&p.match_id);
-        let Some(target) = target else {
-            continue;
-        };
-        target.1.push(p);
-    }
-    for attr in filter_attributes {
-        let target = combined.get_mut(&attr.match_id);
-        let Some(target) = target else {
-            continue;
-        };
-        target.2.push(attr);
-    }
-
-    let mut matches: Vec<Match> = combined
-        .into_values()
-        .filter_map(|item| {
-            let id = item.0.id;
-            Match::try_from(item)
-                .inspect_err(|e| warn!("Invalid db data (match {}): {}. Skipping.", id, e))
-                .ok()
+    Ok(candidates
+        .into_iter()
+        .filter_map(|candidate| {
+            let candidate_id = candidate.id;
+            Match::try_from((
+                candidate,
+                participations.remove(&candidate_id).unwrap_or_default(),
+                vec![],
+            ))
+            .inspect_err(|error| {
+                warn!(
+                    "Invalid db data (match {}): {}. Skipping.",
+                    candidate_id, error
+                )
+            })
+            .ok()
         })
-        .collect();
+        .collect())
+}
 
-    matches.retain(|m| filter.matches(m));
+async fn collect_matching_matches(
+    pool: &SqlitePool,
+    filter: &MatchFilter,
+    including_bots: &HashSet<i64>,
+    offset: usize,
+    max_matches: Option<usize>,
+) -> anyhow::Result<Vec<Match>> {
+    const CANDIDATE_BATCH_SIZE: usize = 256;
 
-    if !including_bots.is_empty() {
-        matches.retain(|m| {
-            including_bots
-                .iter()
-                .all(|id| m.participants.iter().any(|p| p.bot_id == *id))
-        });
-    }
+    let needed_attributes = filter
+        .needed_attributes()
+        .into_iter()
+        .map(|attr| (attr.name, attr.bot_id.map(i64::from), attr.turn))
+        .unique()
+        .collect_vec();
+    let mut before_id = None;
+    let mut matching_before_page = 0;
+    let mut matches = Vec::new();
 
-    if offset.is_none() && limit.is_none() {
-        return Ok(matches);
-    }
+    loop {
+        let candidates =
+            fetch_match_candidates(pool, including_bots, before_id, 0, CANDIDATE_BATCH_SIZE)
+                .await?;
+        if candidates.is_empty() {
+            break;
+        }
+        before_id = candidates.last().map(|candidate| candidate.id);
 
-    // important for offset & limit
-    // sorting by negative it for having the newest matches first
-    matches.sort_by_key(|m| -i64::from(m.id));
+        let candidate_ids = candidates
+            .iter()
+            .map(|candidate| candidate.id)
+            .collect_vec();
+        let candidate_count = candidate_ids.len();
+        let mut participations = fetch_participations(pool, &candidate_ids).await?;
+        let mut attributes =
+            fetch_filter_attributes(pool, &candidate_ids, &needed_attributes).await?;
 
-    if let Some(offset) = offset {
-        drop(matches.drain(0..offset));
-    }
-    if let Some(limit) = limit {
-        matches.truncate(limit);
-    }
+        for candidate in candidates {
+            let candidate_id = candidate.id;
+            let item = (
+                candidate,
+                participations.remove(&candidate_id).unwrap_or_default(),
+                attributes.remove(&candidate_id).unwrap_or_default(),
+            );
+            let candidate = match Match::try_from(item) {
+                Ok(candidate) => candidate,
+                Err(error) => {
+                    warn!(
+                        "Invalid db data (match {}): {}. Skipping.",
+                        candidate_id, error
+                    );
+                    continue;
+                }
+            };
+            if !filter.matches(&candidate) {
+                continue;
+            }
+            if matching_before_page < offset {
+                matching_before_page += 1;
+                continue;
+            }
 
-    // does not include turn attrs
-    let mut match_attrs = {
-        let match_ids_joined = matches.iter().map(|m| m.id).join(",");
-        let sql = formatdoc! {
-            "SELECT
-                n.name as name,
-                ma.match_id as match_id,
-                ma.bot_id as bot_id,
-                ma.turn as turn,
-                ma.value_int as value_int,
-                ma.value_float as value_float,
-                NULL as value_string
-            FROM match_attributes ma
-            INNER JOIN match_attribute_names n ON (n.id = ma.name_id)
-            WHERE ma.match_id IN ({match_ids_joined})
-            AND ma.turn IS NULL"
-        };
+            matches.push(candidate);
+            if max_matches.is_some_and(|maximum| matches.len() >= maximum) {
+                return Ok(matches);
+            }
+        }
 
-        sqlx::query_as::<_, MatchAttributesJoinedRow>(&sql)
-            .fetch_all(pool)
-            .await?
-            .into_iter()
-            .map(|e| (MatchId::from(e.match_id), e))
-            .into_group_map()
-    };
-
-    for m in &mut matches {
-        let Some(attrs) = match_attrs.remove(&m.id) else {
-            continue;
-        };
-        m.attributes = attrs.into_iter().map(|a| a.try_into()).try_collect()?;
+        if candidate_count < CANDIDATE_BATCH_SIZE {
+            break;
+        }
     }
 
     Ok(matches)
+}
+
+async fn fetch_match_candidates(
+    pool: &SqlitePool,
+    including_bots: &HashSet<i64>,
+    before_id: Option<i64>,
+    offset: usize,
+    limit: usize,
+) -> anyhow::Result<Vec<MatchesRow>> {
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT m.id, m.seed, m.participant_cnt, m.replay_path FROM matches m",
+    );
+    let mut has_where = false;
+
+    for bot_id in including_bots.iter().sorted() {
+        query.push(if has_where {
+            " AND EXISTS ("
+        } else {
+            " WHERE EXISTS ("
+        });
+        query.push(
+            "SELECT 1 FROM participations p \
+             WHERE p.match_id = m.id AND p.bot_id = ",
+        );
+        query.push_bind(bot_id);
+        query.push(")");
+        has_where = true;
+    }
+
+    if let Some(before_id) = before_id {
+        query.push(if has_where {
+            " AND m.id < "
+        } else {
+            " WHERE m.id < "
+        });
+        query.push_bind(before_id);
+    }
+
+    query.push(" ORDER BY m.id DESC LIMIT ");
+    query.push_bind(i64::try_from(limit)?);
+    if offset != 0 {
+        query.push(" OFFSET ");
+        query.push_bind(i64::try_from(offset)?);
+    }
+    Ok(query.build_query_as().fetch_all(pool).await?)
+}
+
+async fn fetch_participations(
+    pool: &SqlitePool,
+    match_ids: &[i64],
+) -> anyhow::Result<HashMap<i64, Vec<ParticipationsRow>>> {
+    if match_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT match_id, bot_id, `index`, rank, error FROM participations WHERE match_id IN (",
+    );
+    let mut separated = query.separated(", ");
+    for match_id in match_ids {
+        separated.push_bind(match_id);
+    }
+    separated.push_unseparated(")");
+
+    Ok(query
+        .build_query_as::<ParticipationsRow>()
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| (row.match_id, row))
+        .into_group_map())
+}
+
+async fn fetch_filter_attributes(
+    pool: &SqlitePool,
+    match_ids: &[i64],
+    needed_attributes: &[(String, Option<i64>, Option<u16>)],
+) -> anyhow::Result<HashMap<i64, Vec<MatchAttributesJoinedRow>>> {
+    if match_ids.is_empty() || needed_attributes.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut query = joined_attributes_query();
+    query.push(" WHERE ma.match_id IN (");
+    let mut separated = query.separated(", ");
+    for match_id in match_ids {
+        separated.push_bind(match_id);
+    }
+    separated.push_unseparated(") AND (");
+
+    for (index, (name, bot_id, turn)) in needed_attributes.iter().enumerate() {
+        if index != 0 {
+            query.push(" OR ");
+        }
+        query.push("(n.name = ");
+        query.push_bind(name);
+        match bot_id {
+            Some(bot_id) => {
+                query.push(" AND ma.bot_id = ");
+                query.push_bind(bot_id);
+            }
+            None => {
+                query.push(" AND ma.bot_id IS NULL");
+            }
+        }
+        match turn {
+            Some(turn) => {
+                query.push(" AND ma.turn = ");
+                query.push_bind(turn);
+            }
+            None => {
+                query.push(" AND ma.turn IS NULL");
+            }
+        }
+        query.push(")");
+    }
+    query.push(")");
+
+    Ok(query
+        .build_query_as::<MatchAttributesJoinedRow>()
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| (row.match_id, row))
+        .into_group_map())
+}
+
+async fn hydrate_non_turn_attributes(
+    pool: &SqlitePool,
+    matches: &mut [Match],
+) -> anyhow::Result<()> {
+    if matches.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = joined_attributes_query();
+    query.push(" WHERE ma.turn IS NULL AND ma.match_id IN (");
+    let mut separated = query.separated(", ");
+    for item in matches.iter() {
+        separated.push_bind(i64::from(item.id));
+    }
+    separated.push_unseparated(")");
+
+    let mut attributes = query
+        .build_query_as::<MatchAttributesJoinedRow>()
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| (row.match_id, row))
+        .into_group_map();
+
+    for item in matches {
+        item.attributes = attributes
+            .remove(&i64::from(item.id))
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|attribute| {
+                let match_id = attribute.match_id;
+                MatchAttribute::try_from(attribute)
+                    .inspect_err(|error| {
+                        warn!(
+                            "Invalid db data (match attribute of match {}): {}. Skipping.",
+                            match_id, error
+                        )
+                    })
+                    .ok()
+            })
+            .collect();
+    }
+    Ok(())
+}
+
+fn joined_attributes_query<'args>() -> QueryBuilder<'args, Sqlite> {
+    QueryBuilder::new(
+        "SELECT \
+         n.name AS name, \
+         ma.match_id AS match_id, \
+         ma.bot_id AS bot_id, \
+         ma.turn AS turn, \
+         ma.value_int AS value_int, \
+         ma.value_float AS value_float, \
+         v.value AS value_string \
+         FROM match_attributes ma \
+         INNER JOIN match_attribute_names n ON n.id = ma.name_id \
+         LEFT JOIN match_attribute_string_values v ON v.id = ma.value_string_id",
+    )
 }
 
 pub async fn persist_leaderboard(
@@ -856,5 +1035,176 @@ mod tests {
             1
         );
         assert!(!arena.path().join(replay_path).exists());
+    }
+
+    async fn database() -> SqlitePool {
+        let pool = in_memory().await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn insert_test_bot(pool: &SqlitePool, name: &str) -> BotId {
+        let result = sqlx::query(
+            "INSERT INTO bots (name, source_code, language, created_at) VALUES (?, '', 'rust', 0)",
+        )
+        .bind(name)
+        .execute(pool)
+        .await
+        .unwrap();
+        result.last_insert_rowid().into()
+    }
+
+    async fn insert_test_match(
+        pool: &SqlitePool,
+        seed: i64,
+        bot_ids: &[BotId],
+        attributes: Vec<MatchAttribute>,
+    ) -> MatchId {
+        let participants = bot_ids
+            .iter()
+            .enumerate()
+            .map(|(index, bot_id)| Participant {
+                bot_id: *bot_id,
+                rank: index as u8,
+                error: false,
+            })
+            .collect();
+        create_match(pool, &Match::new(seed, participants, attributes, None))
+            .await
+            .unwrap()
+    }
+
+    fn ids(page: &MatchPage) -> Vec<MatchId> {
+        page.matches.iter().map(|item| item.id).collect()
+    }
+
+    #[tokio::test]
+    async fn paginates_empty_exact_and_past_end_in_newest_order() {
+        let pool = database().await;
+        let bot = insert_test_bot(&pool, "bot").await;
+        let filter = MatchFilter::accept_all();
+
+        let empty = fetch_matches(&pool, &filter, vec![], 0, 2).await.unwrap();
+        assert!(empty.matches.is_empty());
+        assert!(!empty.has_more);
+
+        let oldest = insert_test_match(&pool, 1, &[bot], vec![]).await;
+        let middle = insert_test_match(&pool, 2, &[bot], vec![]).await;
+        let newest = insert_test_match(&pool, 3, &[bot], vec![]).await;
+
+        let first = fetch_matches(&pool, &filter, vec![], 0, 2).await.unwrap();
+        assert_eq!(ids(&first), vec![newest, middle]);
+        assert!(first.has_more);
+
+        let exact_last = fetch_matches(&pool, &filter, vec![], 2, 1).await.unwrap();
+        assert_eq!(ids(&exact_last), vec![oldest]);
+        assert!(!exact_last.has_more);
+
+        let exact_end = fetch_matches(&pool, &filter, vec![], 3, 1).await.unwrap();
+        assert!(exact_end.matches.is_empty());
+        assert!(!exact_end.has_more);
+
+        let past_end = fetch_matches(&pool, &filter, vec![], 100, 10)
+            .await
+            .unwrap();
+        assert!(past_end.matches.is_empty());
+        assert!(!past_end.has_more);
+    }
+
+    #[tokio::test]
+    async fn constant_false_filter_returns_no_candidates() {
+        let pool = database().await;
+        let bot = insert_test_bot(&pool, "bot").await;
+        insert_test_match(&pool, 1, &[bot], vec![]).await;
+        let filter: MatchFilter = "1 == 2".parse().unwrap();
+
+        let page = fetch_matches(&pool, &filter, vec![], 0, 10).await.unwrap();
+
+        assert!(page.matches.is_empty());
+        assert!(!page.has_more);
+    }
+
+    #[tokio::test]
+    async fn requires_every_included_bot_in_sql() {
+        let pool = database().await;
+        let bot_1 = insert_test_bot(&pool, "bot 1").await;
+        let bot_2 = insert_test_bot(&pool, "bot 2").await;
+        let bot_3 = insert_test_bot(&pool, "bot 3").await;
+        let filter = MatchFilter::accept_all();
+
+        let both_old = insert_test_match(&pool, 1, &[bot_1, bot_2], vec![]).await;
+        insert_test_match(&pool, 2, &[bot_1, bot_3], vec![]).await;
+        let both_new = insert_test_match(&pool, 3, &[bot_1, bot_2, bot_3], vec![]).await;
+        insert_test_match(&pool, 4, &[bot_2, bot_3], vec![]).await;
+
+        let page = fetch_matches(&pool, &filter, vec![bot_1, bot_2, bot_1], 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(ids(&page), vec![both_new, both_old]);
+        assert!(!page.has_more);
+    }
+
+    #[tokio::test]
+    async fn fills_filtered_pages_across_candidate_batches() {
+        let pool = database().await;
+        let bot = insert_test_bot(&pool, "bot").await;
+        let score = |value| MatchAttribute {
+            name: "score".to_string(),
+            bot_id: Some(bot),
+            turn: None,
+            value: MatchAttributeValue::Integer(value),
+        };
+        let label = |value: &str| MatchAttribute {
+            name: "label".to_string(),
+            bot_id: None,
+            turn: None,
+            value: MatchAttributeValue::String(value.to_string()),
+        };
+
+        let older_match =
+            insert_test_match(&pool, 1, &[bot], vec![score(10), label("older")]).await;
+        let newer_match =
+            insert_test_match(&pool, 2, &[bot], vec![score(20), label("newer")]).await;
+        for seed in 3..259 {
+            insert_test_match(&pool, seed, &[bot], vec![]).await;
+        }
+
+        let filter: MatchFilter = format!("bot({bot}).score >= 10").parse().unwrap();
+        let first = fetch_matches(&pool, &filter, vec![], 0, 1).await.unwrap();
+        assert_eq!(ids(&first), vec![newer_match]);
+        assert!(first.has_more);
+        assert!(first.matches[0].attributes.iter().any(|attribute| {
+            attribute.name == "label"
+                && matches!(
+                    &attribute.value,
+                    MatchAttributeValue::String(value) if value == "newer"
+                )
+        }));
+
+        let second = fetch_matches(&pool, &filter, vec![], 1, 1).await.unwrap();
+        assert_eq!(ids(&second), vec![older_match]);
+        assert!(!second.has_more);
+
+        let end = fetch_matches(&pool, &filter, vec![], 2, 1).await.unwrap();
+        assert!(end.matches.is_empty());
+        assert!(!end.has_more);
+    }
+
+    #[tokio::test]
+    async fn fetches_all_matches_across_candidate_batches_without_duplicates() {
+        let pool = database().await;
+        let bot = insert_test_bot(&pool, "bot").await;
+        let mut inserted = Vec::new();
+        for seed in 0..300 {
+            inserted.push(insert_test_match(&pool, seed, &[bot], vec![]).await);
+        }
+
+        let matches = fetch_matches_all(&pool, &MatchFilter::accept_all())
+            .await
+            .unwrap();
+        let ids = matches.iter().map(|item| item.id).collect_vec();
+        let expected = inserted.into_iter().rev().collect_vec();
+
+        assert_eq!(ids, expected);
     }
 }

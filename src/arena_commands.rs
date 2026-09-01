@@ -24,11 +24,12 @@ pub struct FetchMatchesCommand {
     pub including_bots: Vec<BotId>,
     pub offset: usize,
     pub limit: usize,
-    pub response: oneshot::Sender<FetchMatchesResult>,
+    pub response: oneshot::Sender<anyhow::Result<FetchMatchesResult>>,
 }
 
 pub struct FetchMatchesResult {
     pub matches: Vec<MatchOverview>,
+    pub has_more: bool,
 }
 
 pub struct MatchOverview {

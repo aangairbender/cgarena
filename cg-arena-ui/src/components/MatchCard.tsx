@@ -32,8 +32,12 @@ export function MatchCard({ match }: MatchCardProps) {
   );
 
   // Separate match-level and participant-level attributes
-  const matchAttributes = match.attributes.filter((attr) => !attr.bot_id);
-  const participantAttributes = match.attributes.filter((attr) => attr.bot_id);
+  const matchAttributes = match.attributes.filter(
+    (attr) => attr.bot_id === null,
+  );
+  const participantAttributes = match.attributes.filter(
+    (attr) => attr.bot_id !== null,
+  );
 
   // Get unique attribute names for participant columns (excluding Score which is shown prominently)
   const participantAttrNames = [

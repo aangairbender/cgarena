@@ -153,7 +153,7 @@ impl ArenaHandle {
                 response: tx,
             })
         })
-        .await
+        .await?
     }
 
     async fn send_command_and_await_for_result<R, F: FnOnce(oneshot::Sender<R>) -> ArenaCommand>(
