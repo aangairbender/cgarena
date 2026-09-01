@@ -138,25 +138,14 @@ export const enableMatchmaking = async (enabled: boolean): Promise<void> => {
 export const fetchMatches = async (
   req: FetchMatchesRequest,
 ): Promise<FetchMatchesResponse> => {
-  const query_args = [
-    `filter=${req.filter}`,
-    `including_bots=${req.includingBots.join(",")}`,
-    `offset=${req.offset}`,
-    `limit=${req.limit}`,
-  ];
-  const response = await fetch(`${host}/api/matches?${query_args.join("&")}`);
+  const query = new URLSearchParams({
+    filter: req.filter,
+    including_bots: req.includingBots.join(","),
+    offset: String(req.offset),
+    limit: String(req.limit),
+  });
+  const response = await fetch(`${host}/api/matches?${query}`);
   return await parseResponse<FetchMatchesResponse>(response);
-};
-
-export const validateFilter = async (filter: string): Promise<boolean> => {
-  const response = await fetch(`${host}/api/validate-filter?filter=${filter}`);
-  if (response.status >= 500) {
-    throw new Error("Internal server error");
-  } else if (response.ok) {
-    return true;
-  } else {
-    return false;
-  }
 };
 
 export const watchReplay = async (

@@ -35,10 +35,10 @@ const matchesRoute = createRoute({
   path: "/matches",
   component: () => <MatchesPage />,
   validateSearch: z.object({
-    filter: z.string().default(""),
-    withBots: z.array(z.int()).default([]),
-    page: z.int().default(1),
-    pageSize: z.int().default(10),
+    filter: z.string().catch("").default(""),
+    withBots: z.array(z.int()).catch([]).default([]),
+    page: z.int().min(1).catch(1).default(1),
+    pageSize: z.int().min(1).max(100).catch(10).default(10),
   }),
 });
 

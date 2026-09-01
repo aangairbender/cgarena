@@ -17,8 +17,9 @@ pub async fn visualize(
     pool: SqlitePool,
 ) -> anyhow::Result<ChartOverview> {
     let last_match_ids: Vec<MatchId> =
-        db::fetch_matches(&pool, &filter, vec![], Some(0), Some(MATCHES_PER_CHART))
+        db::fetch_matches(&pool, &filter, vec![], 0, MATCHES_PER_CHART)
             .await?
+            .matches
             .into_iter()
             .map(|m| m.id)
             .collect();

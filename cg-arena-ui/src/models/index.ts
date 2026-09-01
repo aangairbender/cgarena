@@ -32,7 +32,7 @@ export interface LeaderboardOverviewResponse {
   items: LeaderboardItemResponse[];
   winrate_stats: WinrateStatsResponse[];
   total_matches: number;
-  example_seeds: bigint[];
+  example_seeds: number[];
 }
 
 export interface WinrateStatsResponse {
@@ -107,19 +107,20 @@ export interface FetchMatchesRequest {
 
 export interface FetchMatchesResponse {
   matches: MatchOverviewResponse[];
+  has_more: boolean;
 }
 
 export interface MatchOverviewResponse {
   id: number;
   participants: ParticipantOverviewResponse[];
-  seed: bigint;
+  seed: number;
   attributes: MatchAttributeResponse[];
 }
 
 export interface MatchAttributeResponse {
   name: string;
-  bot_id?: BotId;
-  turn?: number;
+  bot_id: BotId | null;
+  turn: number | null;
   value: string;
 }
 

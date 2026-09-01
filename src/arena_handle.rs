@@ -154,7 +154,7 @@ impl ArenaHandle {
                 response: tx,
             })
         })
-        .await
+        .await?
     }
 
     pub async fn watch_replay(&self, match_id: MatchId) -> anyhow::Result<WatchReplayResult> {
