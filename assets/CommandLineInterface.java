@@ -1,6 +1,9 @@
 package com.codingame.gameengine.runner;
 
 import com.codingame.gameengine.runner.dto.GameResultDto;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.common.io.Files;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
@@ -42,8 +45,8 @@ public class CommandLineInterface {
                     .addOption("s", false, "Server mode")
                     .addOption("r", true, "File input for replay")
                     .addOption("l", true, "File output for logs")
-                    .addOption("seed", true, "Seed");
-            // .addOption("port", true, "Port");
+                    .addOption("seed", true, "Seed")
+                    .addOption("port", true, "Replay server port");
 
             CommandLine cmd = new DefaultParser().parse(options, args);
 
@@ -58,11 +61,14 @@ public class CommandLineInterface {
             // Rendering the replay
             if (cmd.hasOption("r")) {
                 File json = new File(cmd.getOptionValue("r"));
-                String jsonResult = FileUtils.readFileToString(json);
-                // int port = cmd.hasOption("port")
-                // ? Integer.parseInt(cmd.getOptionValue("port"))
-                // : 8888;
-                new Renderer(8888).render(playerCount, jsonResult);
+                String jsonResult = FileUtils.readFileToString(json, Charset.defaultCharset());
+                JsonObject replay = JsonParser.parseString(jsonResult).getAsJsonObject();
+                JsonArray agents = replay.getAsJsonArray("agents");
+                if (agents == null || agents.size() < 1 || agents.size() > 8) {
+                    throw new IllegalArgumentException("Replay must contain between 1 and 8 agents");
+                }
+                int port = Integer.parseInt(cmd.getOptionValue("port", "8888"));
+                new Renderer(port).render(agents.size(), jsonResult);
                 return;
             }
 

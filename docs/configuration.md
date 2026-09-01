@@ -219,26 +219,38 @@ Controls the number of concurrent matches being run. Don't set this higher than 
 
 ### `cmd_play_match`
 
-Whenever CG Arena wants to run a match, it would execute `cmd_play_match` command.
+CG Arena executes `cmd_play_match` once per scheduled match. The command is parsed into
+an executable and arguments; it is not passed through a shell. Quote literal arguments in
+the configuration when they contain spaces.
 
-CG Arena would also make the following substitutions in `cmd_play_match`:
+CG Arena applies these substitutions:
 
-- `{SEED}` - would be replaced with the seed of the match
-- `{P1}`, `{P2}`, ... would be replaced with `cmd_run` command configured for match participant 1, 2, ...
-- `{PLAYERS}` would be replaced with concatenated version of the above. Please use this when the game can have varying player counts. 
+- `{SEED}` - match seed
+- `{REPLAY_PATH}` - a unique path owned by this match, under the arena's `replays` directory
+- `{P1}`, `{P2}`, ... - `cmd_run` configured for that participant
+- `{PLAYERS}` - all configured participant commands as separate arguments; use this for variable player counts
 
-Example:
+Example on macOS/Linux:
 
+```toml
+cmd_play_match = "python3 play_game.py {SEED} {REPLAY_PATH} {PLAYERS}"
 ```
-cmd_play_match = "python play_game.py {SEED} {PLAYERS}"
+
+On Windows, install Python 3 and use its configured launcher, for example:
+
+```toml
+cmd_play_match = "py -3 play_game.py {SEED} {REPLAY_PATH} {PLAYERS}"
 ```
 
-You can find the example of `play_game.py` [here](example_codingame_setup.md#player_gamepy).
+The command must write the replay to `{REPLAY_PATH}`. A successful match that produces
+no non-empty artifact is still recorded, but replay is unavailable. Existing matches from
+arenas created before replay-path persistence are also unavailable; CG Arena never guesses
+an artifact from their seed.
 
-The `cmd_play_match` command should print JSON to stdout in the following format:
+The command must print JSON to stdout in the following format:
 
-```js
-{ "ranks" [..], "errors": [..], "attributes": [..] }
+```json
+{ "ranks": [0, 1], "errors": [0, 0], "attributes": [] }
 ```
 
 Where:
@@ -276,6 +288,37 @@ Example:
     ],
 }
 ```
+
+### `cmd_watch_replay`
+
+`cmd_watch_replay` converts one persisted artifact into a static replay bundle. CG Arena
+runs it outside the arena actor, limits startup to 30 seconds, terminates and reaps failures,
+and requires the command to exit successfully. The command must create `{REPLAY_DIR}/test.html`;
+stdout is ignored.
+
+Substitutions:
+
+- `{REPLAY_PATH}` - absolute path to the persisted artifact
+- `{REPLAY_DIR}` - empty, session-owned output directory
+- `{PORT}` - an ephemeral loopback port for a renderer that needs a temporary HTTP listener
+- `{PLAYER_COUNT}` - participant count persisted with the match
+
+Example on macOS/Linux:
+
+```toml
+cmd_watch_replay = "python3 watch_replay.py {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
+```
+
+On Windows, replace `python3` with the installed launcher, for example `py -3`.
+`watch_replay.py` validates Python, Java, the referee JAR, the artifact JSON, and participant
+count before rendering. It invokes Java with an argument list, copies the generated static
+bundle, terminates the temporary Java renderer, and exits. CG Arena serves each bundle at
+`/api/replays/{session_id}/...` under its own origin; renderer ports are loopback-only and
+never sent to browsers.
+
+Each replay dialog owns a distinct session. Closing one session cannot affect another.
+Inactive sessions expire after 15 minutes, and all session directories are removed on arena
+shutdown.
 
 ### `cmd_build`
 

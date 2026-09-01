@@ -13,6 +13,7 @@ mod db;
 mod domain;
 mod matchmaking;
 mod ranking;
+mod replay_artifact;
 mod replay_viewer;
 mod worker;
 

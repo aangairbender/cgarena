@@ -696,7 +696,7 @@ mod tests {
             },
         ];
 
-        let m = Match::new(1234, vec![], attributes);
+        let m = Match::new(1234, vec![], attributes, None);
 
         let filter = MatchFilter::accept_all();
         assert!(filter.matches(&m));
