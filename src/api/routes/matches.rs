@@ -84,7 +84,7 @@ pub struct FetchMatchesResponse {
 pub struct MatchOverviewResponse {
     pub id: i64,
     pub participants: Vec<ParticipantOverviewResponse>,
-    pub seed: i64,
+    pub seed: String,
     pub attributes: Vec<MatchAttributeResponse>,
 }
 
@@ -119,7 +119,7 @@ impl From<MatchOverview> for MatchOverviewResponse {
         Self {
             id: value.id.into(),
             participants: value.participants.into_iter().map(Into::into).collect(),
-            seed: value.seed,
+            seed: value.seed.to_string(),
             attributes: value.attributes.into_iter().map(Into::into).collect(),
         }
     }
@@ -201,5 +201,21 @@ mod tests {
                 Err(ApiError::ValidationFailed(_))
             ));
         }
+    }
+    #[test]
+    fn serializes_i64_seed_without_precision_loss() {
+        let response = MatchOverviewResponse {
+            id: 1,
+            participants: vec![],
+            seed: i64::MAX.to_string(),
+            attributes: vec![],
+        };
+
+        let json = serde_json::to_value(response).unwrap();
+
+        assert_eq!(
+            json["seed"],
+            serde_json::Value::String(i64::MAX.to_string())
+        );
     }
 }
