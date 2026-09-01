@@ -115,6 +115,9 @@ impl Config {
             if config.cmd_play_match.split_ascii_whitespace().count() == 0 {
                 bail!("cmd_play_match must not be blank");
             }
+            if config.cmd_watch_replay.split_ascii_whitespace().count() == 0 {
+                bail!("cmd_watch_replay must not be blank");
+            }
         }
         Ok(())
     }

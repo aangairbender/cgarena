@@ -133,6 +133,7 @@ export interface ParticipantOverviewResponse {
 }
 
 export interface WatchReplayResponse {
+  session_id: string;
   viewer_url: string;
 }
 

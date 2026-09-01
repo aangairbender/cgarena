@@ -59,6 +59,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         pool.clone(),
         arena_path.to_owned(),
         cfg.cmd_watch_replay.clone(),
+        token.clone(),
     );
 
     let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
@@ -69,8 +70,8 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         config.leaderboards,
         config.ranking,
         pool,
+        arena_path.to_owned(),
         worker_handle,
-        replay_viewer,
         arena_rx,
         token.clone(),
     )
@@ -93,7 +94,12 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         .context("Cannot get local address of tcp binding")?;
 
     let arena_handle = ArenaHandle::new(arena_tx);
-    let api_task_handle = tokio::spawn(api::start(listener, arena_handle, token.clone()));
+    let api_task_handle = tokio::spawn(api::start(
+        listener,
+        arena_handle,
+        replay_viewer.clone(),
+        token.clone(),
+    ));
 
     info!("CG Arena started");
     println!("CG Arena started, press Ctrl+C to stop it");
@@ -110,7 +116,6 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     tokio::select! {
         _ = shutdown_signal() => {
             println!("Stopping CG Arena... press Ctrl+C again to kill it");
-            token.cancel();
         },
         _ = arena_task_handle => {
             warn!("Arena task terminated unexpectedly.");
@@ -119,6 +124,8 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
             warn!("API task terminated unexpectedly.");
         }
     }
+    token.cancel();
+    replay_viewer.shutdown().await;
 
     info!("CG Arena stopped");
 
@@ -142,6 +149,20 @@ static DEFAULT_FILES: &[(&str, &str)] = &[
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/assets/watch_replay.py"
+        )),
+    ),
+    (
+        "CommandLineInterface.java",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/CommandLineInterface.java"
+        )),
+    ),
+    (
+        "pom_build_section.xml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/pom_build_section.xml"
         )),
     ),
 ];
@@ -201,6 +222,9 @@ mod test {
         init(&path).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
         assert!(path.join("play_game.py").exists());
+        assert!(path.join("watch_replay.py").exists());
+        assert!(path.join("CommandLineInterface.java").exists());
+        assert!(path.join("pom_build_section.xml").exists());
     }
 
     #[test]

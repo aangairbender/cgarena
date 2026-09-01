@@ -6,10 +6,9 @@ use anyhow::bail;
 use chrono::{DateTime, Utc};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{ConnectOptions, QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, QueryBuilder, Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::warn;
 
@@ -27,6 +26,7 @@ struct MatchesRow {
     pub id: i64,
     pub seed: i64,
     pub participant_cnt: u8,
+    pub replay_path: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -166,6 +166,7 @@ impl
         Ok(Match {
             id: m.id.into(),
             seed: m.seed,
+            replay_path: m.replay_path.map(PathBuf::from),
             participants: ps.into_iter().map(|p| p.into()).collect(),
             attributes: ar
                 .into_iter()
@@ -331,9 +332,10 @@ pub async fn create_match(pool: &SqlitePool, m: &Match) -> anyhow::Result<MatchI
     let mut tx = pool.begin().await?;
 
     let match_id: MatchId =
-        sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES ($1, $2)")
+        sqlx::query("INSERT INTO matches (seed, participant_cnt, replay_path) VALUES ($1, $2, $3)")
             .bind::<i64>(m.seed)
             .bind::<u8>(m.participants.len() as _)
+            .bind(m.replay_path.as_ref().and_then(|path| path.to_str()))
             .execute(&mut *tx)
             .await?
             .last_insert_rowid()
@@ -406,6 +408,45 @@ pub async fn create_match(pool: &SqlitePool, m: &Match) -> anyhow::Result<MatchI
     tx.commit().await?;
     Ok(match_id)
 }
+pub struct ReplayMetadata {
+    pub replay_path: Option<PathBuf>,
+    pub participant_count: u8,
+}
+
+pub async fn fetch_replay_metadata(
+    pool: &SqlitePool,
+    match_id: MatchId,
+) -> anyhow::Result<Option<ReplayMetadata>> {
+    let row = sqlx::query_as::<_, (Option<String>, u8)>(
+        "SELECT replay_path, participant_cnt FROM matches WHERE id = ?",
+    )
+    .bind::<i64>(match_id.into())
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|(replay_path, participant_count)| ReplayMetadata {
+        replay_path: replay_path.map(PathBuf::from),
+        participant_count,
+    }))
+}
+
+pub async fn fetch_replay_paths_for_bot(
+    pool: &SqlitePool,
+    bot_id: BotId,
+) -> anyhow::Result<Vec<PathBuf>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT m.replay_path
+         FROM matches m
+         INNER JOIN participations p ON p.match_id = m.id
+         WHERE p.bot_id = ? AND m.replay_path IS NOT NULL",
+    )
+    .bind::<i64>(bot_id.into())
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(PathBuf::from)
+    .collect())
+}
 
 pub async fn fetch_turn_attributes(
     pool: &SqlitePool,
@@ -459,6 +500,7 @@ pub async fn wipe_old_matches<F: Fn(usize) -> bool>(
         .create_if_missing(false);
 
     let mut conn = opts.connect().await?;
+    sqlx::migrate!().run(&mut conn).await?;
 
     let percentage = percentage.clamp(0, 100);
 
@@ -478,6 +520,12 @@ pub async fn wipe_old_matches<F: Fn(usize) -> bool>(
 
         assert!(amount_to_delete <= match_ids.len() as u64);
         let last_deleted_id = match_ids[amount_to_delete as usize - 1].0;
+        let replay_paths = sqlx::query_scalar::<_, String>(
+            "SELECT replay_path FROM matches WHERE id <= ? AND replay_path IS NOT NULL",
+        )
+        .bind(last_deleted_id)
+        .fetch_all(&mut conn)
+        .await?;
 
         println!("Deleting {} old matches", amount_to_delete);
 
@@ -485,6 +533,9 @@ pub async fn wipe_old_matches<F: Fn(usize) -> bool>(
             .bind::<i64>(last_deleted_id)
             .execute(&mut conn)
             .await?;
+        for replay_path in replay_paths {
+            crate::replay_artifact::remove(arena_path, Path::new(&replay_path)).await?;
+        }
     }
 
     if vacuum {
@@ -525,7 +576,7 @@ pub async fn fetch_matches(
         .collect::<HashSet<_>>();
     let requested_matches = limit.saturating_add(1);
     let mut matches = if filter.needed_attributes().is_empty() {
-        let empty_match = Match::new(0, vec![], vec![]);
+        let empty_match = Match::new(0, vec![], vec![], None);
         if !filter.matches(&empty_match) {
             return Ok(MatchPage {
                 matches: vec![],
@@ -667,8 +718,9 @@ async fn fetch_match_candidates(
     offset: usize,
     limit: usize,
 ) -> anyhow::Result<Vec<MatchesRow>> {
-    let mut query =
-        QueryBuilder::<Sqlite>::new("SELECT m.id, m.seed, m.participant_cnt FROM matches m");
+    let mut query = QueryBuilder::<Sqlite>::new(
+        "SELECT m.id, m.seed, m.participant_cnt, m.replay_path FROM matches m",
+    );
     let mut has_where = false;
 
     for bot_id in including_bots.iter().sorted() {
@@ -922,6 +974,69 @@ pub async fn fetch_leaderboards(pool: &SqlitePool) -> anyhow::Result<Vec<Leaderb
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn replay_metadata_preserves_paths_and_leaves_legacy_matches_unavailable() {
+        let pool = in_memory().await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let legacy_id: MatchId =
+            sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES (1, 2)")
+                .execute(&pool)
+                .await
+                .unwrap()
+                .last_insert_rowid()
+                .into();
+        let replay_path = "replays/fixture.json";
+        let replay_id: MatchId = sqlx::query(
+            "INSERT INTO matches (seed, participant_cnt, replay_path) VALUES (2, 4, ?)",
+        )
+        .bind(replay_path)
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid()
+        .into();
+
+        let legacy = fetch_replay_metadata(&pool, legacy_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(legacy.replay_path.is_none());
+        let replay = fetch_replay_metadata(&pool, replay_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay.replay_path, Some(PathBuf::from(replay_path)));
+        assert_eq!(replay.participant_count, 4);
+    }
+
+    #[tokio::test]
+    async fn wiping_matches_removes_owned_replay_artifacts() {
+        let arena = tempfile::tempdir().unwrap();
+        let pool = connect(arena.path()).await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let replay_path = PathBuf::from("replays/fixture.json");
+        tokio::fs::create_dir_all(arena.path().join("replays"))
+            .await
+            .unwrap();
+        tokio::fs::write(arena.path().join(&replay_path), b"fixture")
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO matches (seed, participant_cnt, replay_path) VALUES (1, 2, ?)")
+            .bind(replay_path.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        assert_eq!(
+            wipe_old_matches(arena.path(), 100, false, |_| true)
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(!arena.path().join(replay_path).exists());
+    }
+
     async fn database() -> SqlitePool {
         let pool = in_memory().await.unwrap();
         sqlx::migrate!().run(&pool).await.unwrap();
@@ -954,7 +1069,7 @@ mod tests {
                 error: false,
             })
             .collect();
-        create_match(pool, &Match::new(seed, participants, attributes))
+        create_match(pool, &Match::new(seed, participants, attributes, None))
             .await
             .unwrap()
     }

@@ -16,6 +16,8 @@ pub enum ApiError {
 
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
+    #[error(transparent)]
+    Replay(#[from] crate::replay_viewer::ReplayError),
 }
 
 impl ApiError {
@@ -25,6 +27,21 @@ impl ApiError {
             ApiError::ValidationFailed(_) => StatusCode::BAD_REQUEST,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::Replay(error) => match error {
+                crate::replay_viewer::ReplayError::MatchNotFound
+                | crate::replay_viewer::ReplayError::SessionNotFound
+                | crate::replay_viewer::ReplayError::AssetNotFound => StatusCode::NOT_FOUND,
+                crate::replay_viewer::ReplayError::Unavailable => StatusCode::CONFLICT,
+                crate::replay_viewer::ReplayError::InvalidArtifact(_) => {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                }
+                crate::replay_viewer::ReplayError::StartupFailed(_) => StatusCode::BAD_GATEWAY,
+                crate::replay_viewer::ReplayError::StartupTimeout => StatusCode::GATEWAY_TIMEOUT,
+                crate::replay_viewer::ReplayError::InvalidCommand(_)
+                | crate::replay_viewer::ReplayError::Internal(_) => {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            },
         }
     }
 
@@ -34,6 +51,17 @@ impl ApiError {
             ApiError::ValidationFailed(_) => "validation_failed",
             ApiError::Conflict(_) => "already_exists",
             ApiError::Internal(_) => "internal_error",
+            ApiError::Replay(error) => match error {
+                crate::replay_viewer::ReplayError::MatchNotFound
+                | crate::replay_viewer::ReplayError::SessionNotFound
+                | crate::replay_viewer::ReplayError::AssetNotFound => "not_found",
+                crate::replay_viewer::ReplayError::Unavailable => "replay_unavailable",
+                crate::replay_viewer::ReplayError::InvalidArtifact(_) => "invalid_replay",
+                crate::replay_viewer::ReplayError::StartupFailed(_) => "replay_start_failed",
+                crate::replay_viewer::ReplayError::StartupTimeout => "replay_start_timeout",
+                crate::replay_viewer::ReplayError::InvalidCommand(_)
+                | crate::replay_viewer::ReplayError::Internal(_) => "internal_error",
+            },
         }
     }
 }

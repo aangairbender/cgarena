@@ -193,145 +193,77 @@ The full version would look like this :
 </project>
 ```
 
-## Create `CommandLineInterface.java`
+## Install the CG Arena command-line interface
 
-Next step is creating `CommandLineInterface.java` file in the `/src/main/java/com/codingame/gameengine/runner` folder.
+`cgarena init` generates the maintained referee patch as `CommandLineInterface.java`.
+Copy that file into the referee source tree:
 
-The source code of the new file:
-
-```java
-package com.codingame.gameengine.runner;
-
-import com.codingame.gameengine.runner.dto.GameResultDto;
-import com.google.common.io.Files;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.DefaultParser;
-import org.apache.commons.cli.Options;
-import org.apache.commons.io.FileUtils;
-import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.nio.charset.Charset;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.Properties;
-
-public class CommandLineInterface {
-
-    public static void main(String[] args) {
-        try {
-            Options options = new Options();
-
-            // Define required options
-            options.addOption("h", false, "Print the help")
-                    .addOption("p1", true, "Player 1 command line.")
-                    .addOption("p2", true, "Player 2 command line.")
-                    .addOption("p3", true, "Player 3 command line.")
-                    .addOption("p4", true, "Player 4 command line.")
-                    .addOption("p5", true, "Player 5 command line.")
-                    .addOption("p6", true, "Player 6 command line.")
-                    .addOption("p7", true, "Player 7 command line.")
-                    .addOption("p8", true, "Player 8 command line.")
-                    .addOption("league", true, "League level")
-                    .addOption("s", false, "Server mode")
-                    .addOption("r", true, "File input for replay")
-                    .addOption("l", true, "File output for logs")
-                    .addOption("seed", true, "Seed");
-
-            CommandLine cmd = new DefaultParser().parse(options, args);
-
-            // Rendering the replay
-            if (cmd.hasOption("r")) {
-                File json = new File(cmd.getOptionValue("r"));
-                String jsonResult = FileUtils.readFileToString(json);
-                new Renderer(8888).render(2, jsonResult);
-                return;
-            }
-
-            // Launch Game
-            MultiplayerGameRunner gameRunner = new MultiplayerGameRunner();
-
-            // Choose league level, depends on the game (19 is max allowed by the engine)
-            Integer leagueLevel = Integer.parseInt(cmd.getOptionValue("league", "19"));
-            gameRunner.setLeagueLevel(leagueLevel);
-
-            if (cmd.hasOption("seed")) {
-                gameRunner.setSeed(Long.valueOf(cmd.getOptionValue("seed")));
-            } else {
-                gameRunner.setSeed(System.currentTimeMillis());
-            }
-
-            GameResultDto result = gameRunner.gameResult;
-
-            int playerCount = 0;
-
-            // CG supports multiplayer games up to 8 players
-            for (int i = 1; i <= 8; ++i) {
-                if (cmd.hasOption("p" + i)) {
-                    gameRunner.addAgent(cmd.getOptionValue("p" + i), cmd.getOptionValue("p" + i));
-                    playerCount += 1;
-                }
-            }
-
-            if (cmd.hasOption("s")) {
-                gameRunner.start();
-            } else {
-                Method initialize = GameRunner.class.getDeclaredMethod("initialize", Properties.class);
-                initialize.setAccessible(true);
-                initialize.invoke(gameRunner, new Properties());
-
-                Method runAgents = GameRunner.class.getDeclaredMethod("runAgents");
-                runAgents.setAccessible(true);
-                runAgents.invoke(gameRunner);
-
-                if (cmd.hasOption("l")) {
-                    Method getJSONResult = GameRunner.class.getDeclaredMethod("getJSONResult");
-                    getJSONResult.setAccessible(true);
-
-                    Files.asCharSink(Paths.get(cmd.getOptionValue("l")).toFile(), Charset.defaultCharset())
-                            .write((String) getJSONResult.invoke(gameRunner));
-                }
-
-                for (int i = 0; i < playerCount; ++i) {
-                    System.out.println(result.scores.get(i));
-                }
-
-                for (String line : result.uinput) {
-                    System.out.println(line);
-                }
-            }
-
-            // We have to clean players process properly
-            Field getPlayers = GameRunner.class.getDeclaredField("players");
-            getPlayers.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            List<Agent> players = (List<Agent>) getPlayers.get(gameRunner);
-
-            if (players != null) {
-                for (Agent player : players) {
-                    Field getProcess = CommandLinePlayerAgent.class.getDeclaredField("process");
-                    getProcess.setAccessible(true);
-                    Process process = (Process) getProcess.get(player);
-
-                    process.destroy();
-                }
-            }
-        } catch (Exception e) {
-            System.err.println(e);
-            e.printStackTrace(System.err);
-            System.exit(1);
-        }
-    }
-
-}
+```sh
+cp ../CommandLineInterface.java \
+  referee/src/main/java/com/codingame/gameengine/runner/CommandLineInterface.java
 ```
+
+The interface defines the match and replay contract:
+
+- `-p1` through `-p8`: complete player command lines
+- `-seed`: signed 64-bit match seed
+- `-league`: league level, default `19`
+- `-l`: replay JSON output path
+- `-r`: replay JSON input path
+- `-port`: loopback replay renderer port, default `8888`
+
+Match mode writes the JSON artifact requested by `-l`, prints scores and referee input to
+stdout, prints failures to stderr, and exits nonzero on failure. Different processes may use
+the same seed safely when their `-l` paths differ.
+
+Replay mode reads the complete CodinGame replay JSON, derives participant count from its
+`agents` array, starts `Renderer` on `-port`, then prints its renderer URL and
+`Exposed web server dir: <path>`. `watch_replay.py` consumes the directory line, copies the
+static bundle, terminates the renderer, and reaps it.
+
+The generated `pom_build_section.xml` is the maintained Maven build configuration. Replace
+the referee POM's existing `<build>` section with its contents. Keep the `commons-cli`
+dependency shown above. The shade configuration owns the stable output name and main class;
+do not maintain a second copy of either configuration in the referee repository.
 
 ## Creating .jar file
 
-Now you can create `.jar` file using the following command:
+Build the shaded JAR:
 
-```
+```sh
 mvn package
 ```
 
-This would create multiple `.jar` files in the `target` folder, just copy `winter-2024-sprawl-1.0-SNAPSHOT.jar` to your arena folder and rename `.jar` file to `referee.jar` for simplicity.
+The maintained Maven configuration writes `target/referee.jar`. Keep the referee repository
+at `<arena>/referee`, so the generated Python launchers find
+`<arena>/referee/target/referee.jar`.
+
+Verify a deterministic two-player match outside CG Arena:
+
+```sh
+java --add-opens java.base/java.lang=ALL-UNNAMED \
+  -jar target/referee.jar \
+  -p1 "/absolute/path/to/bot" -p2 "/absolute/path/to/bot" \
+  -seed 123 -league 19 -l /tmp/cgarena-replay-123.json
+```
+
+Success exits `0`, writes the requested JSON file, and writes referee output to stdout.
+Invalid player commands, unwritable output, or referee failures write a stack trace to stderr
+and exit nonzero. Parallel same-seed matches are supported when each process receives a
+different `-l` path.
+
+Verify replay generation:
+
+```sh
+java --add-opens java.base/java.lang=ALL-UNNAMED \
+  -jar target/referee.jar \
+  -r /tmp/cgarena-replay-123.json -port 8888
+```
+
+Read the printed HTTP URL in a browser. Stop the renderer with `Ctrl+C`. Invalid/missing JSON
+or an occupied port is written to stderr and exits nonzero. The replay JSON's `agents` array
+is the source of participant count for two-player and multiplayer artifacts.
+
+The integration is supported on macOS, Linux, and Windows with Python 3.9 or newer, Java 17
+or newer, and Maven for referee builds. Use platform-native path syntax and the installed
+Python launcher (`python3` on macOS/Linux, commonly `py -3` on Windows).

@@ -150,13 +150,14 @@ export const fetchMatches = async (
 
 export const watchReplay = async (
   id: MatchId,
+  signal?: AbortSignal,
 ): Promise<WatchReplayResponse> => {
-  const response = await fetch(`${host}/api/matches/${id}/replay`);
+  const response = await fetch(`${host}/api/matches/${id}/replay`, { signal });
   return await parseResponse<WatchReplayResponse>(response);
 };
 
-export const closeReplay = async (id: MatchId) => {
-  const req = new Request(`${host}/api/matches/${id}/replay`, {
+export const closeReplay = async (sessionId: string) => {
+  const req = new Request(`${host}/api/replays/${sessionId}`, {
     method: "DELETE",
   });
   const response = await fetch(req);
