@@ -32,7 +32,7 @@ export interface LeaderboardOverviewResponse {
   items: LeaderboardItemResponse[];
   winrate_stats: WinrateStatsResponse[];
   total_matches: number;
-  example_seeds: number[];
+  example_seeds: string[];
 }
 
 export interface WinrateStatsResponse {
@@ -113,7 +113,7 @@ export interface FetchMatchesResponse {
 export interface MatchOverviewResponse {
   id: number;
   participants: ParticipantOverviewResponse[];
-  seed: number;
+  seed: string;
   attributes: MatchAttributeResponse[];
 }
 

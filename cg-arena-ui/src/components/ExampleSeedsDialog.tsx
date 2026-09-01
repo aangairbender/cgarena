@@ -4,20 +4,20 @@ import { Button, Modal, Table } from "react-bootstrap";
 import { FaCopy } from "react-icons/fa6";
 
 export interface ExampleSeedsDialogData {
-  example_seeds: number[];
+  example_seeds: string[];
 }
 
 const ExampleSeedsDialog = (dialog: DialogProps<ExampleSeedsDialogData>) => {
-  const [copied, setCopied] = useState<number>();
+  const [copied, setCopied] = useState<string>();
 
   const data = dialog.data;
   if (data === undefined) return null;
 
-  const copy = async (seed: number) => {
+  const copy = async (seed: string) => {
     await copyToClipboard(seed);
     setCopied(seed);
     setTimeout(() => {
-      setCopied((c) => (c == seed ? undefined : c));
+      setCopied((c) => (c === seed ? undefined : c));
     }, 3000);
   };
 
@@ -39,7 +39,7 @@ const ExampleSeedsDialog = (dialog: DialogProps<ExampleSeedsDialogData>) => {
             {data.example_seeds.map((seed, index) => (
               <tr key={index}>
                 <td>{index + 1}</td>
-                <td>{seed.toString()}</td>
+                <td>{seed}</td>
                 <td style={{ textAlign: "right" }}>
                   <Button
                     variant="outline-secondary"
@@ -63,9 +63,9 @@ const ExampleSeedsDialog = (dialog: DialogProps<ExampleSeedsDialogData>) => {
   );
 };
 
-const copyToClipboard = async (seed: number) => {
+const copyToClipboard = async (seed: string) => {
   try {
-    await navigator.clipboard.writeText(seed.toString());
+    await navigator.clipboard.writeText(seed);
   } catch (err) {
     console.error("Failed to copy text: " + err);
   }
