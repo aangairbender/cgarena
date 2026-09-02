@@ -1,34 +1,25 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
-use sqlx::SqlitePool;
 
 use crate::{
     arena_commands::{ChartItem, ChartOverview, ChartTurnData},
-    db,
-    domain::{BotId, MatchAttributeValue, MatchFilter, MatchId},
+    domain::{BotId, MatchAttributeValue, MatchFilter},
+    match_retrieval::MatchRetrieval,
 };
-
-const MATCHES_PER_CHART: usize = 1000;
 
 pub async fn visualize(
     filter: MatchFilter,
     attribute_name: String,
-    pool: SqlitePool,
+    match_retrieval: MatchRetrieval,
 ) -> anyhow::Result<ChartOverview> {
-    let last_match_ids: Vec<MatchId> =
-        db::fetch_matches(&pool, &filter, vec![], 0, MATCHES_PER_CHART)
-            .await?
-            .matches
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
-
-    let data = db::fetch_turn_attributes(&pool, &last_match_ids, &attribute_name).await?;
+    let input = match_retrieval
+        .chart_input(&filter, &attribute_name)
+        .await?;
 
     let mut res: HashMap<BotId, HashMap<u16, Stats>> = HashMap::new();
 
-    for attr in data {
+    for attr in input.attributes {
         if attr.name != attribute_name {
             continue;
         }
@@ -72,7 +63,7 @@ pub async fn visualize(
                     .collect(),
             })
             .collect(),
-        total_matches: last_match_ids.len() as _,
+        total_matches: input.total_matches,
     };
 
     Ok(overview)

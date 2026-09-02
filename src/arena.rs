@@ -2,6 +2,7 @@ use crate::arena_commands::*;
 use crate::async_leaderboard::AsyncLeaderboard;
 use crate::config::{GameConfig, LeaderboardsConfig, MatchmakingConfig, RankingConfig};
 use crate::domain::*;
+use crate::match_retrieval::MatchRetrieval;
 use crate::matchmaking;
 use crate::ranking::Ranker;
 use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, PlayMatchOutput, WorkerHandle};
@@ -96,6 +97,7 @@ struct Arena {
     matchmaking_config: MatchmakingConfig,
     uncertainty_coefficient: f64,
     pool: SqlitePool,
+    match_retrieval: MatchRetrieval,
     arena_path: PathBuf,
     bots: Vec<Bot>,
     builds: Vec<Build>,
@@ -120,18 +122,24 @@ impl Arena {
         worker_handle: WorkerHandle,
     ) -> Self {
         let ranker = Arc::new(ranker);
+        let match_retrieval = MatchRetrieval::new(pool.clone());
         Self {
             game_config,
             uncertainty_coefficient: leaderboards_config.uncertainty_coefficient.unwrap_or(3.0),
             matchmaking_enabled: matchmaking_config.enabled_on_start.unwrap_or(true),
             matchmaking_config,
             arena_path,
-            pool: pool.clone(),
+            pool,
+            match_retrieval: match_retrieval.clone(),
             worker_handle,
             ranker: Arc::clone(&ranker),
             bots: Default::default(),
             builds: Default::default(),
-            global_leaderboard: AsyncLeaderboard::new(Leaderboard::global(), ranker, pool),
+            global_leaderboard: AsyncLeaderboard::new(
+                Leaderboard::global(),
+                ranker,
+                match_retrieval,
+            ),
             custom_leaderboards: Default::default(),
             scheduled_matches_total: Default::default(),
             scheduled_matches_vs: Default::default(),
@@ -151,7 +159,9 @@ impl Arena {
             .await
             .context("Cannot fetch leaderboards")?
             .into_iter()
-            .map(|lb| AsyncLeaderboard::new(lb, Arc::clone(&self.ranker), self.pool.clone()))
+            .map(|lb| {
+                AsyncLeaderboard::new(lb, Arc::clone(&self.ranker), self.match_retrieval.clone())
+            })
             .collect();
         Ok(())
     }
@@ -266,52 +276,6 @@ impl Arena {
 
     fn cmd_enable_matchmaking(&mut self, enabled: bool) {
         self.matchmaking_enabled = enabled;
-    }
-
-    async fn cmd_fetch_matches(
-        &mut self,
-        filter: MatchFilter,
-        including_bots: Vec<BotId>,
-        offset: usize,
-        limit: usize,
-    ) -> anyhow::Result<FetchMatchesResult> {
-        let bot_names: HashMap<BotId, BotName> =
-            self.bots.iter().map(|b| (b.id, b.name.clone())).collect();
-        let page = db::fetch_matches(&self.pool, &filter, including_bots, offset, limit).await?;
-
-        let matches = page
-            .matches
-            .into_iter()
-            .map(|m| -> anyhow::Result<MatchOverview> {
-                let participants = m
-                    .participants
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| -> anyhow::Result<ParticipantOverview> {
-                        Ok(ParticipantOverview {
-                            bot_id: p.bot_id,
-                            bot_name: bot_names
-                                .get(&p.bot_id)
-                                .cloned()
-                                .with_context(|| format!("Bot {} is missing", p.bot_id))?,
-                            rank: p.rank,
-                            index: i,
-                            error: p.error,
-                        })
-                    })
-                    .try_collect()?;
-                Ok(MatchOverview {
-                    id: m.id,
-                    participants,
-                    seed: m.seed,
-                    attributes: m.attributes,
-                })
-            })
-            .try_collect()?;
-        Ok(FetchMatchesResult {
-            matches,
-            has_more: page.has_more,
-        })
     }
 
     async fn cmd_create_bot(
@@ -475,7 +439,11 @@ impl Arena {
             .await
             .expect("Cannot persist leaderboard to DB");
 
-        let lb = AsyncLeaderboard::new(leaderboard, Arc::clone(&self.ranker), self.pool.clone());
+        let lb = AsyncLeaderboard::new(
+            leaderboard,
+            Arc::clone(&self.ranker),
+            self.match_retrieval.clone(),
+        );
         lb.recalculate();
         let overview = self.render_leaderboard_overview(&lb);
         self.custom_leaderboards.push(lb);
@@ -547,10 +515,10 @@ impl Arena {
             attribute_name,
             response,
         } = cmd;
-        let pool = self.pool.clone();
+        let match_retrieval = self.match_retrieval.clone();
 
         tokio::spawn(async move {
-            let res = chart::visualize(filter, attribute_name, pool).await;
+            let res = chart::visualize(filter, attribute_name, match_retrieval).await;
             match res {
                 Ok(overview) => {
                     let _ = response.send(overview);
@@ -629,14 +597,7 @@ impl Arena {
                 }
             }
             ArenaCommand::FetchMatches(command) => {
-                let res = self
-                    .cmd_fetch_matches(
-                        command.filter,
-                        command.including_bots,
-                        command.offset,
-                        command.limit,
-                    )
-                    .await;
+                let res = self.match_retrieval.page(command.request).await;
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }

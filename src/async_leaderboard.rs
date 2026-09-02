@@ -3,19 +3,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    db,
     domain::{ComputedStats, Leaderboard, Match},
+    match_retrieval::MatchRetrieval,
     ranking::Ranker,
 };
 
 pub struct AsyncLeaderboard {
     pub leaderboard: Leaderboard,
     ranker: Arc<Ranker>,
-    pool: SqlitePool,
+    match_retrieval: MatchRetrieval,
     status: Arc<Mutex<LeaderboardStatus>>,
     live_matches: Vec<Arc<Match>>,
 }
@@ -32,11 +31,15 @@ impl Drop for AsyncLeaderboard {
 }
 
 impl AsyncLeaderboard {
-    pub fn new(leaderboard: Leaderboard, ranker: Arc<Ranker>, pool: SqlitePool) -> Self {
+    pub fn new(
+        leaderboard: Leaderboard,
+        ranker: Arc<Ranker>,
+        match_retrieval: MatchRetrieval,
+    ) -> Self {
         Self {
             leaderboard,
             ranker,
-            pool,
+            match_retrieval,
             status: Arc::new(Mutex::new(
                 LeaderboardStatus::Live(ComputedStats::default()),
             )),
@@ -57,18 +60,15 @@ impl AsyncLeaderboard {
         let status_inner = Arc::clone(&self.status);
         let ranker = Arc::clone(&self.ranker);
         let filter = self.leaderboard.filter.clone();
-        let pool = self.pool.clone();
+        let match_retrieval = self.match_retrieval.clone();
         tokio::spawn(async move {
-            let matches = db::fetch_matches_all(&pool, &filter).await;
+            let matches = match_retrieval.leaderboard_matches(&filter).await;
 
             match matches {
                 Ok(matches) => {
-                    let filtered = matches
-                        .iter()
-                        .filter(|m| filter.matches(m))
-                        .collect::<Vec<_>>();
+                    let matches = matches.iter().collect::<Vec<_>>();
                     let mut stats = ComputedStats::default();
-                    stats.recalc_after_matches(&ranker, &filtered);
+                    stats.recalc_after_matches(&ranker, &matches);
                     if !token.is_cancelled() {
                         let mut status = status_inner.lock().unwrap();
                         *status = LeaderboardStatus::Live(stats);
