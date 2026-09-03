@@ -1,4 +1,4 @@
-import { MatchOverviewResponse } from "@/models";
+import { MatchOverview } from "@/match-browsing";
 import { FaHashtag, FaTrophy } from "react-icons/fa6";
 import { cn } from "@/lib/utils";
 import { LuCircleAlert } from "react-icons/lu";
@@ -7,7 +7,7 @@ import Identicon from "./Identicon";
 import { useDialogs } from "@/hooks/useDialogs";
 
 interface MatchCardProps {
-  match: MatchOverviewResponse;
+  match: MatchOverview;
 }
 
 const excludedAttrs = ["score", "index", "rank", "error"];

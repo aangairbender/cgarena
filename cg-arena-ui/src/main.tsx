@@ -15,6 +15,7 @@ import HomePage from "./pages/HomePage.tsx";
 import ConfigPage from "./pages/ConfigPage.tsx";
 import MatchesPage from "./pages/MatchesPage.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { matchBrowsing } from "@/match-browsing";
 import { z } from "zod";
 
 const rootRoute = createRootRoute({
@@ -34,12 +35,7 @@ const matchesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/matches",
   component: () => <MatchesPage />,
-  validateSearch: z.object({
-    filter: z.string().catch("").default(""),
-    withBots: z.array(z.int()).catch([]).default([]),
-    page: z.int().min(1).catch(1).default(1),
-    pageSize: z.int().min(1).max(100).catch(10).default(10),
-  }),
+  validateSearch: matchBrowsing.routeSearch,
 });
 
 const configRoute = createRoute({

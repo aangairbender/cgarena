@@ -12,8 +12,6 @@ import {
   ChartOverviewResponse,
   BotSourceCode,
   EnableMatchmakingRequest,
-  FetchMatchesResponse,
-  FetchMatchesRequest,
   MatchId,
   WatchReplayResponse,
 } from "@/models";
@@ -133,19 +131,6 @@ export const enableMatchmaking = async (enabled: boolean): Promise<void> => {
 
   const response = await fetch(req);
   await checkForErrors(response);
-};
-
-export const fetchMatches = async (
-  req: FetchMatchesRequest,
-): Promise<FetchMatchesResponse> => {
-  const query = new URLSearchParams({
-    filter: req.filter,
-    including_bots: req.includingBots.join(","),
-    offset: String(req.offset),
-    limit: String(req.limit),
-  });
-  const response = await fetch(`${host}/api/matches?${query}`);
-  return await parseResponse<FetchMatchesResponse>(response);
 };
 
 export const watchReplay = async (
