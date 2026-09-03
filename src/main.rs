@@ -88,7 +88,7 @@ async fn handle_cli_command(command: Commands) -> anyhow::Result<()> {
             vacuum,
         } => {
             let path = unwrap_or_current_dir(path)?;
-            db::wipe_old_matches(&path, percentage, vacuum, |cnt| {
+            replay_artifact::wipe_old_matches(&path, percentage, vacuum, |cnt| {
                 if yes {
                     true
                 } else {
