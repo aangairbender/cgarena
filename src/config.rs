@@ -105,6 +105,9 @@ impl Config {
         }
         for config in &self.workers {
             let WorkerConfig::Embedded(config) = config;
+            if config.threads == 0 {
+                bail!("embedded worker must have at least one thread");
+            }
 
             if config.cmd_build.split_ascii_whitespace().count() == 0 {
                 bail!("cmd_build must not be blank");
@@ -215,6 +218,19 @@ mod test {
         assert!(
             result.is_err(),
             "Should fail because V2 is missing 'min_matches_per_pair'"
+        );
+    }
+    #[test]
+    fn zero_worker_threads_are_rejected() {
+        let mut config = Config::default();
+        let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
+            panic!("default config must contain one embedded worker");
+        };
+        worker.threads = 0;
+
+        assert_eq!(
+            config.validate().unwrap_err().to_string(),
+            "embedded worker must have at least one thread"
         );
     }
 }

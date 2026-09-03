@@ -48,36 +48,6 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         .await
         .context("Cannot connect to db")?;
     let token = CancellationToken::new();
-
-    let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
-        bail!("In the current version only single embedded worker supported");
-    };
-    let worker_handle = worker::run_embedded_worker(arena_path, cfg.clone())
-        .context("Cannot start embedded worker")?;
-
-    let replay_viewer = ReplayViewer::new(
-        pool.clone(),
-        arena_path.to_owned(),
-        cfg.cmd_watch_replay.clone(),
-        token.clone(),
-    );
-
-    let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
-
-    let arena_task_handle = arena::run(
-        config.game,
-        config.matchmaking,
-        config.leaderboards,
-        config.ranking,
-        pool,
-        arena_path.to_owned(),
-        worker_handle,
-        arena_rx,
-        token.clone(),
-    )
-    .await
-    .context("Cannot start arena")?;
-
     let exposed = config.server.expose;
     let addr = if exposed {
         SocketAddr::from(([0, 0, 0, 0], config.server.port))
@@ -93,8 +63,51 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         .local_addr()
         .context("Cannot get local address of tcp binding")?;
 
+    let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
+        bail!("In the current version only single embedded worker supported");
+    };
+    let worker::StartedWorker {
+        worker,
+        supervisor: worker_supervisor,
+    } = worker::start_embedded_worker(arena_path, cfg.clone())
+        .context("Cannot start embedded worker")?;
+
+    let replay_viewer = ReplayViewer::new(
+        pool.clone(),
+        arena_path.to_owned(),
+        cfg.cmd_watch_replay.clone(),
+        token.clone(),
+    );
+
+    let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
+
+    let mut arena_task_handle = match arena::run(
+        config.game,
+        config.matchmaking,
+        config.leaderboards,
+        config.ranking,
+        pool,
+        arena_path.to_owned(),
+        worker,
+        arena_rx,
+        token.clone(),
+    )
+    .await
+    {
+        Ok(task) => task,
+        Err(error) => {
+            token.cancel();
+            let worker_result = worker_supervisor.shutdown().await;
+            replay_viewer.shutdown().await;
+            if let Err(failure) = worker_result {
+                return Err(failure).context("Worker cleanup failed during arena startup");
+            }
+            return Err(error).context("Cannot start arena");
+        }
+    };
+
     let arena_handle = ArenaHandle::new(arena_tx);
-    let api_task_handle = tokio::spawn(api::start(
+    let mut api_task_handle = tokio::spawn(api::start(
         listener,
         arena_handle,
         replay_viewer.clone(),
@@ -111,23 +124,57 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     } else {
         println!("Network: use 'server.expose' config param to expose",);
     }
-    println!(); // empty line for nicer stdout
+    println!();
 
+    let mut arena_result = None;
+    let mut api_result = None;
+    let mut observed_worker_failure = None;
     tokio::select! {
         _ = shutdown_signal() => {
             println!("Stopping CG Arena... press Ctrl+C again to kill it");
         },
-        _ = arena_task_handle => {
-            warn!("Arena task terminated unexpectedly.");
+        failure = worker_supervisor.failed() => {
+            warn!("Embedded worker failed: {failure}");
+            observed_worker_failure = Some(failure);
         }
-        _ = api_task_handle => {
+        result = &mut arena_task_handle => {
+            warn!("Arena task terminated unexpectedly.");
+            arena_result = Some(result);
+        }
+        result = &mut api_task_handle => {
             warn!("API task terminated unexpectedly.");
+            api_result = Some(result);
         }
     }
+
     token.cancel();
+    let worker_result = worker_supervisor.shutdown().await;
     replay_viewer.shutdown().await;
+    let arena_result = match arena_result {
+        Some(result) => result,
+        None => arena_task_handle.await,
+    };
+    let api_result = match api_result {
+        Some(result) => result,
+        None => api_task_handle.await,
+    };
 
     info!("CG Arena stopped");
+
+    if let Err(failure) = worker_result {
+        return Err(failure.into());
+    }
+    if let Some(failure) = observed_worker_failure {
+        return Err(failure.into());
+    }
+    match arena_result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return Err(error).context("Arena task failed"),
+        Err(error) => return Err(error).context("Arena task terminated unexpectedly"),
+    }
+    if let Err(error) = api_result {
+        return Err(error).context("API task terminated unexpectedly");
+    }
 
     Ok(())
 }

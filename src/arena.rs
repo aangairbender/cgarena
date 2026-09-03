@@ -5,18 +5,21 @@ use crate::domain::*;
 use crate::match_retrieval::MatchRetrieval;
 use crate::matchmaking;
 use crate::ranking::Ranker;
-use crate::worker::{BuildBotInput, PlayMatchBot, PlayMatchInput, PlayMatchOutput, WorkerHandle};
+use crate::worker::{
+    BuildBotInput, BuildBotOutput, BuildReconciliation, Completion, PlayMatchBot, PlayMatchInput,
+    PlayMatchOutput, Work, Worker, WorkerUnavailable,
+};
 use crate::{chart, db};
 use anyhow::{bail, Context};
 use itertools::Itertools;
 use sqlx::SqlitePool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
+use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument, warn};
 
@@ -27,10 +30,10 @@ pub async fn run(
     ranking_config: RankingConfig,
     pool: SqlitePool,
     arena_path: PathBuf,
-    worker_handle: WorkerHandle,
-    mut commands_rx: Receiver<ArenaCommand>,
+    worker: Worker,
+    commands_rx: Receiver<ArenaCommand>,
     cancellation_token: CancellationToken,
-) -> anyhow::Result<JoinHandle<()>> {
+) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
     sqlx::migrate!()
         .run(&pool)
         .await
@@ -48,48 +51,79 @@ pub async fn run(
         ranker,
         arena_path,
         pool,
-        worker_handle,
     );
 
     arena
         .load_from_db()
         .await
         .context("Cannot load initial data from db")?;
-    arena.reset_stale_builds().await;
+    let reconciliation = worker.reconcile_builds(&arena.builds);
+    arena.apply_build_reconciliation(reconciliation).await;
     arena.recalculate_computed_full();
 
-    let task_handle = tokio::spawn(async move {
-        loop {
-            // check cancellation
-            if cancellation_token.is_cancelled() {
-                break;
-            }
+    Ok(tokio::spawn(run_loop(
+        arena,
+        worker,
+        commands_rx,
+        cancellation_token,
+    )))
+}
 
-            // handle commands
-            let disconnected = loop {
-                match commands_rx.try_recv() {
-                    Ok(cmd) => {
-                        arena.handle_command(cmd).await;
-                    }
-                    Err(TryRecvError::Empty) => break false,
-                    Err(TryRecvError::Disconnected) => break true,
-                }
-            };
-            if disconnected {
-                break;
-            }
+async fn run_loop(
+    mut arena: Arena,
+    worker: Worker,
+    mut commands_rx: Receiver<ArenaCommand>,
+    cancellation_token: CancellationToken,
+) -> anyhow::Result<()> {
+    let period = Duration::from_millis(50);
+    let mut chores = tokio::time::interval_at(Instant::now() + period, period);
+    chores.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut scheduled_work = Vec::<Work>::new().into_iter();
+    let mut submission = None;
 
-            // time to let api return responses to clients
-            tokio::time::sleep(Duration::from_millis(50)).await;
-
-            if let Err(e) = arena.do_chores().await {
-                eprintln!("Arena error: {:#}", e);
-                eprintln!("Check logs for more details");
-                break;
+    loop {
+        if submission.is_none() {
+            if let Some(work) = scheduled_work.next() {
+                submission = Some(Box::pin(worker.submit(work)));
             }
         }
-    });
-    Ok(task_handle)
+
+        tokio::select! {
+            _ = cancellation_token.cancelled() => return Ok(()),
+            result = async {
+                submission
+                    .as_mut()
+                    .expect("guarded submission must exist")
+                    .await
+            }, if submission.is_some() => {
+                submission = None;
+                match result {
+                    Ok(()) => {}
+                    Err(WorkerUnavailable::ShuttingDown) => return Ok(()),
+                    Err(WorkerUnavailable::Failed(failure)) => return Err(failure.into()),
+                }
+            }
+            completion = worker.next() => {
+                match completion {
+                    Ok(completion) => arena.handle_worker_completion(completion).await,
+                    Err(WorkerUnavailable::ShuttingDown) => return Ok(()),
+                    Err(WorkerUnavailable::Failed(failure)) => return Err(failure.into()),
+                }
+            }
+            command = commands_rx.recv() => {
+                let Some(command) = command else {
+                    return Ok(());
+                };
+                arena.handle_command(command).await;
+            }
+            _ = chores.tick() => {
+                arena.let_leaderboards_catchup_with_live_matches();
+                if submission.is_none() && scheduled_work.len() == 0 {
+                    scheduled_work = arena.prepare_worker_work().await.into_iter();
+                }
+            }
+        }
+    }
 }
 
 struct Arena {
@@ -101,11 +135,9 @@ struct Arena {
     arena_path: PathBuf,
     bots: Vec<Bot>,
     builds: Vec<Build>,
-    worker_handle: WorkerHandle,
     ranker: Arc<Ranker>,
     global_leaderboard: AsyncLeaderboard,
     custom_leaderboards: Vec<AsyncLeaderboard>,
-    match_queue: VecDeque<PlayMatchInput>,
     scheduled_matches_total: HashMap<BotId, u64>,
     scheduled_matches_vs: HashMap<(BotId, BotId), u64>,
     matchmaking_enabled: bool,
@@ -119,7 +151,6 @@ impl Arena {
         ranker: Ranker,
         arena_path: PathBuf,
         pool: SqlitePool,
-        worker_handle: WorkerHandle,
     ) -> Self {
         let ranker = Arc::new(ranker);
         let match_retrieval = MatchRetrieval::new(pool.clone());
@@ -131,7 +162,6 @@ impl Arena {
             arena_path,
             pool,
             match_retrieval: match_retrieval.clone(),
-            worker_handle,
             ranker: Arc::clone(&ranker),
             bots: Default::default(),
             builds: Default::default(),
@@ -143,7 +173,6 @@ impl Arena {
             custom_leaderboards: Default::default(),
             scheduled_matches_total: Default::default(),
             scheduled_matches_vs: Default::default(),
-            match_queue: Default::default(),
         }
     }
 
@@ -166,103 +195,100 @@ impl Arena {
         Ok(())
     }
 
-    pub async fn do_chores(&mut self) -> anyhow::Result<()> {
-        self.run_builds().await;
-
-        if self.matchmaking_enabled {
-            self.perform_matchmaking()?;
-        }
-
-        self.send_matches_to_workers()?;
-
-        self.process_finished_matches().await;
-
-        self.let_leaderboards_catchup_with_live_matches();
-
-        Ok(())
-    }
-
-    pub async fn reset_stale_builds(&mut self) {
-        // any running builds should be reset on startup
-        for build in &mut self.builds {
-            if build.is_running() {
-                build.reset();
-                db::persist_build(&self.pool, build)
-                    .await
-                    .expect("Cannot persist build to DB");
-            }
-        }
-
-        // validate successful builds
-        for build in &mut self.builds {
-            let still_valid = self.worker_handle.known_bot_ids.contains(&build.bot_id);
-
-            if build.was_finished_successfully() && !still_valid {
-                build.reset();
-                db::persist_build(&self.pool, build)
-                    .await
-                    .expect("Cannot persist build to DB");
-            }
-        }
-    }
-
-    #[instrument(skip(self), level = "debug")]
-    pub async fn run_builds(&mut self) {
-        let mut inputs = Vec::new();
-        for bot in &mut self.bots {
-            for worker_name in std::iter::once(WorkerName::embedded()) {
-                let existing_build = self
-                    .builds
-                    .iter_mut()
-                    .find(|b| b.bot_id == bot.id && b.worker_name == worker_name);
-
-                let build = match existing_build {
-                    Some(build) if build.is_pending() => build,
-                    None => {
-                        self.builds.push(Build::new(bot.id, worker_name.clone()));
-                        self.builds.last_mut().unwrap()
-                    }
-                    _ => continue,
-                };
-
-                build.make_running();
-                db::persist_build(&self.pool, build)
-                    .await
-                    .expect("Cannot persist build to DB");
-                inputs.push(BuildBotInput {
-                    bot_id: bot.id,
-                    worker_name: worker_name.clone(),
-                    source_code: bot.source_code.clone(),
-                    language: bot.language.clone(),
-                })
-            }
-        }
-
-        for input in inputs {
-            let output = self.worker_handle.build_bot(input).await;
-            if !self.bots.iter_mut().any(|b| b.id == output.bot_id) {
-                warn!(
-                    "Obtained build result for non-existent bot, skipping. {:?}",
-                    output
-                );
-                continue;
-            }
-
+    async fn apply_build_reconciliation(&mut self, reconciliation: BuildReconciliation) {
+        for key in reconciliation.into_reset_builds() {
             let build = self
                 .builds
                 .iter_mut()
-                .find(|b| b.bot_id == output.bot_id && b.worker_name == output.worker_name);
-
-            let Some(build) = build else {
-                warn!("Obtained build result for non-existent build, skipping");
-                continue;
-            };
-
-            build.make_finished(output.result);
+                .find(|build| build.bot_id == key.bot_id && build.worker_name == key.worker_name)
+                .expect("worker reconciliation must reference a supplied build");
+            build.reset();
             db::persist_build(&self.pool, build)
                 .await
                 .expect("Cannot persist build to DB");
         }
+    }
+
+    async fn prepare_worker_work(&mut self) -> Vec<Work> {
+        let builds = self.prepare_build_work().await;
+        if !builds.is_empty() {
+            return builds.into_iter().map(Work::Build).collect();
+        }
+
+        if self.builds.iter().any(Build::is_running) || !self.matchmaking_enabled {
+            return Vec::new();
+        }
+
+        self.perform_matchmaking()
+            .into_iter()
+            .map(Work::Match)
+            .collect()
+    }
+
+    #[instrument(skip(self), level = "debug")]
+    async fn prepare_build_work(&mut self) -> Vec<BuildBotInput> {
+        let mut inputs = Vec::new();
+        for bot in &mut self.bots {
+            let worker_name = WorkerName::embedded();
+            let existing_build = self
+                .builds
+                .iter_mut()
+                .find(|build| build.bot_id == bot.id && build.worker_name == worker_name);
+
+            let build = match existing_build {
+                Some(build) if build.is_pending() => build,
+                None => {
+                    self.builds.push(Build::new(bot.id, worker_name.clone()));
+                    self.builds.last_mut().expect("build was just inserted")
+                }
+                _ => continue,
+            };
+
+            build.make_running();
+            db::persist_build(&self.pool, build)
+                .await
+                .expect("Cannot persist build to DB");
+            inputs.push(BuildBotInput {
+                bot_id: bot.id,
+                worker_name,
+                source_code: bot.source_code.clone(),
+                language: bot.language.clone(),
+            });
+        }
+        inputs
+    }
+
+    async fn handle_worker_completion(&mut self, completion: Completion) {
+        match completion {
+            Completion::Build(output) => self.finish_build(output).await,
+            Completion::Match { input, output } => {
+                self.process_finished_match(&input, output).await;
+            }
+        }
+    }
+
+    async fn finish_build(&mut self, output: BuildBotOutput) {
+        if !self.bots.iter().any(|bot| bot.id == output.bot_id) {
+            warn!(
+                "Obtained build result for non-existent bot, skipping. {:?}",
+                output
+            );
+            return;
+        }
+
+        let build = self
+            .builds
+            .iter_mut()
+            .find(|build| build.bot_id == output.bot_id && build.worker_name == output.worker_name);
+        let Some(build) = build else {
+            warn!("Obtained build result for non-existent build, skipping");
+            return;
+        };
+
+        build.make_finished(output.result);
+        db::persist_build(&self.pool, build)
+            .await
+            .expect("Cannot persist build to DB");
     }
 
     async fn cmd_fetch_bot_source_code(&mut self, id: BotId) -> Option<BotSourceCode> {
@@ -606,40 +632,23 @@ impl Arena {
     }
 
     #[instrument(skip(self), level = "debug")]
-    pub fn perform_matchmaking(&mut self) -> anyhow::Result<()> {
+    fn perform_matchmaking(&mut self) -> Vec<PlayMatchInput> {
         // hardcoded for now
-        let mm_match_queue_size_threshold: usize = 20;
+        let match_batch_size: usize = 20;
+        let mut scheduled = Vec::new();
 
-        while self.match_queue.len() < mm_match_queue_size_threshold {
+        while scheduled.len() < match_batch_size {
             let new_matches = self.schedule_match();
             if new_matches.is_empty() {
                 break;
             }
-            for m in &new_matches {
-                self.record_scheduled_match(m);
+            for input in &new_matches {
+                self.record_scheduled_match(input);
             }
-            self.match_queue.extend(new_matches);
+            scheduled.extend(new_matches);
         }
 
-        Ok(())
-    }
-
-    pub fn send_matches_to_workers(&mut self) -> anyhow::Result<()> {
-        while let Some(input) = self.match_queue.pop_front() {
-            match self.worker_handle.match_tx.try_send(input) {
-                Ok(_) => {}
-                Err(TrySendError::Full(input)) => {
-                    self.match_queue.push_front(input);
-                    break;
-                }
-                Err(TrySendError::Closed(input)) => {
-                    self.match_queue.push_front(input);
-                    bail!("Cannot schedule a match, worker is closed.");
-                }
-            }
-        }
-
-        Ok(())
+        scheduled
     }
 
     #[instrument(skip(self), level = "debug")]
@@ -650,110 +659,113 @@ impl Arena {
         }
     }
 
-    #[instrument(skip(self), level = "debug")]
-    pub async fn process_finished_matches(&mut self) {
-        while let Ok(output) = self.worker_handle.match_result_rx.try_recv() {
-            self.forget_scheduled_match_result(&output);
-            let replay_path = output.replay_path.clone();
+    #[instrument(skip(self, input, output), level = "debug")]
+    async fn process_finished_match(&mut self, input: &PlayMatchInput, output: PlayMatchOutput) {
+        self.forget_scheduled_match(input);
+        let replay_path = output.replay_path.clone();
 
-            // validation
-            if output
-                .participants
-                .iter()
-                .any(|p| self.bots.iter().all(|b| b.id != p.bot_id))
-            {
-                warn!(
-                    "Match participant was deleted while match was running, ignoring match results"
-                );
-                if let Some(replay_path) = replay_path {
-                    if let Err(error) =
-                        crate::replay_artifact::remove(&self.arena_path, &replay_path).await
-                    {
-                        warn!("Cannot delete ignored replay artifact: {error:#}");
-                    }
+        if output
+            .participants
+            .iter()
+            .any(|participant| self.bots.iter().all(|bot| bot.id != participant.bot_id))
+        {
+            warn!("Match participant was deleted while match was running, ignoring match results");
+            if let Some(replay_path) = replay_path {
+                if let Err(error) =
+                    crate::replay_artifact::remove(&self.arena_path, &replay_path).await
+                {
+                    warn!("Cannot delete ignored replay artifact: {error:#}");
                 }
-                continue;
             }
+            return;
+        }
 
-            let attributes = output
-                .attributes
-                .into_iter()
-                .unique_by(|a| (a.name.clone(), a.bot_id, a.turn))
-                .collect();
+        let attributes = output
+            .attributes
+            .into_iter()
+            .unique_by(|attribute| (attribute.name.clone(), attribute.bot_id, attribute.turn))
+            .collect();
 
-            let mut new_match = Match::new(
-                output.seed,
-                output.participants,
-                attributes,
-                output.replay_path,
-            );
+        let mut new_match = Match::new(
+            output.seed,
+            output.participants,
+            attributes,
+            output.replay_path,
+        );
 
-            new_match.attributes.retain(|attr| attr.name != "seed");
+        new_match
+            .attributes
+            .retain(|attribute| attribute.name != "seed");
+        new_match.attributes.push(MatchAttribute {
+            name: "seed".to_string(),
+            bot_id: None,
+            turn: None,
+            value: MatchAttributeValue::Integer(output.seed),
+        });
+
+        new_match
+            .attributes
+            .retain(|attribute| attribute.name != "index");
+        new_match
+            .attributes
+            .retain(|attribute| attribute.name != "error");
+        new_match
+            .attributes
+            .retain(|attribute| attribute.name != "rank");
+
+        for (index, participant) in new_match.participants.iter().enumerate() {
             new_match.attributes.push(MatchAttribute {
-                name: "seed".to_string(),
-                bot_id: None,
+                name: "index".to_string(),
+                bot_id: Some(participant.bot_id),
                 turn: None,
-                value: MatchAttributeValue::Integer(output.seed),
+                value: MatchAttributeValue::Integer(index as _),
             });
 
-            new_match.attributes.retain(|attr| attr.name != "index");
-            new_match.attributes.retain(|attr| attr.name != "error");
-            new_match.attributes.retain(|attr| attr.name != "rank");
+            new_match.attributes.push(MatchAttribute {
+                name: "rank".to_string(),
+                bot_id: Some(participant.bot_id),
+                turn: None,
+                value: MatchAttributeValue::Integer(participant.rank as _),
+            });
 
-            for (index, p) in new_match.participants.iter().enumerate() {
+            if participant.error {
                 new_match.attributes.push(MatchAttribute {
-                    name: "index".to_string(),
-                    bot_id: Some(p.bot_id),
+                    name: "error".to_string(),
+                    bot_id: Some(participant.bot_id),
                     turn: None,
-                    value: MatchAttributeValue::Integer(index as _),
+                    value: MatchAttributeValue::Integer(1),
                 });
+            }
+        }
 
-                new_match.attributes.push(MatchAttribute {
-                    name: "rank".to_string(),
-                    bot_id: Some(p.bot_id),
-                    turn: None,
-                    value: MatchAttributeValue::Integer(p.rank as _),
-                });
+        if self.game_config.min_players != self.game_config.max_players {
+            new_match
+                .attributes
+                .retain(|attribute| attribute.name != "player_count");
+            new_match.attributes.push(MatchAttribute {
+                name: "player_count".to_string(),
+                bot_id: None,
+                turn: None,
+                value: MatchAttributeValue::Integer(new_match.participants.len() as _),
+            });
+        }
 
-                if p.error {
-                    new_match.attributes.push(MatchAttribute {
-                        name: "error".to_string(),
-                        bot_id: Some(p.bot_id),
-                        turn: None,
-                        value: MatchAttributeValue::Integer(1),
-                    });
+        if let Err(error) = db::persist_match(&self.pool, &mut new_match).await {
+            if let Some(replay_path) = &new_match.replay_path {
+                if let Err(cleanup_error) =
+                    crate::replay_artifact::remove(&self.arena_path, replay_path).await
+                {
+                    warn!("Cannot clean unpersisted replay artifact: {cleanup_error:#}");
                 }
             }
+            panic!("Cannot persist match to DB: {error:#}");
+        }
 
-            if self.game_config.min_players != self.game_config.max_players {
-                new_match
-                    .attributes
-                    .retain(|attr| attr.name != "player_count");
-                new_match.attributes.push(MatchAttribute {
-                    name: "player_count".to_string(),
-                    bot_id: None,
-                    turn: None,
-                    value: MatchAttributeValue::Integer(new_match.participants.len() as _),
-                });
-            }
-
-            if let Err(error) = db::persist_match(&self.pool, &mut new_match).await {
-                if let Some(replay_path) = &new_match.replay_path {
-                    if let Err(cleanup_error) =
-                        crate::replay_artifact::remove(&self.arena_path, replay_path).await
-                    {
-                        warn!("Cannot clean unpersisted replay artifact: {cleanup_error:#}");
-                    }
-                }
-                panic!("Cannot persist match to DB: {error:#}");
-            }
-
-            let m = Arc::new(new_match);
-
-            self.global_leaderboard.record_for_later(Arc::clone(&m));
-            for leaderboard in &mut self.custom_leaderboards {
-                leaderboard.record_for_later(Arc::clone(&m));
-            }
+        let new_match = Arc::new(new_match);
+        self.global_leaderboard
+            .record_for_later(Arc::clone(&new_match));
+        for leaderboard in &mut self.custom_leaderboards {
+            leaderboard.record_for_later(Arc::clone(&new_match));
         }
     }
 
@@ -853,32 +865,32 @@ impl Arena {
         }
     }
 
-    fn forget_scheduled_match_result(&mut self, output: &PlayMatchOutput) {
-        for participant in &output.participants {
+    fn forget_scheduled_match(&mut self, input: &PlayMatchInput) {
+        for bot in &input.bots {
             let entry = self
                 .scheduled_matches_total
-                .get_mut(&participant.bot_id)
+                .get_mut(&bot.bot_id)
                 .expect("finished match must have been scheduled");
             *entry -= 1;
             if *entry == 0 {
-                self.scheduled_matches_total.remove(&participant.bot_id);
+                self.scheduled_matches_total.remove(&bot.bot_id);
             }
         }
 
-        for participant in &output.participants {
-            for opp in &output.participants {
-                if participant.bot_id == opp.bot_id {
+        for bot in &input.bots {
+            for opponent in &input.bots {
+                if bot.bot_id == opponent.bot_id {
                     continue;
                 }
 
                 let entry = self
                     .scheduled_matches_vs
-                    .get_mut(&(participant.bot_id, opp.bot_id))
+                    .get_mut(&(bot.bot_id, opponent.bot_id))
                     .expect("finished match pair must have been scheduled");
                 *entry -= 1;
                 if *entry == 0 {
                     self.scheduled_matches_vs
-                        .remove(&(participant.bot_id, opp.bot_id));
+                        .remove(&(bot.bot_id, opponent.bot_id));
                 }
             }
         }
