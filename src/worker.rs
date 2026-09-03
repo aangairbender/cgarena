@@ -3,6 +3,7 @@ use crate::domain::{
     BotId, Build, BuildResult, Language, MatchAttribute, MatchAttributeValue, Participant,
     SourceCode, WorkerName,
 };
+use crate::replay_artifact::{PendingReplay, ProvisionalReplay};
 use anyhow::{bail, Context};
 use itertools::Itertools;
 use serde::Deserialize;
@@ -509,11 +510,12 @@ async fn execute_match(
     if cancellation_token.is_cancelled() {
         return Ok(None);
     }
-    let (command_parts, replay_path) =
-        prepare_play_match_command(&config, &input).map_err(WorkerFailure::new)?;
+    let (command_parts, replay) = prepare_play_match_command(&config, &input, &worker_path)
+        .await
+        .map_err(WorkerFailure::new)?;
     let output = spawn_play_match_command(
         command_parts,
-        replay_path,
+        replay,
         worker_path,
         &input,
         &cancellation_token,
@@ -679,10 +681,11 @@ async fn run_command(
     }))
 }
 
-fn prepare_play_match_command(
+async fn prepare_play_match_command(
     config: &EmbeddedWorkerConfig,
     input: &PlayMatchInput,
-) -> anyhow::Result<(Vec<String>, Option<PathBuf>)> {
+    worker_path: &Path,
+) -> anyhow::Result<(Vec<String>, Option<ProvisionalReplay>)> {
     let run_commands = input
         .bots
         .iter()
@@ -705,21 +708,17 @@ fn prepare_play_match_command(
         bail!("cmd_play_match must not be blank");
     }
 
-    let replay_path = template
-        .iter()
-        .any(|part| part == "{REPLAY_PATH}")
-        .then(crate::replay_artifact::allocate);
-    let replay_path_value = replay_path
+    let replay = if template.iter().any(|part| part == "{REPLAY_PATH}") {
+        Some(ProvisionalReplay::create(worker_path).await?)
+    } else {
+        None
+    };
+    let replay_path_value = replay
         .as_ref()
-        .and_then(|path| path.to_str())
+        .map(ProvisionalReplay::command_path)
+        .and_then(Path::to_str)
         .context("replay path must be UTF-8")
-        .or_else(|error| {
-            if replay_path.is_none() {
-                Ok("")
-            } else {
-                Err(error)
-            }
-        })?;
+        .or_else(|error| if replay.is_none() { Ok("") } else { Err(error) })?;
     let seed = input.seed.to_string();
     let mut command_parts = Vec::new();
 
@@ -745,137 +744,101 @@ fn prepare_play_match_command(
         }
     }
 
-    Ok((command_parts, replay_path))
+    Ok((command_parts, replay))
 }
 
 async fn spawn_play_match_command(
     command_parts: Vec<String>,
-    replay_path: Option<PathBuf>,
+    replay: Option<ProvisionalReplay>,
     worker_path: PathBuf,
     input: &PlayMatchInput,
     cancellation_token: &CancellationToken,
 ) -> anyhow::Result<Option<PlayMatchOutput>> {
-    let absolute_replay_path = replay_path
-        .as_ref()
-        .map(|path| crate::replay_artifact::resolve(&worker_path, path))
-        .transpose()?;
-    if let Some(parent) = absolute_replay_path.as_ref().and_then(|path| path.parent()) {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .context("cannot create replay directory")?;
+    let Some(cmd_output) = run_command(command_parts, &worker_path, cancellation_token).await?
+    else {
+        return Ok(None);
+    };
+
+    let result = if cmd_output.status.success() {
+        let stdout = String::from_utf8(cmd_output.stdout).context("stdout is not valid UTF-8")?;
+        serde_json::from_str::<CmdPlayMatchStdout>(&stdout)
+            .context("play match output should be valid JSON")?
+    } else {
+        bail!(
+            "Error while running match: {}",
+            String::from_utf8(cmd_output.stderr).context("stderr is not valid UTF-8")?
+        );
+    };
+
+    let bot_count = input.bots.len();
+    if result.ranks.len() != bot_count {
+        bail!(
+            "play match output has {} ranks for {bot_count} bots",
+            result.ranks.len()
+        );
+    }
+    if result.errors.len() != bot_count {
+        bail!(
+            "play match output has {} errors for {bot_count} bots",
+            result.errors.len()
+        );
+    }
+    if !result.scores.is_empty() && result.scores.len() != bot_count {
+        bail!(
+            "play match output has {} scores for {bot_count} bots",
+            result.scores.len()
+        );
+    }
+    if let Some(player) = result
+        .attributes
+        .iter()
+        .filter_map(|attribute| attribute.player)
+        .find(|player| *player >= bot_count)
+    {
+        bail!("play match output references missing player {player}");
     }
 
-    let result = async {
-        let Some(cmd_output) = run_command(command_parts, &worker_path, cancellation_token).await?
-        else {
-            return Ok(None);
-        };
+    let replay = match replay {
+        Some(replay) => replay.finish().await?,
+        None => PendingReplay::default(),
+    };
 
-        let result = if cmd_output.status.success() {
-            let stdout =
-                String::from_utf8(cmd_output.stdout).context("stdout is not valid UTF-8")?;
-            serde_json::from_str::<CmdPlayMatchStdout>(&stdout)
-                .context("play match output should be valid JSON")?
-        } else {
-            bail!(
-                "Error while running match: {}",
-                String::from_utf8(cmd_output.stderr).context("stderr is not valid UTF-8")?
-            );
-        };
-
-        let bot_count = input.bots.len();
-        if result.ranks.len() != bot_count {
-            bail!(
-                "play match output has {} ranks for {bot_count} bots",
-                result.ranks.len()
-            );
-        }
-        if result.errors.len() != bot_count {
-            bail!(
-                "play match output has {} errors for {bot_count} bots",
-                result.errors.len()
-            );
-        }
-        if !result.scores.is_empty() && result.scores.len() != bot_count {
-            bail!(
-                "play match output has {} scores for {bot_count} bots",
-                result.scores.len()
-            );
-        }
-        if let Some(player) = result
-            .attributes
+    Ok(Some(PlayMatchOutput {
+        seed: input.seed,
+        participants: input
+            .bots
             .iter()
-            .filter_map(|attribute| attribute.player)
-            .find(|player| *player >= bot_count)
-        {
-            bail!("play match output references missing player {player}");
-        }
-
-        let persisted_replay_path = if let Some(path) = &absolute_replay_path {
-            match tokio::fs::metadata(path).await {
-                Ok(metadata) if metadata.is_file() && metadata.len() > 0 => replay_path.clone(),
-                Ok(_) => {
-                    tracing::warn!("match command produced an empty replay artifact");
-                    None
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    tracing::warn!("match command produced no replay artifact");
-                    None
-                }
-                Err(error) => return Err(error).context("cannot inspect replay artifact"),
-            }
-        } else {
-            None
-        };
-
-        Ok(Some(PlayMatchOutput {
-            seed: input.seed,
-            participants: input
-                .bots
-                .iter()
-                .zip(result.ranks)
-                .zip(result.errors)
-                .map(|((bot, rank), error)| Participant {
-                    bot_id: bot.bot_id,
-                    rank,
-                    error: error == 1,
-                })
-                .collect(),
-            attributes: result
-                .attributes
-                .into_iter()
-                .map(|attribute| to_match_attribute(input, attribute))
-                .chain(if result.scores.is_empty() {
-                    vec![].into_iter()
-                } else {
-                    input
-                        .bots
-                        .iter()
-                        .zip(result.scores)
-                        .map(|(bot, score)| MatchAttribute {
-                            name: "score".to_string(),
-                            bot_id: Some(bot.bot_id),
-                            turn: None,
-                            value: MatchAttributeValue::Integer(score as _),
-                        })
-                        .collect_vec()
-                        .into_iter()
-                })
-                .collect(),
-            replay_path: persisted_replay_path,
-        }))
-    }
-    .await;
-
-    if !matches!(&result, Ok(Some(_))) {
-        if let Some(path) = replay_path {
-            if let Err(error) = crate::replay_artifact::remove(&worker_path, &path).await {
-                tracing::warn!("cannot clean failed replay artifact: {error:#}");
-            }
-        }
-    }
-
-    result
+            .zip(result.ranks)
+            .zip(result.errors)
+            .map(|((bot, rank), error)| Participant {
+                bot_id: bot.bot_id,
+                rank,
+                error: error == 1,
+            })
+            .collect(),
+        attributes: result
+            .attributes
+            .into_iter()
+            .map(|attribute| to_match_attribute(input, attribute))
+            .chain(if result.scores.is_empty() {
+                vec![].into_iter()
+            } else {
+                input
+                    .bots
+                    .iter()
+                    .zip(result.scores)
+                    .map(|(bot, score)| MatchAttribute {
+                        name: "score".to_string(),
+                        bot_id: Some(bot.bot_id),
+                        turn: None,
+                        value: MatchAttributeValue::Integer(score as _),
+                    })
+                    .collect_vec()
+                    .into_iter()
+            })
+            .collect(),
+        replay,
+    }))
 }
 
 #[derive(Clone)]
@@ -908,7 +871,7 @@ pub struct PlayMatchOutput {
     pub seed: i64,
     pub participants: Vec<Participant>,
     pub attributes: Vec<MatchAttribute>,
-    pub replay_path: Option<PathBuf>,
+    pub replay: PendingReplay,
 }
 
 #[derive(Deserialize)]
@@ -1106,17 +1069,26 @@ mod tests {
         assert_eq!(second_input.seed, 42);
         assert_eq!(first.participants.len(), 2);
         assert_eq!(second.participants.len(), 2);
-        assert_ne!(first.replay_path, second.replay_path);
+        assert_ne!(first.replay, second.replay);
         supervisor.shutdown().await.unwrap();
     }
 
     #[tokio::test]
     async fn malformed_match_output_is_an_observable_terminal_failure() {
         let directory = tempfile::tempdir().unwrap();
-        let match_command = script(directory.path(), "malformed-match.sh", "printf not-json");
-        let StartedWorker { worker, supervisor } =
-            start_embedded_worker(directory.path(), config("true".to_string(), match_command))
-                .unwrap();
+        let match_command = script(
+            directory.path(),
+            "malformed-match.sh",
+            "printf replay > \"$1\"\nprintf not-json",
+        );
+        let StartedWorker { worker, supervisor } = start_embedded_worker(
+            directory.path(),
+            config(
+                "true".to_string(),
+                format!("{match_command} {{REPLAY_PATH}}"),
+            ),
+        )
+        .unwrap();
 
         worker.submit(Work::Match(match_input(7))).await.unwrap();
         let failure = tokio::time::timeout(Duration::from_secs(2), supervisor.failed())
@@ -1128,6 +1100,12 @@ mod tests {
             Err(WorkerUnavailable::Failed(_))
         ));
         assert!(supervisor.shutdown().await.is_err());
+        assert_eq!(
+            fs::read_dir(directory.path().join("replays"))
+                .unwrap()
+                .count(),
+            0
+        );
     }
 
     #[tokio::test]

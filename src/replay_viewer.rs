@@ -17,7 +17,12 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::{db, domain::MatchId, replay_artifact};
+#[cfg(test)]
+use crate::db;
+use crate::{
+    domain::MatchId,
+    replay_artifact::{ReplayArtifacts, ReplayLookupError},
+};
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_IDLE_LIFETIME: Duration = Duration::from_secs(15 * 60);
@@ -30,7 +35,7 @@ pub struct ReplayViewer {
 }
 
 struct ReplayViewerInner {
-    pool: sqlx::SqlitePool,
+    replay_artifacts: ReplayArtifacts,
     arena_path: PathBuf,
     command: String,
     sessions: Mutex<HashMap<String, ReplaySession>>,
@@ -76,6 +81,17 @@ pub enum ReplayError {
     Internal(String),
 }
 
+impl From<ReplayLookupError> for ReplayError {
+    fn from(error: ReplayLookupError) -> Self {
+        match error {
+            ReplayLookupError::MatchNotFound => Self::MatchNotFound,
+            ReplayLookupError::Unavailable => Self::Unavailable,
+            ReplayLookupError::InvalidArtifact(message) => Self::InvalidArtifact(message),
+            ReplayLookupError::Internal(message) => Self::Internal(message),
+        }
+    }
+}
+
 impl ReplayViewer {
     pub fn new(
         pool: sqlx::SqlitePool,
@@ -101,9 +117,10 @@ impl ReplayViewer {
         startup_timeout: Duration,
         idle_lifetime: Duration,
     ) -> Self {
+        let replay_artifacts = ReplayArtifacts::new(pool, arena_path.clone());
         Self {
             inner: Arc::new(ReplayViewerInner {
-                pool,
+                replay_artifacts,
                 arena_path,
                 command,
                 sessions: Mutex::new(HashMap::new()),
@@ -114,21 +131,7 @@ impl ReplayViewer {
     }
 
     pub async fn watch(&self, match_id: MatchId) -> Result<StartedReplay, ReplayError> {
-        let metadata = db::fetch_replay_metadata(&self.inner.pool, match_id)
-            .await
-            .map_err(|error| ReplayError::Internal(error.to_string()))?
-            .ok_or(ReplayError::MatchNotFound)?;
-        let replay_path = metadata.replay_path.ok_or(ReplayError::Unavailable)?;
-        let artifact_path = replay_artifact::resolve(&self.inner.arena_path, &replay_path)
-            .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
-        let artifact_metadata = fs::metadata(&artifact_path)
-            .await
-            .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
-        if !artifact_metadata.is_file() || artifact_metadata.len() == 0 {
-            return Err(ReplayError::InvalidArtifact(
-                "artifact is not a non-empty file".to_string(),
-            ));
-        }
+        let artifact = self.inner.replay_artifacts.lookup(match_id).await?;
 
         let session_id = Uuid::new_v4().to_string();
         let session_directory = self
@@ -142,9 +145,9 @@ impl ReplayViewer {
 
         let result = self
             .generate_bundle(
-                &artifact_path,
+                artifact.path(),
                 &session_directory,
-                metadata.participant_count,
+                artifact.participant_count(),
             )
             .await;
         if let Err(error) = result {
@@ -384,22 +387,25 @@ async fn read_stderr(mut stderr: tokio::process::ChildStderr) -> std::io::Result
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::{
+        domain::{BotId, Match, Participant},
+        replay_artifact::ProvisionalReplay,
+    };
     use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
     async fn fixture(
         script_body: &str,
         startup_timeout: Duration,
-    ) -> (TempDir, ReplayViewer, MatchId) {
+    ) -> (TempDir, ReplayViewer, MatchId, PathBuf) {
         let temporary_directory = tempfile::tempdir().unwrap();
         let arena_path = temporary_directory.path().join("arena with spaces");
-        fs::create_dir_all(arena_path.join("replays"))
+        let provisional = ProvisionalReplay::create(&arena_path).await.unwrap();
+        let artifact_path = arena_path.join(provisional.command_path());
+        fs::write(&artifact_path, b"{\"agents\":[{},{}]}")
             .await
             .unwrap();
-        let artifact_path = PathBuf::from("replays/fixture.json");
-        fs::write(arena_path.join(&artifact_path), b"{\"agents\":[{},{}]}")
-            .await
-            .unwrap();
+        let pending = provisional.finish().await.unwrap();
 
         let launcher_path = arena_path.join("launcher with spaces.sh");
         fs::write(
@@ -414,15 +420,37 @@ mod tests {
 
         let pool = db::connect(&arena_path).await.unwrap();
         sqlx::migrate!().run(&pool).await.unwrap();
-        let match_id: MatchId = sqlx::query(
-            "INSERT INTO matches (seed, participant_cnt, replay_path) VALUES (7, 2, ?)",
-        )
-        .bind(artifact_path.to_str().unwrap())
-        .execute(&pool)
-        .await
-        .unwrap()
-        .last_insert_rowid()
-        .into();
+        let mut bot_ids = Vec::new();
+        for name in ["one", "two"] {
+            let bot_id: BotId = sqlx::query(
+                "INSERT INTO bots (name, source_code, language, created_at) VALUES (?, '', 'rust', 0)",
+            )
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid()
+            .into();
+            bot_ids.push(bot_id);
+        }
+        let mut replay_match = Match::new(
+            7,
+            bot_ids
+                .into_iter()
+                .enumerate()
+                .map(|(rank, bot_id)| Participant {
+                    bot_id,
+                    rank: rank as u8,
+                    error: false,
+                })
+                .collect(),
+            vec![],
+            None,
+        );
+        ReplayArtifacts::new(pool.clone(), arena_path.clone())
+            .persist_match(pending, &mut replay_match)
+            .await
+            .unwrap();
         let command = format!(
             "\"{}\" {{REPLAY_PATH}} {{REPLAY_DIR}} {{PORT}} {{PLAYER_COUNT}}",
             launcher_path.display()
@@ -434,12 +462,12 @@ mod tests {
             startup_timeout,
             Duration::from_secs(60),
         );
-        (temporary_directory, viewer, match_id)
+        (temporary_directory, viewer, replay_match.id, artifact_path)
     }
 
     #[tokio::test]
     async fn sessions_are_isolated_and_serve_static_assets() {
-        let (_temporary_directory, viewer, match_id) = fixture(
+        let (_temporary_directory, viewer, match_id, _artifact_path) = fixture(
             "mkdir -p \"$2\"\nprintf '<html>fixture replay</html>' > \"$2/test.html\"",
             Duration::from_secs(2),
         )
@@ -468,7 +496,7 @@ mod tests {
 
     #[tokio::test]
     async fn startup_timeout_kills_the_launcher() {
-        let (_temporary_directory, viewer, match_id) =
+        let (_temporary_directory, viewer, match_id, _artifact_path) =
             fixture("sleep 5", Duration::from_millis(50)).await;
 
         let started = Instant::now();
@@ -481,7 +509,7 @@ mod tests {
 
     #[tokio::test]
     async fn launcher_failure_returns_stderr() {
-        let (_temporary_directory, viewer, match_id) = fixture(
+        let (_temporary_directory, viewer, match_id, _artifact_path) = fixture(
             "echo actionable failure >&2\nexit 7",
             Duration::from_secs(2),
         )
@@ -496,7 +524,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_match_and_artifact_are_normal_errors() {
-        let (_temporary_directory, viewer, match_id) = fixture(
+        let (_temporary_directory, viewer, match_id, artifact_path) = fixture(
             "mkdir -p \"$2\"\nprintf ok > \"$2/test.html\"",
             Duration::from_secs(2),
         )
@@ -506,9 +534,7 @@ mod tests {
             viewer.watch(MatchId::from(i64::from(match_id) + 1)).await,
             Err(ReplayError::MatchNotFound)
         ));
-        replay_artifact::remove(&viewer.inner.arena_path, Path::new("replays/fixture.json"))
-            .await
-            .unwrap();
+        fs::remove_file(artifact_path).await.unwrap();
         assert!(matches!(
             viewer.watch(match_id).await,
             Err(ReplayError::InvalidArtifact(_))

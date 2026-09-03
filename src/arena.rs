@@ -5,6 +5,7 @@ use crate::domain::*;
 use crate::match_retrieval::MatchRetrieval;
 use crate::matchmaking;
 use crate::ranking::Ranker;
+use crate::replay_artifact::ReplayArtifacts;
 use crate::worker::{
     BuildBotInput, BuildBotOutput, BuildReconciliation, Completion, PlayMatchBot, PlayMatchInput,
     PlayMatchOutput, Work, Worker, WorkerUnavailable,
@@ -132,7 +133,7 @@ struct Arena {
     uncertainty_coefficient: f64,
     pool: SqlitePool,
     match_retrieval: MatchRetrieval,
-    arena_path: PathBuf,
+    replay_artifacts: ReplayArtifacts,
     bots: Vec<Bot>,
     builds: Vec<Build>,
     ranker: Arc<Ranker>,
@@ -154,12 +155,13 @@ impl Arena {
     ) -> Self {
         let ranker = Arc::new(ranker);
         let match_retrieval = MatchRetrieval::new(pool.clone());
+        let replay_artifacts = ReplayArtifacts::new(pool.clone(), arena_path);
         Self {
             game_config,
             uncertainty_coefficient: leaderboards_config.uncertainty_coefficient.unwrap_or(3.0),
             matchmaking_enabled: matchmaking_config.enabled_on_start.unwrap_or(true),
             matchmaking_config,
-            arena_path,
+            replay_artifacts,
             pool,
             match_retrieval: match_retrieval.clone(),
             ranker: Arc::clone(&ranker),
@@ -340,18 +342,10 @@ impl Arena {
 
     async fn cmd_delete_bot(&mut self, id: BotId) {
         // builds and participations are deleted by foreign keys; matches by the DB trigger
-        let replay_paths = db::fetch_replay_paths_for_bot(&self.pool, id)
+        self.replay_artifacts
+            .delete_bot(id)
             .await
-            .expect("Cannot fetch replay artifacts for bot");
-        db::delete_bot(&self.pool, id)
-            .await
-            .expect("Cannot delete bot from DB");
-        for replay_path in replay_paths {
-            if let Err(error) = crate::replay_artifact::remove(&self.arena_path, &replay_path).await
-            {
-                warn!("Cannot delete replay artifact: {error:#}");
-            }
-        }
+            .expect("Cannot delete bot and its replay artifacts");
         self.bots.retain(|bot| bot.id != id);
         self.builds.retain(|b| b.bot_id != id);
         self.recalculate_computed_full();
@@ -662,36 +656,27 @@ impl Arena {
     #[instrument(skip(self, input, output), level = "debug")]
     async fn process_finished_match(&mut self, input: &PlayMatchInput, output: PlayMatchOutput) {
         self.forget_scheduled_match(input);
-        let replay_path = output.replay_path.clone();
+        let PlayMatchOutput {
+            seed,
+            participants,
+            attributes,
+            replay,
+        } = output;
 
-        if output
-            .participants
+        if participants
             .iter()
             .any(|participant| self.bots.iter().all(|bot| bot.id != participant.bot_id))
         {
             warn!("Match participant was deleted while match was running, ignoring match results");
-            if let Some(replay_path) = replay_path {
-                if let Err(error) =
-                    crate::replay_artifact::remove(&self.arena_path, &replay_path).await
-                {
-                    warn!("Cannot delete ignored replay artifact: {error:#}");
-                }
-            }
             return;
         }
 
-        let attributes = output
-            .attributes
+        let attributes = attributes
             .into_iter()
             .unique_by(|attribute| (attribute.name.clone(), attribute.bot_id, attribute.turn))
             .collect();
 
-        let mut new_match = Match::new(
-            output.seed,
-            output.participants,
-            attributes,
-            output.replay_path,
-        );
+        let mut new_match = Match::new(seed, participants, attributes, None);
 
         new_match
             .attributes
@@ -700,7 +685,7 @@ impl Arena {
             name: "seed".to_string(),
             bot_id: None,
             turn: None,
-            value: MatchAttributeValue::Integer(output.seed),
+            value: MatchAttributeValue::Integer(seed),
         });
 
         new_match
@@ -750,14 +735,11 @@ impl Arena {
             });
         }
 
-        if let Err(error) = db::persist_match(&self.pool, &mut new_match).await {
-            if let Some(replay_path) = &new_match.replay_path {
-                if let Err(cleanup_error) =
-                    crate::replay_artifact::remove(&self.arena_path, replay_path).await
-                {
-                    warn!("Cannot clean unpersisted replay artifact: {cleanup_error:#}");
-                }
-            }
+        if let Err(error) = self
+            .replay_artifacts
+            .persist_match(replay, &mut new_match)
+            .await
+        {
             panic!("Cannot persist match to DB: {error:#}");
         }
 
