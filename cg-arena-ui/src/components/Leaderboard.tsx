@@ -28,6 +28,7 @@ import {
 import { useState } from "react";
 import { useDialogs } from "@/hooks/useDialogs";
 import { Link } from "@tanstack/react-router";
+import { matchBrowsing } from "@/match-browsing";
 
 interface LeaderboardProps {
   lb: LeaderboardOverviewResponse;
@@ -243,10 +244,6 @@ const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
     </Tooltip>
   );
 
-  const winsFilter = `bot(${selectedBotId}).rank < bot(${bot.id}).rank`;
-  const losesFilter = `bot(${selectedBotId}).rank > bot(${bot.id}).rank`;
-  const drawsFilter = `bot(${selectedBotId}).rank == bot(${bot.id}).rank`;
-
   return (
     <tr className={selected ? "highlighted-row" : ""}>
       <td>{item.rank + 1}</td>
@@ -267,59 +264,64 @@ const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
       <RatingCell item={item} />
       {stats ? <WinrateCell stats={stats} /> : <td></td>}
       {stats && selectedBotId !== undefined ? (
-        <td>
-          <Link
-            to="/matches"
-            search={{
-              withBots: [selectedBotId, item.id],
-              filter: lb.filter
-                ? `(${lb.filter}) AND (${winsFilter})`
-                : winsFilter,
-            }}
-          >
-            {stats.wins}
-          </Link>
-          {" / "}
-          <Link
-            to="/matches"
-            search={{
-              withBots: [selectedBotId, item.id],
-              filter: lb.filter
-                ? `(${lb.filter}) AND (${losesFilter})`
-                : losesFilter,
-            }}
-          >
-            {stats.loses}
-          </Link>
-          {" / "}
-          <Link
-            to="/matches"
-            search={{
-              withBots: [selectedBotId, item.id],
-              filter: lb.filter
-                ? `(${lb.filter}) AND (${drawsFilter})`
-                : drawsFilter,
-            }}
-          >
-            {stats.draws}
-          </Link>
-        </td>
+        <HeadToHeadLinks
+          leaderboardFilter={lb.filter}
+          selectedBotId={selectedBotId}
+          opponentBotId={item.id}
+          stats={stats}
+        />
       ) : (
-        <td></td>
-      )}
-      {stats && selectedBotId !== undefined ? (
-        <td>
-          <Link
-            to="/matches"
-            search={{ withBots: [selectedBotId, item.id], filter: lb.filter }}
-          >
-            {stats.wins + stats.loses + stats.draws}
-          </Link>
-        </td>
-      ) : (
-        <td></td>
+        <>
+          <td></td>
+          <td></td>
+        </>
       )}
     </tr>
+  );
+};
+
+interface HeadToHeadLinksProps {
+  leaderboardFilter: string;
+  selectedBotId: BotId;
+  opponentBotId: BotId;
+  stats: WinrateStats;
+}
+
+const HeadToHeadLinks = ({
+  leaderboardFilter,
+  selectedBotId,
+  opponentBotId,
+  stats,
+}: HeadToHeadLinksProps) => {
+  const search = (result: "win" | "loss" | "draw" | "all") =>
+    matchBrowsing.leaderboardSearch({
+      leaderboardFilter,
+      selectedBotId,
+      opponentBotId,
+      result,
+    });
+
+  return (
+    <>
+      <td>
+        <Link to="/matches" search={search("win")}>
+          {stats.wins}
+        </Link>
+        {" / "}
+        <Link to="/matches" search={search("loss")}>
+          {stats.loses}
+        </Link>
+        {" / "}
+        <Link to="/matches" search={search("draw")}>
+          {stats.draws}
+        </Link>
+      </td>
+      <td>
+        <Link to="/matches" search={search("all")}>
+          {stats.wins + stats.loses + stats.draws}
+        </Link>
+      </td>
+    </>
   );
 };
 

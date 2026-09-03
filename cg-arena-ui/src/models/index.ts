@@ -98,40 +98,6 @@ export interface EnableMatchmakingRequest {
   enabled: boolean;
 }
 
-export interface FetchMatchesRequest {
-  filter: string;
-  includingBots: number[];
-  offset: number;
-  limit: number;
-}
-
-export interface FetchMatchesResponse {
-  matches: MatchOverviewResponse[];
-  has_more: boolean;
-}
-
-export interface MatchOverviewResponse {
-  id: number;
-  participants: ParticipantOverviewResponse[];
-  seed: string;
-  attributes: MatchAttributeResponse[];
-}
-
-export interface MatchAttributeResponse {
-  name: string;
-  bot_id: BotId | null;
-  turn: number | null;
-  value: string;
-}
-
-export interface ParticipantOverviewResponse {
-  rank: number;
-  index: number;
-  bot_id: BotId;
-  bot_name: string;
-  error: boolean;
-}
-
 export interface WatchReplayResponse {
   session_id: string;
   viewer_url: string;
