@@ -11,6 +11,7 @@ mod chart;
 mod config;
 mod db;
 mod domain;
+mod match_retrieval;
 mod matchmaking;
 mod ranking;
 mod replay_artifact;

@@ -1,13 +1,14 @@
 use crate::arena_commands::{
     ArenaCommand, BotSourceCode, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
     CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand, EnableMatchmakingCommand,
-    FetchBotSourceCodeCommand, FetchMatchesCommand, FetchMatchesResult, FetchStatusCommand,
-    FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand, PatchLeaderboardResult,
-    RenameBotCommand, RenameBotResult,
+    FetchBotSourceCodeCommand, FetchMatchesCommand, FetchStatusCommand, FetchStatusResult,
+    LeaderboardOverview, PatchLeaderboardCommand, PatchLeaderboardResult, RenameBotCommand,
+    RenameBotResult,
 };
 use crate::domain::{
     BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
 };
+use crate::match_retrieval::{MatchPage, MatchPageRequest};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Clone)]
@@ -137,19 +138,10 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn fetch_matches(
-        &self,
-        filter: MatchFilter,
-        including_bots: Vec<BotId>,
-        offset: usize,
-        limit: usize,
-    ) -> anyhow::Result<FetchMatchesResult> {
+    pub async fn fetch_matches(&self, request: MatchPageRequest) -> anyhow::Result<MatchPage> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::FetchMatches(FetchMatchesCommand {
-                filter,
-                including_bots,
-                offset,
-                limit,
+                request,
                 response: tx,
             })
         })

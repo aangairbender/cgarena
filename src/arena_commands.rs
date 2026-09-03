@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use tokio::sync::oneshot;
 
-use crate::domain::*;
+use crate::{
+    domain::*,
+    match_retrieval::{MatchPage, MatchPageRequest},
+};
 
 pub enum ArenaCommand {
     CreateBot(CreateBotCommand),
@@ -20,31 +23,8 @@ pub enum ArenaCommand {
 }
 
 pub struct FetchMatchesCommand {
-    pub filter: MatchFilter,
-    pub including_bots: Vec<BotId>,
-    pub offset: usize,
-    pub limit: usize,
-    pub response: oneshot::Sender<anyhow::Result<FetchMatchesResult>>,
-}
-
-pub struct FetchMatchesResult {
-    pub matches: Vec<MatchOverview>,
-    pub has_more: bool,
-}
-
-pub struct MatchOverview {
-    pub id: MatchId,
-    pub participants: Vec<ParticipantOverview>,
-    pub seed: i64,
-    pub attributes: Vec<MatchAttribute>,
-}
-
-pub struct ParticipantOverview {
-    pub bot_id: BotId,
-    pub bot_name: BotName,
-    pub rank: u8,
-    pub index: usize,
-    pub error: bool,
+    pub request: MatchPageRequest,
+    pub response: oneshot::Sender<anyhow::Result<MatchPage>>,
 }
 
 pub struct EnableMatchmakingCommand {

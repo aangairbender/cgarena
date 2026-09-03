@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{errors::ApiError, AppState},
-    arena_commands::{FetchMatchesResult, MatchOverview, ParticipantOverview},
     domain::{BotId, MatchAttribute, MatchAttributeValue, MatchFilter},
+    match_retrieval::{MatchOverview, MatchPage, MatchPageRequest, ParticipantOverview},
 };
 
 #[derive(Deserialize)]
@@ -26,12 +26,17 @@ pub async fn fetch_matches(
 ) -> Result<impl IntoResponse, ApiError> {
     let (filter, including_bots, offset, limit) = parse_request(&payload)?;
 
-    let res = app_state
+    let page = app_state
         .arena_handle
-        .fetch_matches(filter, including_bots, offset, limit)
+        .fetch_matches(MatchPageRequest {
+            filter,
+            including_bots,
+            offset,
+            limit,
+        })
         .await?;
 
-    Ok(Json(FetchMatchesResponse::from(res)))
+    Ok(Json(FetchMatchesResponse::from(page)))
 }
 
 fn parse_request(
@@ -105,8 +110,8 @@ pub struct MatchAttributeResponse {
     pub value: String,
 }
 
-impl From<FetchMatchesResult> for FetchMatchesResponse {
-    fn from(value: FetchMatchesResult) -> Self {
+impl From<MatchPage> for FetchMatchesResponse {
+    fn from(value: MatchPage) -> Self {
         Self {
             matches: value.matches.into_iter().map(Into::into).collect(),
             has_more: value.has_more,
