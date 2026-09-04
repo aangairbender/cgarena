@@ -806,10 +806,7 @@ async fn spawn_play_match_command(
         serde_json::from_slice::<CmdPlayMatchStdout>(&cmd_output.stdout)
             .context("play match output should be valid JSON")?
     };
-    let bot_count = input.bots.len();
-    if result.ranks.len() != bot_count || result.errors.len() != bot_count {
-        bail!("play match output must contain ranks and errors for {bot_count} bots");
-    }
+    validate_match_result(&result, input.bots.len())?;
     let replay = match replay {
         Some(replay) => replay.finish().await?,
         None => PendingReplay::default(),
@@ -851,14 +848,44 @@ async fn spawn_play_match_command(
 fn codingame_result(path: &Path, player_count: usize) -> anyhow::Result<CmdPlayMatchStdout> {
     let replay: Value = serde_json::from_slice(&std::fs::read(path)?)
         .context("codingame replay artifact must be valid JSON")?;
+    let score_map = replay
+        .get("scores")
+        .and_then(Value::as_object)
+        .context("codingame replay artifact has no scores object")?;
+    if score_map.len() != player_count {
+        bail!(
+            "codingame replay has {} scores for {player_count} bots",
+            score_map.len()
+        );
+    }
     let scores = (0..player_count)
         .map(|index| {
-            replay["scores"][index.to_string()]
-                .as_i64()
+            score_map
+                .get(&index.to_string())
+                .and_then(Value::as_i64)
                 .context("codingame replay score is not an integer")
-                .map(|score| score as i32)
+                .and_then(|score| {
+                    i32::try_from(score).context("codingame replay score is out of range")
+                })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut attributes = Vec::new();
+    if let Some(errors) = replay.get("errors").and_then(Value::as_object) {
+        for player in 0..player_count {
+            for line in errors
+                .get(&player.to_string())
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .flat_map(str::lines)
+            {
+                if let Some(attribute) = parse_codingame_attribute(line, player) {
+                    attributes.push(attribute);
+                }
+            }
+        }
+    }
     Ok(CmdPlayMatchStdout {
         ranks: scores
             .iter()
@@ -866,7 +893,40 @@ fn codingame_result(path: &Path, player_count: usize) -> anyhow::Result<CmdPlayM
             .collect(),
         errors: scores.iter().map(|score| u8::from(*score < 0)).collect(),
         scores,
-        attributes: vec![],
+        attributes,
+    })
+}
+
+fn parse_codingame_attribute(line: &str, player: usize) -> Option<CmdMatchAttribute> {
+    let line = line.trim();
+    let (owner, rest) = if let Some(rest) = line.strip_prefix("[TDATA]") {
+        (None, rest)
+    } else if let Some(rest) = line.strip_prefix("[PDATA]") {
+        (Some(player), rest)
+    } else {
+        return None;
+    };
+    let rest = rest.trim_start();
+    let (turn, rest) = if let Some(rest) = rest.strip_prefix('[') {
+        let (turn, rest) = rest.split_once(']')?;
+        (Some(turn.parse().ok()?), rest)
+    } else {
+        (None, rest)
+    };
+    let (name, value) = rest.trim().split_once('=')?;
+    let name = name.trim();
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '_')
+    {
+        return None;
+    }
+    Some(CmdMatchAttribute {
+        name: name.to_string(),
+        player: owner,
+        turn,
+        value: value.trim().to_string(),
     })
 }
 
@@ -903,7 +963,7 @@ pub struct PlayMatchOutput {
     pub replay: PendingReplay,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CmdPlayMatchStdout {
     #[serde(default)]
     pub scores: Vec<i32>,
@@ -913,12 +973,33 @@ pub struct CmdPlayMatchStdout {
     pub attributes: Vec<CmdMatchAttribute>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 pub struct CmdMatchAttribute {
     pub name: String,
     pub player: Option<usize>,
     pub turn: Option<u16>,
     pub value: String,
+}
+
+fn validate_match_result(result: &CmdPlayMatchStdout, bot_count: usize) -> anyhow::Result<()> {
+    if result.ranks.len() != bot_count || result.errors.len() != bot_count {
+        bail!("play match output must contain ranks and errors for {bot_count} bots");
+    }
+    if !result.scores.is_empty() && result.scores.len() != bot_count {
+        bail!(
+            "play match output has {} scores for {bot_count} bots",
+            result.scores.len()
+        );
+    }
+    if let Some(player) = result
+        .attributes
+        .iter()
+        .filter_map(|attribute| attribute.player)
+        .find(|player| *player >= bot_count)
+    {
+        bail!("play match output references missing player {player}");
+    }
+    Ok(())
 }
 
 fn to_match_attribute(input: &PlayMatchInput, attr: CmdMatchAttribute) -> MatchAttribute {
@@ -1137,6 +1218,126 @@ mod tests {
                 .count(),
             0
         );
+    }
+    #[tokio::test]
+    async fn referee_adapters_preserve_player_argument_contracts() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = match_input(42);
+        let command_config = config("true".to_string(), "runner {P1} {P2} {SEED}".to_string());
+        let (command, _, codingame) =
+            prepare_play_match_command(&command_config, &input, directory.path())
+                .await
+                .unwrap();
+        assert_eq!(command, ["runner", "true", "true", "42"]);
+        assert!(!codingame);
+
+        let jar_config = EmbeddedWorkerConfig {
+            threads: 1,
+            referee: RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
+                path: "referee.jar".to_string(),
+                java: None,
+                league: Some(7),
+            }),
+            cmd_build: "true".to_string(),
+            cmd_run: "run {DIR} --language {LANG}".to_string(),
+        };
+        let (command, replay, codingame) =
+            prepare_play_match_command(&jar_config, &input, directory.path())
+                .await
+                .unwrap();
+        assert!(codingame);
+        assert!(replay.is_some());
+        assert_eq!(
+            &command[..12],
+            [
+                "java",
+                "--add-opens",
+                "java.base/java.lang=ALL-UNNAMED",
+                "-jar",
+                "referee.jar",
+                "-p1",
+                "run bots/1 --language rust",
+                "-p2",
+                "run bots/2 --language rust",
+                "-seed",
+                "42",
+                "-league",
+            ]
+        );
+        assert_eq!(command[12], "7");
+    }
+
+    #[test]
+    fn codingame_replay_conversion_preserves_results_and_attributes() {
+        let directory = tempfile::tempdir().unwrap();
+        let replay = directory.path().join("replay.json");
+        fs::write(
+            &replay,
+            r#"{
+                "scores": {"0": 10, "1": -1},
+                "errors": {
+                    "0": [null, "[TDATA][12] map_size = 16\n[PDATA] final_score = 10"],
+                    "1": [null]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let result = codingame_result(&replay, 2).unwrap();
+
+        assert_eq!(result.scores, [10, -1]);
+        assert_eq!(result.ranks, [0, 1]);
+        assert_eq!(result.errors, [0, 1]);
+        assert_eq!(result.attributes.len(), 2);
+        assert_eq!(result.attributes[0].name, "map_size");
+        assert_eq!(result.attributes[0].player, None);
+        assert_eq!(result.attributes[0].turn, Some(12));
+        assert_eq!(result.attributes[1].name, "final_score");
+        assert_eq!(result.attributes[1].player, Some(0));
+    }
+
+    #[test]
+    fn codingame_replay_conversion_rejects_wrong_score_count() {
+        let directory = tempfile::tempdir().unwrap();
+        let replay = directory.path().join("replay.json");
+        fs::write(&replay, r#"{"scores":{"0":10},"errors":{}}"#).unwrap();
+
+        let error = codingame_result(&replay, 2).unwrap_err();
+
+        assert!(error.to_string().contains("1 scores for 2 bots"));
+    }
+
+    #[test]
+    fn command_result_rejects_wrong_score_count() {
+        let result = CmdPlayMatchStdout {
+            scores: vec![10],
+            ranks: vec![0, 1],
+            errors: vec![0, 0],
+            attributes: Vec::new(),
+        };
+
+        let error = validate_match_result(&result, 2).unwrap_err();
+
+        assert!(error.to_string().contains("1 scores for 2 bots"));
+    }
+
+    #[test]
+    fn command_result_rejects_attribute_for_missing_player() {
+        let result = CmdPlayMatchStdout {
+            scores: Vec::new(),
+            ranks: vec![0, 1],
+            errors: vec![0, 0],
+            attributes: vec![CmdMatchAttribute {
+                name: "score".to_string(),
+                player: Some(2),
+                turn: None,
+                value: "10".to_string(),
+            }],
+        };
+
+        let error = validate_match_result(&result, 2).unwrap_err();
+
+        assert!(error.to_string().contains("missing player 2"));
     }
 
     #[tokio::test]

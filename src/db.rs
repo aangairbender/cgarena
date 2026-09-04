@@ -374,3 +374,47 @@ pub async fn fetch_leaderboards(pool: &SqlitePool) -> anyhow::Result<Vec<Leaderb
         .collect();
     Ok(leaderboards)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::borrow::Cow;
+
+    #[tokio::test]
+    async fn current_migrations_upgrade_pre_replay_database() {
+        let pool = in_memory().await.unwrap();
+        let current = sqlx::migrate!();
+        let historical = sqlx::migrate::Migrator {
+            migrations: Cow::Owned(
+                current
+                    .iter()
+                    .filter(|migration| migration.version < 20260901160000)
+                    .cloned()
+                    .collect(),
+            ),
+            ignore_missing: false,
+            locking: true,
+            no_tx: false,
+        };
+        historical.run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES (7, 2)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        current.run(&pool).await.unwrap();
+
+        let replay_columns: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('matches') WHERE name = 'replay_path'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let old_matches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM matches WHERE seed = 7")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(replay_columns, 1);
+        assert_eq!(old_matches, 1);
+    }
+}

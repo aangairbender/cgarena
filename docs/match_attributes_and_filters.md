@@ -14,7 +14,9 @@
 
 ## Match attributes overview
 
-CG Arena [uses](configuration.md#cmd_play_match) `cmd_play_match` command to run matches. That command should write the JSON of specific format to the stdout. One of the properties is `attributes`. CG Arena records those attributes for each match, so that they can be used for match filtering later.
+CG Arena records attributes returned by a custom `command` referee or extracted from tagged
+CodinGame replay errors by the `codingame_jar` referee. These attributes can be used for match
+filtering later.
 
 The attributes can describe 2 kinds of data:
 

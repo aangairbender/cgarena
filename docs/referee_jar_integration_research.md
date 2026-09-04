@@ -13,14 +13,14 @@ The public interface should therefore be a tagged referee configuration with two
 
 That makes the common path one field while retaining the actual variation point. It avoids forcing a Java-specific abstraction onto the 1% of users with a native or custom referee.
 
-## Current CG Arena contract
+## Pre-migration CG Arena contract
 
-CG Arena currently delegates two operations to configured commands:
+Before the native adapter, CG Arena delegated two operations to configured commands:
 
 1. **Match execution.** The embedded worker expands `cmd_run` into one command per bot; expands `{SEED}`, `{REPLAY_PATH}`, and player placeholders in `cmd_play_match`; reserves an owned replay path when requested; and requires a JSON result on stdout. It validates that `ranks`, `errors`, and optional `scores` have exactly one value per participant. [worker.rs:684-841](../src/worker.rs#L684-L841)
 2. **Replay viewing.** `ReplayViewer` allocates an isolated session directory, calls `cmd_watch_replay`, requires a successful exit and `test.html`, then serves the copied static bundle from the arena origin. It has a 30-second timeout and reaps its direct child on timeout. [replay_viewer.rs:133-170](../src/replay_viewer.rs#L133-L170), [replay_viewer.rs:237-293](../src/replay_viewer.rs#L237-L293)
 
-The bundled scripts implement the CodinGame-specific part of these generic contracts:
+The bundled legacy scripts implemented the CodinGame-specific part of these generic contracts:
 
 - `play_game.py` calls Java with one complete player command per `-pN`, a seed, and replay-output path; parses `scores` and `errors` from the resulting replay JSON; turns tagged lines from player stderr into attributes; and prints CG Arena's JSON result. [play_game.py:16-89](../assets/play_game.py#L16-L89)
 - `watch_replay.py` validates the replay JSON and participant count, starts Java replay mode, reads the engine's exposed-directory marker, copies that directory to the session, applies compatibility rewrites, and terminates/reaps Java. [watch_replay.py:48-133](../assets/watch_replay.py#L48-L133)
@@ -73,11 +73,11 @@ The engine renderer is unsuitable as a long-running shared CG Arena replay serve
 - It writes to the fixed directory `${java.io.tmpdir}/codingame` and deletes it before every render. Concurrent renderers race and can destroy each other's source bundle. [Renderer.java:335-365](https://github.com/CodinGame/codingame-game-engine/blob/9e32d14b8845d1a42b6fef61b41f0084d1eaf81c/runner/src/main/java/com/codingame/gameengine/runner/Renderer.java#L335-L365)
 - It logs `Exposed web server dir: …`, then starts an Undertow server bound to `0.0.0.0`, not loopback. [Renderer.java:646-656](https://github.com/CodinGame/codingame-game-engine/blob/9e32d14b8845d1a42b6fef61b41f0084d1eaf81c/runner/src/main/java/com/codingame/gameengine/runner/Renderer.java#L646-L656)
 - A bind failure is downgraded to a warning, so observing a process start or a log line does not prove that the requested port is serving the intended replay. [Renderer.java:875-893](https://github.com/CodinGame/codingame-game-engine/blob/9e32d14b8845d1a42b6fef61b41f0084d1eaf81c/runner/src/main/java/com/codingame/gameengine/runner/Renderer.java#L875-L893)
-- The present wrapper copies the exposed files into the CG Arena-owned session, verifies `test.html`, applies known relative-asset fixes, then terminates Java. [watch_replay.py:29-45](../assets/watch_replay.py#L29-L45), [watch_replay.py:101-121](../assets/watch_replay.py#L101-L121)
+- The legacy wrapper copied the exposed files into the CG Arena-owned session, verified `test.html`, applied known relative-asset fixes, then terminated Java. [watch_replay.py:29-45](../assets/watch_replay.py#L29-L45), [watch_replay.py:101-121](../assets/watch_replay.py#L101-L121)
 
 The native adapter must preserve this disposable-renderer model. Run every renderer with a unique, adapter-owned `java.io.tmpdir`; capture stdout until the exposed directory is announced; copy it to the already-isolated replay session; apply only compatibility rewrites with regression fixtures; then terminate and reap the full renderer process tree. Do not expose the renderer port to the browser or accept the renderer's directory as an artifact path without containment validation.
 
-The current `ReplayViewer` only kills its direct configured child. [replay_viewer.rs:251-271](../src/replay_viewer.rs#L251-L271) A native implementation should improve on the Python wrapper by placing the Java process in its own process group/session where supported, so shutdown cannot leave an Undertow JVM behind.
+The pre-migration `ReplayViewer` only killed its direct configured child. [replay_viewer.rs:251-271](../src/replay_viewer.rs#L251-L271) The native implementation must improve on the Python wrapper by placing the Java process in its own process group/session where supported, so shutdown cannot leave an Undertow JVM behind.
 
 ## Recommended interface
 

@@ -53,12 +53,53 @@ pub enum WorkerConfig {
     // Remote
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Clone)]
 pub struct EmbeddedWorkerConfig {
     pub threads: u8,
     pub referee: RefereeConfig,
     pub cmd_build: String,
     pub cmd_run: String,
+}
+
+#[derive(Deserialize)]
+struct RawEmbeddedWorkerConfig {
+    threads: u8,
+    referee: Option<RefereeConfig>,
+    cmd_play_match: Option<String>,
+    cmd_watch_replay: Option<String>,
+    cmd_build: String,
+    cmd_run: String,
+}
+
+impl<'de> Deserialize<'de> for EmbeddedWorkerConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = RawEmbeddedWorkerConfig::deserialize(deserializer)?;
+        let referee = match (raw.referee, raw.cmd_play_match, raw.cmd_watch_replay) {
+            (Some(referee), None, None) => referee,
+            (None, Some(play_match), Some(watch_replay)) => {
+                RefereeConfig::Command(CommandRefereeConfig {
+                    play_match,
+                    watch_replay,
+                })
+            }
+            (Some(_), _, _) => {
+                return Err(serde::de::Error::custom(
+                    "referee cannot be combined with legacy cmd_play_match or cmd_watch_replay",
+                ))
+            }
+            (None, _, _) => {
+                return Err(serde::de::Error::custom(
+                    "configure referee or both legacy cmd_play_match and cmd_watch_replay",
+                ))
+            }
+        };
+        Ok(Self {
+            threads: raw.threads,
+            referee,
+            cmd_build: raw.cmd_build,
+            cmd_run: raw.cmd_run,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -153,6 +194,7 @@ impl Config {
                         bail!("codingame_jar referee league must be between 1 and 19");
                     }
                 }
+
                 RefereeConfig::Command(config) => {
                     if config.play_match.split_ascii_whitespace().count() == 0 {
                         bail!("command referee play_match must not be blank");
@@ -181,6 +223,43 @@ mod test {
     #[test]
     fn default_config_is_valid() {
         let _: Config = toml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
+    }
+
+    #[test]
+    fn legacy_match_commands_migrate_to_command_referee() {
+        let config: EmbeddedWorkerConfig = toml::from_str(
+            r#"threads = 1
+cmd_play_match = "runner {SEED} {PLAYERS}"
+cmd_watch_replay = "renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
+cmd_build = "build"
+cmd_run = "run""#,
+        )
+        .unwrap();
+        let RefereeConfig::Command(referee) = config.referee else {
+            panic!("legacy command fields must migrate");
+        };
+        assert_eq!(referee.play_match, "runner {SEED} {PLAYERS}");
+    }
+
+    #[test]
+    fn mixed_legacy_and_tagged_referee_configuration_is_rejected() {
+        let result = toml::from_str::<EmbeddedWorkerConfig>(
+            r#"threads = 1
+cmd_play_match = "legacy"
+cmd_watch_replay = "legacy"
+cmd_build = "build"
+cmd_run = "run"
+
+[referee]
+type = "command"
+play_match = "new"
+watch_replay = "new""#,
+        );
+        let Err(error) = result else {
+            panic!("mixed referee configuration must be rejected");
+        };
+
+        assert!(error.to_string().contains("cannot be combined"));
     }
 
     #[test]

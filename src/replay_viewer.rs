@@ -11,7 +11,7 @@ use tokio::{
     fs,
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     net::TcpListener,
-    process::Command,
+    process::{Child, Command},
     sync::Mutex,
     time::{timeout, Instant},
 };
@@ -42,6 +42,7 @@ struct ReplayViewerInner {
     sessions: Mutex<HashMap<String, ReplaySession>>,
     startup_timeout: Duration,
     idle_lifetime: Duration,
+    cancellation_token: CancellationToken,
 }
 
 struct ReplaySession {
@@ -72,8 +73,8 @@ pub enum ReplayError {
     InvalidCommand(String),
     #[error("replay renderer failed to start: {0}")]
     StartupFailed(String),
-    #[error("replay renderer startup timed out")]
-    StartupTimeout,
+    #[error("replay renderer startup timed out: {0}")]
+    StartupTimeout(String),
     #[error("replay session not found")]
     SessionNotFound,
     #[error("replay asset not found")]
@@ -106,6 +107,7 @@ impl ReplayViewer {
             referee,
             STARTUP_TIMEOUT,
             SESSION_IDLE_LIFETIME,
+            cancellation_token.clone(),
         );
         viewer.spawn_cleanup_task(cancellation_token);
         viewer
@@ -117,6 +119,7 @@ impl ReplayViewer {
         referee: RefereeConfig,
         startup_timeout: Duration,
         idle_lifetime: Duration,
+        cancellation_token: CancellationToken,
     ) -> Self {
         let replay_artifacts = ReplayArtifacts::new(pool, arena_path.clone());
         Self {
@@ -127,6 +130,7 @@ impl ReplayViewer {
                 sessions: Mutex::new(HashMap::new()),
                 startup_timeout,
                 idle_lifetime,
+                cancellation_token,
             }),
         }
     }
@@ -243,7 +247,12 @@ impl ReplayViewer {
     ) -> Result<(), ReplayError> {
         if let RefereeConfig::CodingameJar(referee) = &self.inner.referee {
             return self
-                .generate_codingame_bundle(artifact_path, session_directory, referee)
+                .generate_codingame_bundle(
+                    artifact_path,
+                    session_directory,
+                    participant_count,
+                    referee,
+                )
                 .await;
         }
         let port = available_local_port().await?;
@@ -254,12 +263,16 @@ impl ReplayViewer {
             port,
             participant_count,
         )?;
-        let mut child = Command::new(&command_parts[0])
+        let mut command = Command::new(&command_parts[0]);
+        command
             .args(&command_parts[1..])
             .current_dir(&self.inner.arena_path)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command
             .spawn()
             .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
         let stderr = child
@@ -267,14 +280,18 @@ impl ReplayViewer {
             .take()
             .ok_or_else(|| ReplayError::Internal("cannot capture renderer stderr".to_string()))?;
         let stderr_task = tokio::spawn(read_stderr(stderr));
-
         let status = match timeout(self.inner.startup_timeout, child.wait()).await {
             Ok(result) => result.map_err(|error| ReplayError::StartupFailed(error.to_string()))?,
             Err(_) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                let _ = stderr_task.await;
-                return Err(ReplayError::StartupTimeout);
+                let _ = terminate_renderer(&mut child).await;
+                let stderr = stderr_task
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or_default();
+                return Err(ReplayError::StartupTimeout(
+                    String::from_utf8_lossy(&stderr).trim().to_string(),
+                ));
             }
         };
         let stderr = stderr_task
@@ -289,9 +306,7 @@ impl ReplayViewer {
                 message
             }));
         }
-
-        let entrypoint = session_directory.join("test.html");
-        if !entrypoint.is_file() {
+        if !session_directory.join("test.html").is_file() {
             return Err(ReplayError::StartupFailed(
                 "renderer produced no test.html replay bundle".to_string(),
             ));
@@ -303,14 +318,39 @@ impl ReplayViewer {
         &self,
         artifact_path: &Path,
         session_directory: &Path,
+        participant_count: u8,
         referee: &crate::config::CodingameJarRefereeConfig,
     ) -> Result<(), ReplayError> {
+        validate_codingame_replay(artifact_path, participant_count).await?;
         let temporary_directory = session_directory.join(format!(".jvm-{}", Uuid::new_v4()));
         fs::create_dir_all(&temporary_directory)
             .await
             .map_err(|error| ReplayError::Internal(error.to_string()))?;
+        let temporary_directory = fs::canonicalize(&temporary_directory)
+            .await
+            .map_err(|error| ReplayError::Internal(error.to_string()))?;
+        let result = self
+            .run_codingame_renderer(
+                artifact_path,
+                session_directory,
+                &temporary_directory,
+                referee,
+            )
+            .await;
+        let _ = fs::remove_dir_all(&temporary_directory).await;
+        result
+    }
+
+    async fn run_codingame_renderer(
+        &self,
+        artifact_path: &Path,
+        session_directory: &Path,
+        temporary_directory: &Path,
+        referee: &crate::config::CodingameJarRefereeConfig,
+    ) -> Result<(), ReplayError> {
         let port = available_local_port().await?;
-        let mut child = Command::new(referee.java.as_deref().unwrap_or("java"))
+        let mut command = Command::new(referee.java.as_deref().unwrap_or("java"));
+        command
             .args([
                 format!("-Djava.io.tmpdir={}", temporary_directory.display()),
                 "--add-opens".to_string(),
@@ -325,46 +365,57 @@ impl ReplayViewer {
             .current_dir(&self.inner.arena_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command
             .spawn()
             .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| ReplayError::Internal("cannot capture renderer stdout".to_string()))?;
+            .expect("renderer stdout is configured as piped");
+        let stderr = child
+            .stderr
+            .take()
+            .expect("renderer stderr is configured as piped");
+        let stderr_task = tokio::spawn(read_stderr(stderr));
         let mut lines = BufReader::new(stdout).lines();
-        let exposed = timeout(self.inner.startup_timeout, async {
-            loop {
-                let line = lines
-                    .next_line()
-                    .await
-                    .map_err(|error| ReplayError::StartupFailed(error.to_string()))?
-                    .ok_or_else(|| {
-                        ReplayError::StartupFailed(
-                            "renderer exited without producing a replay bundle".to_string(),
-                        )
-                    })?;
-                if let Some(path) = line.strip_prefix("Exposed web server dir: ") {
-                    return Ok::<PathBuf, ReplayError>(PathBuf::from(path.trim()));
-                }
+        let exposed_result = tokio::select! {
+            _ = self.inner.cancellation_token.cancelled() => {
+                Err(ReplayError::StartupFailed("renderer canceled during arena shutdown".to_string()))
             }
-        })
-        .await
-        .map_err(|_| ReplayError::StartupTimeout)??;
-        if !exposed.starts_with(&temporary_directory) || !exposed.is_dir() {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            result = timeout(self.inner.startup_timeout, read_exposed_directory(&mut lines)) => {
+                result.unwrap_or_else(|_| Err(ReplayError::StartupTimeout(String::new())))
+            }
+        };
+        let termination_result = terminate_renderer(&mut child).await;
+        let stderr = stderr_task
+            .await
+            .map_err(|error| ReplayError::Internal(error.to_string()))?
+            .map_err(|error| ReplayError::Internal(error.to_string()))?;
+        let exposed = exposed_result.map_err(|error| with_renderer_stderr(error, &stderr))?;
+        termination_result.map_err(|error| {
+            ReplayError::StartupFailed(format!("cannot reap renderer: {error}"))
+        })?;
+
+        let exposed = if exposed.is_absolute() {
+            exposed
+        } else {
+            self.inner.arena_path.join(exposed)
+        };
+        let exposed = fs::canonicalize(&exposed)
+            .await
+            .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
+        if exposed == temporary_directory || !exposed.starts_with(temporary_directory) {
             return Err(ReplayError::StartupFailed(
-                "renderer exposed an invalid replay directory".to_string(),
+                "renderer exposed a directory outside its temporary directory".to_string(),
             ));
         }
         copy_directory(&exposed, session_directory)
             .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
         normalize_replay_bundle(session_directory)
             .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
-        let _ = child.kill().await;
-        let _ = child.wait().await;
-        let _ = fs::remove_dir_all(&temporary_directory).await;
         if !session_directory.join("test.html").is_file() {
             return Err(ReplayError::StartupFailed(
                 "renderer produced no test.html replay bundle".to_string(),
@@ -411,14 +462,100 @@ impl ReplayViewer {
     }
 }
 
+async fn validate_codingame_replay(
+    artifact_path: &Path,
+    participant_count: u8,
+) -> Result<(), ReplayError> {
+    let bytes = fs::read(artifact_path)
+        .await
+        .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
+    let replay: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
+    let agents = replay
+        .get("agents")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| ReplayError::InvalidArtifact("artifact has no agents array".to_string()))?;
+    if agents.len() != usize::from(participant_count) {
+        return Err(ReplayError::InvalidArtifact(format!(
+            "artifact has {} participants, match has {participant_count}",
+            agents.len()
+        )));
+    }
+    Ok(())
+}
+
+async fn read_exposed_directory<R>(lines: &mut tokio::io::Lines<R>) -> Result<PathBuf, ReplayError>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    loop {
+        let line = lines
+            .next_line()
+            .await
+            .map_err(|error| ReplayError::StartupFailed(error.to_string()))?
+            .ok_or_else(|| {
+                ReplayError::StartupFailed(
+                    "renderer exited without producing a replay bundle".to_string(),
+                )
+            })?;
+        if let Some(path) = line.strip_prefix("Exposed web server dir: ") {
+            return Ok(PathBuf::from(path.trim()));
+        }
+    }
+}
+
+fn with_renderer_stderr(error: ReplayError, stderr: &[u8]) -> ReplayError {
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+    match (error, stderr.is_empty()) {
+        (ReplayError::StartupFailed(message), false) => {
+            ReplayError::StartupFailed(format!("{message}: {stderr}"))
+        }
+        (ReplayError::StartupTimeout(_), false) => ReplayError::StartupTimeout(stderr),
+        (error, _) => error,
+    }
+}
+
+async fn terminate_renderer(child: &mut Child) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        // The renderer is launched in its own process group; a negative PID addresses the group.
+        let result = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+        if result == -1 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error);
+            }
+        }
+    }
+    #[cfg(windows)]
+    if let Some(pid) = child.id() {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .await;
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = child.start_kill();
+    }
+    child.wait().await.map(|_| ())
+}
+
 fn copy_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(source)? {
         let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "renderer bundle contains a symbolic link",
+            ));
+        }
         let target = destination.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        if file_type.is_dir() {
             std::fs::create_dir_all(&target)?;
             copy_directory(&entry.path(), &target)?;
-        } else {
+        } else if file_type.is_file() {
             std::fs::copy(entry.path(), target)?;
         }
     }
@@ -592,8 +729,71 @@ mod tests {
             }),
             startup_timeout,
             Duration::from_secs(60),
+            CancellationToken::new(),
         );
         (temporary_directory, viewer, replay_match.id, artifact_path)
+    }
+    async fn assert_process_gone(pid_path: &Path) {
+        let pid: i32 = std::fs::read_to_string(pid_path)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        for _ in 0..100 {
+            if unsafe { libc::kill(pid, 0) } == -1
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("process {pid} was not reaped");
+    }
+
+    async fn codingame_fixture(
+        script_body: &str,
+        replay: &str,
+        startup_timeout: Duration,
+    ) -> (TempDir, ReplayViewer, PathBuf, PathBuf, CancellationToken) {
+        let temporary_directory = tempfile::tempdir().unwrap();
+        let arena_path = temporary_directory.path().join("codingame arena");
+        fs::create_dir_all(&arena_path).await.unwrap();
+        let artifact_path = arena_path.join("replay.json");
+        fs::write(&artifact_path, replay).await.unwrap();
+        let session_directory = arena_path.join("session");
+        fs::create_dir_all(&session_directory).await.unwrap();
+        let launcher_path = arena_path.join("fake java.sh");
+        fs::write(
+            &launcher_path,
+            format!(
+                "#!/bin/sh\nset -eu\ntmp=''\nfor argument in \"$@\"; do\n  case \"$argument\" in\n    -Djava.io.tmpdir=*) tmp=\"${{argument#*=}}\" ;;\n  esac\ndone\n{script_body}\n"
+            ),
+        )
+        .await
+        .unwrap();
+        let mut permissions = std::fs::metadata(&launcher_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&launcher_path, permissions).unwrap();
+        let cancellation_token = CancellationToken::new();
+        let viewer = ReplayViewer::new_with_timeouts(
+            db::in_memory().await.unwrap(),
+            arena_path,
+            RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
+                path: "fixture.jar".to_string(),
+                java: Some(launcher_path.to_string_lossy().to_string()),
+                league: None,
+            }),
+            startup_timeout,
+            Duration::from_secs(60),
+            cancellation_token.clone(),
+        );
+        (
+            temporary_directory,
+            viewer,
+            artifact_path,
+            session_directory,
+            cancellation_token,
+        )
     }
 
     #[tokio::test]
@@ -633,7 +833,7 @@ mod tests {
         let started = Instant::now();
         assert!(matches!(
             viewer.watch(match_id).await,
-            Err(ReplayError::StartupTimeout)
+            Err(ReplayError::StartupTimeout(_))
         ));
         assert!(started.elapsed() < Duration::from_secs(1));
     }
@@ -669,6 +869,196 @@ mod tests {
         assert!(matches!(
             viewer.watch(match_id).await,
             Err(ReplayError::InvalidArtifact(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn codingame_renderer_normalizes_bundle_and_reaps_process() {
+        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
+            codingame_fixture(
+            r#"mkdir -p "$tmp/codingame/assets"
+printf '<html>native replay</html>' > "$tmp/codingame/test.html"
+printf png > "$tmp/codingame/assets/image.png"
+printf "from '../config.js'; from '../demo.js'; viewerUrl: '/core/Drawer.js'" > "$tmp/codingame/app.js"
+echo $$ > renderer.pid
+echo "Exposed web server dir: $tmp/codingame"
+exec sleep 30"#,
+            r#"{"agents":[{},{}]}"#,
+            Duration::from_secs(2),
+        )
+        .await;
+
+        viewer
+            .generate_bundle(&artifact, &session, 2)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fs::read(session.join("test.html")).await.unwrap(),
+            b"<html>native replay</html>"
+        );
+        assert!(session.join("assets/assets/image.png").is_file());
+        let app = fs::read_to_string(session.join("app.js")).await.unwrap();
+        assert!(app.contains("from './config.js'"));
+        assert!(app.contains("from './demo.js'"));
+        assert!(app.contains("viewerUrl: './core/Drawer.js'"));
+        assert!(!std::fs::read_dir(&session).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".jvm-")
+        }));
+        let pid: i32 = std::fs::read_to_string(
+            temporary_directory
+                .path()
+                .join("codingame arena/renderer.pid"),
+        )
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+    }
+
+    #[tokio::test]
+    async fn codingame_replay_rejects_participant_mismatch_before_launch() {
+        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
+            codingame_fixture(
+                "touch renderer-started",
+                r#"{"agents":[{}]}"#,
+                Duration::from_secs(2),
+            )
+            .await;
+
+        assert!(matches!(
+            viewer.generate_bundle(&artifact, &session, 2).await,
+            Err(ReplayError::InvalidArtifact(message)) if message.contains("1 participants")
+        ));
+        assert!(!temporary_directory
+            .path()
+            .join("codingame arena/renderer-started")
+            .exists());
+    }
+
+    #[tokio::test]
+    async fn codingame_renderer_reports_stderr_on_timeout_and_is_reaped() {
+        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
+            codingame_fixture(
+            "echo $$ > renderer.pid\nsleep 30 &\necho $! > renderer-child.pid\necho actionable-timeout >&2\nwait",
+            r#"{"agents":[{},{}]}"#,
+            Duration::from_secs(1),
+        )
+        .await;
+
+        let result = viewer.generate_bundle(&artifact, &session, 2).await;
+        assert!(
+            matches!(
+                &result,
+                Err(ReplayError::StartupTimeout(message))
+                    if message.contains("actionable-timeout")
+            ),
+            "unexpected result: {result:?}"
+        );
+        assert_process_gone(
+            &temporary_directory
+                .path()
+                .join("codingame arena/renderer.pid"),
+        )
+        .await;
+        assert_process_gone(
+            &temporary_directory
+                .path()
+                .join("codingame arena/renderer-child.pid"),
+        )
+        .await;
+        assert!(!std::fs::read_dir(&session).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".jvm-")
+        }));
+    }
+
+    #[tokio::test]
+    async fn codingame_renderer_is_reaped_on_cancellation() {
+        let (temporary_directory, viewer, artifact, session, cancellation_token) =
+            codingame_fixture(
+                "echo $$ > renderer.pid\nsleep 30 &\necho $! > renderer-child.pid\nwait",
+                r#"{"agents":[{},{}]}"#,
+                Duration::from_secs(30),
+            )
+            .await;
+        let renderer_pid = temporary_directory
+            .path()
+            .join("codingame arena/renderer.pid");
+        let renderer_child_pid = temporary_directory
+            .path()
+            .join("codingame arena/renderer-child.pid");
+        let start_marker = renderer_child_pid.clone();
+        let cancellation = tokio::spawn(async move {
+            for _ in 0..200 {
+                if start_marker.exists() {
+                    cancellation_token.cancel();
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            panic!("renderer did not start");
+        });
+
+        let result = viewer.generate_bundle(&artifact, &session, 2).await;
+        cancellation.await.unwrap();
+
+        assert!(matches!(
+            result,
+            Err(ReplayError::StartupFailed(message))
+                if message.contains("canceled during arena shutdown")
+        ));
+        assert_process_gone(&renderer_pid).await;
+        assert_process_gone(&renderer_child_pid).await;
+        assert!(!std::fs::read_dir(&session).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".jvm-")
+        }));
+    }
+    #[tokio::test]
+    async fn codingame_renderer_returns_early_stderr() {
+        let (_temporary_directory, viewer, artifact, session, _cancellation_token) =
+            codingame_fixture(
+                "echo actionable-failure >&2\nexit 7",
+                r#"{"agents":[{},{}]}"#,
+                Duration::from_secs(2),
+            )
+            .await;
+
+        assert!(matches!(
+            viewer.generate_bundle(&artifact, &session, 2).await,
+            Err(ReplayError::StartupFailed(message)) if message.contains("actionable-failure")
+        ));
+    }
+
+    #[tokio::test]
+    async fn codingame_renderer_rejects_exposed_directory_escape() {
+        let (_temporary_directory, viewer, artifact, session, _cancellation_token) =
+            codingame_fixture(
+                "mkdir -p outside\necho \"Exposed web server dir: $(pwd)/outside\"\nexec sleep 30",
+                r#"{"agents":[{},{}]}"#,
+                Duration::from_secs(2),
+            )
+            .await;
+
+        assert!(matches!(
+            viewer.generate_bundle(&artifact, &session, 2).await,
+            Err(ReplayError::StartupFailed(message)) if message.contains("outside")
         ));
     }
 

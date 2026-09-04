@@ -38,12 +38,15 @@ cd summer-challenge-2025
 
 ## Configuring the arena
 
-The `cgarena init` command generates 2 files in the folder:
+The `cgarena init` command generates the arena configuration plus the maintained Java CLI and
+Maven build patch used to produce a compatible CodinGame referee JAR:
 
-- `cgarena_config.toml` - CG Arena config file with the default config.
-- `play_game.py` - python script for running matches (expects [brutaltester-compatible](making_bt_compatible_referee.md) `referee.jar` in the same folder to work)
+- `cgarena_config.toml`
+- `CommandLineInterface.java`
+- `pom_build_section.xml`
 
-The default config file is documented, so read through it and make any necessary changes. Be sure to restart the arena after modifying the configuration.
+The default configuration runs `referee/target/referee.jar` directly; Python launchers are not
+required. Read the [configuration reference](configuration.md) and restart the arena after changes.
 
 The default config supports c++ out of the box.
 

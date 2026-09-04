@@ -36,7 +36,7 @@ impl ApiError {
                     StatusCode::UNPROCESSABLE_ENTITY
                 }
                 crate::replay_viewer::ReplayError::StartupFailed(_) => StatusCode::BAD_GATEWAY,
-                crate::replay_viewer::ReplayError::StartupTimeout => StatusCode::GATEWAY_TIMEOUT,
+                crate::replay_viewer::ReplayError::StartupTimeout(_) => StatusCode::GATEWAY_TIMEOUT,
                 crate::replay_viewer::ReplayError::InvalidCommand(_)
                 | crate::replay_viewer::ReplayError::Internal(_) => {
                     StatusCode::INTERNAL_SERVER_ERROR
@@ -58,7 +58,7 @@ impl ApiError {
                 crate::replay_viewer::ReplayError::Unavailable => "replay_unavailable",
                 crate::replay_viewer::ReplayError::InvalidArtifact(_) => "invalid_replay",
                 crate::replay_viewer::ReplayError::StartupFailed(_) => "replay_start_failed",
-                crate::replay_viewer::ReplayError::StartupTimeout => "replay_start_timeout",
+                crate::replay_viewer::ReplayError::StartupTimeout(_) => "replay_start_timeout",
                 crate::replay_viewer::ReplayError::InvalidCommand(_)
                 | crate::replay_viewer::ReplayError::Internal(_) => "internal_error",
             },

@@ -1,6 +1,6 @@
 use crate::arena_handle::ArenaHandle;
 use crate::cg_referee::CgReferee;
-use crate::config::{Config, WorkerConfig};
+use crate::config::{Config, RefereeConfig, WorkerConfig};
 use crate::replay_viewer::ReplayViewer;
 use crate::{api, arena, db, worker};
 use anyhow::{bail, Context};
@@ -43,6 +43,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
             cg_referee.ensure_initialized()?;
         }
     }
+    validate_referee_paths(arena_path, &config.workers)?;
 
     let pool = db::connect(arena_path)
         .await
@@ -179,6 +180,28 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn validate_referee_paths(arena_path: &Path, workers: &[WorkerConfig]) -> anyhow::Result<()> {
+    for worker in workers {
+        let WorkerConfig::Embedded(worker) = worker;
+        if let RefereeConfig::CodingameJar(referee) = &worker.referee {
+            let path = arena_path.join(&referee.path);
+            let metadata = std::fs::metadata(&path).with_context(|| {
+                format!("Cannot read codingame referee JAR at {}", path.display())
+            })?;
+            if !metadata.is_file() {
+                bail!(
+                    "Codingame referee JAR must be a regular file: {}",
+                    path.display()
+                );
+            }
+            std::fs::File::open(&path).with_context(|| {
+                format!("Cannot read codingame referee JAR at {}", path.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
 static DEFAULT_FILES: &[(&str, &str)] = &[
     (
         "cgarena_config.toml",
@@ -270,5 +293,20 @@ mod test {
         std::fs::create_dir(&path).unwrap();
         init(&path).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
+    }
+
+    #[test]
+    fn codingame_referee_path_is_validated_relative_to_arena() {
+        let arena = tempfile::tempdir().unwrap();
+        let jar = arena.path().join("referee/target/referee.jar");
+        std::fs::create_dir_all(jar.parent().unwrap()).unwrap();
+        std::fs::write(&jar, b"fixture").unwrap();
+        let config = Config::default();
+
+        validate_referee_paths(arena.path(), &config.workers).unwrap();
+
+        std::fs::remove_file(&jar).unwrap();
+        let error = validate_referee_paths(arena.path(), &config.workers).unwrap_err();
+        assert!(error.to_string().contains("referee.jar"));
     }
 }

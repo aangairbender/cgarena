@@ -32,34 +32,34 @@ We would need to set `threads` based on our CPU. In my case I set to **4**.
 threads = 4
 ```
 
-### Commands and generated files
+### Referee and generated files
 
 `cgarena init` creates:
 
 - `cgarena_config.toml`
-- `play_game.py`
-- `watch_replay.py`
 - `CommandLineInterface.java`
 - `pom_build_section.xml`
 
-The default embedded worker configuration on macOS/Linux is:
+The default embedded worker configuration uses the native CodinGame JAR adapter:
 
 ```toml
-cmd_play_match = "python3 play_game.py {SEED} {REPLAY_PATH} {PLAYERS}"
-cmd_watch_replay = "python3 watch_replay.py {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
+[[workers]]
+type = "embedded"
+threads = 4
 cmd_build = "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a"
 cmd_run = "./{DIR}/a"
+
+[workers.referee]
+type = "codingame_jar"
+path = "referee/target/referee.jar"
 ```
 
-Install Python 3.9 or newer and Java 17 or newer. On Windows, use the installed Python
-launcher (commonly `py -3`) in both Python commands. The commands are parsed into argument
-lists rather than passed through a shell, so quoted paths containing spaces are preserved.
+Install Java 17 or newer. Patch and build the referee using
+[the referee guide](making_bt_compatible_referee.md), then place the compatible shaded JAR at
+`referee/target/referee.jar`. CG Arena invokes the JAR directly, records each match at a unique
+replay path, extracts the static replay bundle, and serves it under its own HTTP origin.
 
-Patch and build the referee using
-[the referee guide](making_bt_compatible_referee.md), then place the shaded JAR at
-`referee/target/referee.jar`. `play_game.py` records every match at its unique
-`{REPLAY_PATH}`. `watch_replay.py` turns that artifact into a static bundle that CG Arena
-serves under its own HTTP origin.
+Use the [`command` referee adapter](configuration.md#command) for a custom or non-Java referee.
 
 ### Languages that need workspace
 
