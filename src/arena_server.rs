@@ -75,7 +75,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let replay_viewer = ReplayViewer::new(
         pool.clone(),
         arena_path.to_owned(),
-        cfg.cmd_watch_replay.clone(),
+        cfg.referee.clone(),
         token.clone(),
     );
 
@@ -188,17 +188,6 @@ static DEFAULT_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
-        "play_game.py",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/play_game.py")),
-    ),
-    (
-        "watch_replay.py",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/watch_replay.py"
-        )),
-    ),
-    (
         "CommandLineInterface.java",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -268,8 +257,8 @@ mod test {
         let path = dir.path().join("test");
         init(&path).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
-        assert!(path.join("play_game.py").exists());
-        assert!(path.join("watch_replay.py").exists());
+        assert!(!path.join("play_game.py").exists());
+        assert!(!path.join("watch_replay.py").exists());
         assert!(path.join("CommandLineInterface.java").exists());
         assert!(path.join("pom_build_section.xml").exists());
     }

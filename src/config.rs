@@ -56,10 +56,29 @@ pub enum WorkerConfig {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct EmbeddedWorkerConfig {
     pub threads: u8,
-    pub cmd_play_match: String,
-    pub cmd_watch_replay: String,
+    pub referee: RefereeConfig,
     pub cmd_build: String,
     pub cmd_run: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RefereeConfig {
+    CodingameJar(CodingameJarRefereeConfig),
+    Command(CommandRefereeConfig),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CodingameJarRefereeConfig {
+    pub path: String,
+    pub java: Option<String>,
+    pub league: Option<u8>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CommandRefereeConfig {
+    pub play_match: String,
+    pub watch_replay: String,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -115,11 +134,33 @@ impl Config {
             if config.cmd_run.split_ascii_whitespace().count() == 0 {
                 bail!("cmd_run must not be blank");
             }
-            if config.cmd_play_match.split_ascii_whitespace().count() == 0 {
-                bail!("cmd_play_match must not be blank");
-            }
-            if config.cmd_watch_replay.split_ascii_whitespace().count() == 0 {
-                bail!("cmd_watch_replay must not be blank");
+            match &config.referee {
+                RefereeConfig::CodingameJar(config) => {
+                    if config.path.trim().is_empty() {
+                        bail!("codingame_jar referee path must not be blank");
+                    }
+                    if config
+                        .java
+                        .as_deref()
+                        .is_some_and(|java| java.trim().is_empty())
+                    {
+                        bail!("codingame_jar referee java must not be blank");
+                    }
+                    if config
+                        .league
+                        .is_some_and(|league| league == 0 || league >= 20)
+                    {
+                        bail!("codingame_jar referee league must be between 1 and 19");
+                    }
+                }
+                RefereeConfig::Command(config) => {
+                    if config.play_match.split_ascii_whitespace().count() == 0 {
+                        bail!("command referee play_match must not be blank");
+                    }
+                    if config.watch_replay.split_ascii_whitespace().count() == 0 {
+                        bail!("command referee watch_replay must not be blank");
+                    }
+                }
             }
         }
         Ok(())

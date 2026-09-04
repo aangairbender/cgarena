@@ -1,4 +1,4 @@
-use crate::config::EmbeddedWorkerConfig;
+use crate::config::{EmbeddedWorkerConfig, RefereeConfig};
 use crate::domain::{
     BotId, Build, BuildResult, Language, MatchAttribute, MatchAttributeValue, Participant,
     SourceCode, WorkerName,
@@ -7,6 +7,7 @@ use crate::replay_artifact::{PendingReplay, ProvisionalReplay};
 use anyhow::{bail, Context};
 use itertools::Itertools;
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -510,12 +511,14 @@ async fn execute_match(
     if cancellation_token.is_cancelled() {
         return Ok(None);
     }
-    let (command_parts, replay) = prepare_play_match_command(&config, &input, &worker_path)
-        .await
-        .map_err(WorkerFailure::new)?;
+    let (command_parts, replay, codingame_jar) =
+        prepare_play_match_command(&config, &input, &worker_path)
+            .await
+            .map_err(WorkerFailure::new)?;
     let output = spawn_play_match_command(
         command_parts,
         replay,
+        codingame_jar,
         worker_path,
         &input,
         &cancellation_token,
@@ -685,7 +688,7 @@ async fn prepare_play_match_command(
     config: &EmbeddedWorkerConfig,
     input: &PlayMatchInput,
     worker_path: &Path,
-) -> anyhow::Result<(Vec<String>, Option<ProvisionalReplay>)> {
+) -> anyhow::Result<(Vec<String>, Option<ProvisionalReplay>, bool)> {
     let run_commands = input
         .bots
         .iter()
@@ -702,11 +705,37 @@ async fn prepare_play_match_command(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    let template =
-        shell_words::split(&config.cmd_play_match).context("invalid cmd_play_match quoting")?;
-    if template.is_empty() {
-        bail!("cmd_play_match must not be blank");
-    }
+    let template = match &config.referee {
+        RefereeConfig::Command(referee) => shell_words::split(&referee.play_match)
+            .context("invalid command referee play_match quoting")?,
+        RefereeConfig::CodingameJar(referee) => {
+            let replay = ProvisionalReplay::create(worker_path).await?;
+            let replay_path = replay
+                .command_path()
+                .to_str()
+                .context("replay path must be UTF-8")?;
+            let mut command = vec![
+                referee.java.clone().unwrap_or_else(|| "java".to_string()),
+                "--add-opens".to_string(),
+                "java.base/java.lang=ALL-UNNAMED".to_string(),
+                "-jar".to_string(),
+                referee.path.clone(),
+            ];
+            for (index, player) in run_commands.iter().enumerate() {
+                command.push(format!("-p{}", index + 1));
+                command.push(player.clone());
+            }
+            command.extend([
+                "-seed".to_string(),
+                input.seed.to_string(),
+                "-league".to_string(),
+                referee.league.unwrap_or(19).to_string(),
+                "-l".to_string(),
+                replay_path.to_string(),
+            ]);
+            return Ok((command, Some(replay), true));
+        }
+    };
 
     let replay = if template.iter().any(|part| part == "{REPLAY_PATH}") {
         Some(ProvisionalReplay::create(worker_path).await?)
@@ -721,35 +750,36 @@ async fn prepare_play_match_command(
         .or_else(|error| if replay.is_none() { Ok("") } else { Err(error) })?;
     let seed = input.seed.to_string();
     let mut command_parts = Vec::new();
-
     for part in template {
         match part.as_str() {
             "{SEED}" => command_parts.push(seed.clone()),
             "{PLAYERS}" => command_parts.extend(run_commands.iter().cloned()),
             "{REPLAY_PATH}" => command_parts.push(replay_path_value.to_string()),
             _ => {
-                let player_index = part
+                let player = part
                     .strip_prefix("{P")
                     .and_then(|value| value.strip_suffix('}'))
                     .and_then(|value| value.parse::<usize>().ok());
-                if let Some(player_index) = player_index {
-                    let command = run_commands
-                        .get(player_index.saturating_sub(1))
-                        .with_context(|| format!("cmd_play_match references missing {part}"))?;
-                    command_parts.push(command.clone());
+                if let Some(player) = player {
+                    command_parts.push(
+                        run_commands
+                            .get(player.saturating_sub(1))
+                            .with_context(|| format!("command referee references missing {part}"))?
+                            .clone(),
+                    );
                 } else {
                     command_parts.push(part);
                 }
             }
         }
     }
-
-    Ok((command_parts, replay))
+    Ok((command_parts, replay, false))
 }
 
 async fn spawn_play_match_command(
     command_parts: Vec<String>,
     replay: Option<ProvisionalReplay>,
+    codingame_jar: bool,
     worker_path: PathBuf,
     input: &PlayMatchInput,
     cancellation_token: &CancellationToken,
@@ -758,51 +788,32 @@ async fn spawn_play_match_command(
     else {
         return Ok(None);
     };
-
-    let result = if cmd_output.status.success() {
-        let stdout = String::from_utf8(cmd_output.stdout).context("stdout is not valid UTF-8")?;
-        serde_json::from_str::<CmdPlayMatchStdout>(&stdout)
-            .context("play match output should be valid JSON")?
-    } else {
+    if !cmd_output.status.success() {
         bail!(
             "Error while running match: {}",
-            String::from_utf8(cmd_output.stderr).context("stderr is not valid UTF-8")?
+            String::from_utf8_lossy(&cmd_output.stderr)
         );
+    }
+    let result = if codingame_jar {
+        codingame_result(
+            replay
+                .as_ref()
+                .context("codingame referee did not receive replay artifact")?
+                .command_path(),
+            input.bots.len(),
+        )?
+    } else {
+        serde_json::from_slice::<CmdPlayMatchStdout>(&cmd_output.stdout)
+            .context("play match output should be valid JSON")?
     };
-
     let bot_count = input.bots.len();
-    if result.ranks.len() != bot_count {
-        bail!(
-            "play match output has {} ranks for {bot_count} bots",
-            result.ranks.len()
-        );
+    if result.ranks.len() != bot_count || result.errors.len() != bot_count {
+        bail!("play match output must contain ranks and errors for {bot_count} bots");
     }
-    if result.errors.len() != bot_count {
-        bail!(
-            "play match output has {} errors for {bot_count} bots",
-            result.errors.len()
-        );
-    }
-    if !result.scores.is_empty() && result.scores.len() != bot_count {
-        bail!(
-            "play match output has {} scores for {bot_count} bots",
-            result.scores.len()
-        );
-    }
-    if let Some(player) = result
-        .attributes
-        .iter()
-        .filter_map(|attribute| attribute.player)
-        .find(|player| *player >= bot_count)
-    {
-        bail!("play match output references missing player {player}");
-    }
-
     let replay = match replay {
         Some(replay) => replay.finish().await?,
         None => PendingReplay::default(),
     };
-
     Ok(Some(PlayMatchOutput {
         seed: input.seed,
         participants: input
@@ -820,9 +831,7 @@ async fn spawn_play_match_command(
             .attributes
             .into_iter()
             .map(|attribute| to_match_attribute(input, attribute))
-            .chain(if result.scores.is_empty() {
-                vec![].into_iter()
-            } else {
+            .chain(
                 input
                     .bots
                     .iter()
@@ -832,13 +841,33 @@ async fn spawn_play_match_command(
                         bot_id: Some(bot.bot_id),
                         turn: None,
                         value: MatchAttributeValue::Integer(score as _),
-                    })
-                    .collect_vec()
-                    .into_iter()
-            })
+                    }),
+            )
             .collect(),
         replay,
     }))
+}
+
+fn codingame_result(path: &Path, player_count: usize) -> anyhow::Result<CmdPlayMatchStdout> {
+    let replay: Value = serde_json::from_slice(&std::fs::read(path)?)
+        .context("codingame replay artifact must be valid JSON")?;
+    let scores = (0..player_count)
+        .map(|index| {
+            replay["scores"][index.to_string()]
+                .as_i64()
+                .context("codingame replay score is not an integer")
+                .map(|score| score as i32)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(CmdPlayMatchStdout {
+        ranks: scores
+            .iter()
+            .map(|score| scores.iter().filter(|other| score < *other).count() as u8)
+            .collect(),
+        errors: scores.iter().map(|score| u8::from(*score < 0)).collect(),
+        scores,
+        attributes: vec![],
+    })
 }
 
 #[derive(Clone)]
@@ -912,8 +941,10 @@ mod tests {
     fn config(cmd_build: String, cmd_play_match: String) -> EmbeddedWorkerConfig {
         EmbeddedWorkerConfig {
             threads: 1,
-            cmd_play_match,
-            cmd_watch_replay: "true".to_string(),
+            referee: RefereeConfig::Command(crate::config::CommandRefereeConfig {
+                play_match: cmd_play_match,
+                watch_replay: "true".to_string(),
+            }),
             cmd_build,
             cmd_run: "true".to_string(),
         }

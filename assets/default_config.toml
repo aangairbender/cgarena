@@ -27,40 +27,23 @@ expose = false
 level = "INFO"
 file = "cgarena.log"
 
-# list of the arena workers, currently only list with single "embedded" worker is supported
-# use 'type' = "embedded" for worker embedded into arena
-# 'threads' controls how many games can be run in parallel
-# 'cmd_play_match' runs one match and must create the file named by {REPLAY_PATH}.
-# It should print JSON to stdout in the following format:
-#   { "ranks": [..], "errors": [..], "attributes": [..] }
-#   where "ranks" is the list of zero-based final placements; duplicates represent draws
-#   where "errors" - list of numbers where i-th number is 1 if i-th match participant failed during match or 0 otherwise
-#   where "attributes" - list of match attributes emitted by the bot. Each attribute is json object with the following fields:
-#       - "name" - name of attribute
-#       - "player" - index of a player who the attribute belongs to (or null if it's match attribute, not specific to a particular bot)
-#       - "turn" - turn of the attribute (or null if the attribute is not specific to any particular turn)
-#       - "value" - attribute value (integer, float or string)
-#
-# 'cmd_build' is a command to build a bot
-# 'cmd_run' is a command to run bot
-# 'cmd_watch_replay' must generate a static replay bundle containing test.html in {REPLAY_DIR},
-# then exit. Startup is limited to 30 seconds. Replay bundles are served beneath the arena origin.
-# the above commands will have the following replacements applied:
-# - {SEED} is replaced with the match seed
-# - {REPLAY_PATH} is replaced with the replay artifact path for cmd_play_match and cmd_watch_replay
-# - {REPLAY_DIR}, {PORT}, and {PLAYER_COUNT} are replaced for cmd_watch_replay
-# - {P1}, {P2}, etc. are replaced with 'cmd_run' configured for match participant 1, 2, etc.
-# - {PLAYERS} is replaced with concatenated player commands. Use this for varying player counts.
-# - {DIR} is replaced with the target bot directory
-# - {LANG} is replaced with the target bot language
+# one embedded worker is currently supported; threads controls concurrent matches.
+# `referee` selects exactly one match/replay integration:
+# - codingame_jar runs a compatible shaded CodinGame JAR directly.
+# - command preserves the custom referee command contract.
+# codingame_jar requires an executable JAR implementing -p1..-p8, -seed, -l, -r, and -port.
+# cmd_build builds a bot and cmd_run returns its complete command line.
 # 'cmd_build' should output bot's executable to the same folder
 [[workers]]
 type = "embedded"
 threads = 1
-cmd_play_match = "python3 play_game.py {SEED} {REPLAY_PATH} {PLAYERS}"
-cmd_watch_replay = "python3 watch_replay.py {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
 cmd_build = "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a"
 cmd_run = "./{DIR}/a"
+
+[workers.referee]
+type = "codingame_jar"
+path = "referee/target/referee.jar"
+ 
 
 # or a generic version
 # cmd_run = "sh run.sh {DIR} {LANG}"

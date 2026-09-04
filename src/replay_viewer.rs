@@ -1,3 +1,4 @@
+use crate::config::RefereeConfig;
 use std::{
     collections::HashMap,
     path::{Component, Path, PathBuf},
@@ -8,7 +9,7 @@ use std::{
 
 use tokio::{
     fs,
-    io::AsyncReadExt,
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     net::TcpListener,
     process::Command,
     sync::Mutex,
@@ -37,7 +38,7 @@ pub struct ReplayViewer {
 struct ReplayViewerInner {
     replay_artifacts: ReplayArtifacts,
     arena_path: PathBuf,
-    command: String,
+    referee: RefereeConfig,
     sessions: Mutex<HashMap<String, ReplaySession>>,
     startup_timeout: Duration,
     idle_lifetime: Duration,
@@ -96,13 +97,13 @@ impl ReplayViewer {
     pub fn new(
         pool: sqlx::SqlitePool,
         arena_path: PathBuf,
-        command: String,
+        referee: RefereeConfig,
         cancellation_token: CancellationToken,
     ) -> Self {
         let viewer = Self::new_with_timeouts(
             pool,
             arena_path,
-            command,
+            referee,
             STARTUP_TIMEOUT,
             SESSION_IDLE_LIFETIME,
         );
@@ -113,7 +114,7 @@ impl ReplayViewer {
     fn new_with_timeouts(
         pool: sqlx::SqlitePool,
         arena_path: PathBuf,
-        command: String,
+        referee: RefereeConfig,
         startup_timeout: Duration,
         idle_lifetime: Duration,
     ) -> Self {
@@ -122,7 +123,7 @@ impl ReplayViewer {
             inner: Arc::new(ReplayViewerInner {
                 replay_artifacts,
                 arena_path,
-                command,
+                referee,
                 sessions: Mutex::new(HashMap::new()),
                 startup_timeout,
                 idle_lifetime,
@@ -240,9 +241,14 @@ impl ReplayViewer {
         session_directory: &Path,
         participant_count: u8,
     ) -> Result<(), ReplayError> {
+        if let RefereeConfig::CodingameJar(referee) = &self.inner.referee {
+            return self
+                .generate_codingame_bundle(artifact_path, session_directory, referee)
+                .await;
+        }
         let port = available_local_port().await?;
         let command_parts = replay_command(
-            &self.inner.command,
+            &self.inner.referee,
             artifact_path,
             session_directory,
             port,
@@ -293,6 +299,80 @@ impl ReplayViewer {
         Ok(())
     }
 
+    async fn generate_codingame_bundle(
+        &self,
+        artifact_path: &Path,
+        session_directory: &Path,
+        referee: &crate::config::CodingameJarRefereeConfig,
+    ) -> Result<(), ReplayError> {
+        let temporary_directory = session_directory.join(format!(".jvm-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temporary_directory)
+            .await
+            .map_err(|error| ReplayError::Internal(error.to_string()))?;
+        let port = available_local_port().await?;
+        let mut child = Command::new(referee.java.as_deref().unwrap_or("java"))
+            .args([
+                format!("-Djava.io.tmpdir={}", temporary_directory.display()),
+                "--add-opens".to_string(),
+                "java.base/java.lang=ALL-UNNAMED".to_string(),
+                "-jar".to_string(),
+                referee.path.clone(),
+                "-r".to_string(),
+                artifact_path.to_string_lossy().to_string(),
+                "-port".to_string(),
+                port.to_string(),
+            ])
+            .current_dir(&self.inner.arena_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ReplayError::Internal("cannot capture renderer stdout".to_string()))?;
+        let mut lines = BufReader::new(stdout).lines();
+        let exposed = timeout(self.inner.startup_timeout, async {
+            loop {
+                let line = lines
+                    .next_line()
+                    .await
+                    .map_err(|error| ReplayError::StartupFailed(error.to_string()))?
+                    .ok_or_else(|| {
+                        ReplayError::StartupFailed(
+                            "renderer exited without producing a replay bundle".to_string(),
+                        )
+                    })?;
+                if let Some(path) = line.strip_prefix("Exposed web server dir: ") {
+                    return Ok::<PathBuf, ReplayError>(PathBuf::from(path.trim()));
+                }
+            }
+        })
+        .await
+        .map_err(|_| ReplayError::StartupTimeout)??;
+        if !exposed.starts_with(&temporary_directory) || !exposed.is_dir() {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(ReplayError::StartupFailed(
+                "renderer exposed an invalid replay directory".to_string(),
+            ));
+        }
+        copy_directory(&exposed, session_directory)
+            .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
+        normalize_replay_bundle(session_directory)
+            .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        let _ = fs::remove_dir_all(&temporary_directory).await;
+        if !session_directory.join("test.html").is_file() {
+            return Err(ReplayError::StartupFailed(
+                "renderer produced no test.html replay bundle".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn spawn_cleanup_task(&self, cancellation_token: CancellationToken) {
         let viewer = self.clone();
         tokio::spawn(async move {
@@ -331,14 +411,62 @@ impl ReplayViewer {
     }
 }
 
+fn copy_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            std::fs::create_dir_all(&target)?;
+            copy_directory(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+fn normalize_replay_bundle(directory: &Path) -> std::io::Result<()> {
+    let assets = directory.join("assets");
+    if assets.is_dir() {
+        let nested = assets.join("assets");
+        std::fs::create_dir_all(&nested)?;
+        for entry in std::fs::read_dir(&assets)? {
+            let entry = entry?;
+            if entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "png")
+            {
+                std::fs::copy(entry.path(), nested.join(entry.file_name()))?;
+            }
+        }
+    }
+    let app = directory.join("app.js");
+    if app.is_file() {
+        let content = std::fs::read_to_string(&app)?
+            .replace("from '../config.js'", "from './config.js'")
+            .replace("from '../demo.js'", "from './demo.js'")
+            .replace(
+                "viewerUrl: '/core/Drawer.js'",
+                "viewerUrl: './core/Drawer.js'",
+            );
+        std::fs::write(app, content)?;
+    }
+    Ok(())
+}
+
 fn replay_command(
-    template: &str,
+    referee: &RefereeConfig,
     artifact_path: &Path,
     session_directory: &Path,
     port: u16,
     participant_count: u8,
 ) -> Result<Vec<String>, ReplayError> {
-    let mut parts = shell_words::split(template)
+    let RefereeConfig::Command(referee) = referee else {
+        return Err(ReplayError::InvalidCommand(
+            "codingame_jar replay rendering is not implemented".to_string(),
+        ));
+    };
+    let mut parts = shell_words::split(&referee.watch_replay)
         .map_err(|error| ReplayError::InvalidCommand(error.to_string()))?;
     if parts.is_empty() {
         return Err(ReplayError::InvalidCommand(
@@ -458,7 +586,10 @@ mod tests {
         let viewer = ReplayViewer::new_with_timeouts(
             pool,
             arena_path,
-            command,
+            RefereeConfig::Command(crate::config::CommandRefereeConfig {
+                play_match: "true".to_string(),
+                watch_replay: command,
+            }),
             startup_timeout,
             Duration::from_secs(60),
         );
@@ -544,7 +675,11 @@ mod tests {
     #[test]
     fn replay_command_preserves_quoted_paths_and_requires_contract() {
         let command = replay_command(
-            "\"renderer path\" {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}",
+            &RefereeConfig::Command(crate::config::CommandRefereeConfig {
+                play_match: "true".to_string(),
+                watch_replay: "\"renderer path\" {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
+                    .to_string(),
+            }),
             Path::new("/artifact path/replay.json"),
             Path::new("/session path"),
             12345,
@@ -564,7 +699,10 @@ mod tests {
 
         assert!(matches!(
             replay_command(
-                "renderer {REPLAY_PATH}",
+                &RefereeConfig::Command(crate::config::CommandRefereeConfig {
+                    play_match: "true".to_string(),
+                    watch_replay: "renderer {REPLAY_PATH}".to_string(),
+                }),
                 Path::new("replay.json"),
                 Path::new("session"),
                 1,
