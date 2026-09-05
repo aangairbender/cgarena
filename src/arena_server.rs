@@ -289,7 +289,9 @@ mod test {
     async fn codingame_referee_compatibility_is_validated_relative_to_arena() {
         use std::os::unix::fs::PermissionsExt;
 
-        let arena = tempfile::tempdir().unwrap();
+        let current_directory = std::env::current_dir().unwrap();
+        let arena = tempfile::tempdir_in(&current_directory).unwrap();
+        let relative_arena = arena.path().strip_prefix(&current_directory).unwrap();
         let jar = arena.path().join("referee/target/referee.jar");
         std::fs::create_dir_all(jar.parent().unwrap()).unwrap();
         std::fs::write(&jar, b"fixture").unwrap();
@@ -309,18 +311,18 @@ mod test {
         };
         referee.java = Some(java.to_string_lossy().to_string());
 
-        validate_referees(arena.path(), &config.workers)
+        validate_referees(relative_arena, &config.workers)
             .await
             .unwrap();
 
         std::fs::write(&java, "#!/bin/sh\necho incompatible\nexit 1\n").unwrap();
-        let error = validate_referees(arena.path(), &config.workers)
+        let error = validate_referees(relative_arena, &config.workers)
             .await
             .unwrap_err();
         assert!(error.to_string().contains("unsupported referee JAR"));
 
         std::fs::remove_file(&jar).unwrap();
-        let error = validate_referees(arena.path(), &config.workers)
+        let error = validate_referees(relative_arena, &config.workers)
             .await
             .unwrap_err();
         assert!(error.to_string().contains("referee.jar"));

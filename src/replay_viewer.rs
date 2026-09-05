@@ -248,17 +248,23 @@ impl ReplayViewer {
         session_directory: &Path,
         participant_count: u8,
     ) -> Result<(), ReplayError> {
+        let artifact_path = fs::canonicalize(artifact_path)
+            .await
+            .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
+        let session_directory = fs::canonicalize(session_directory)
+            .await
+            .map_err(|error| ReplayError::Internal(error.to_string()))?;
         if matches!(self.inner.referee, RefereeConfig::CodingameJar(_)) {
             return self
-                .generate_codingame_bundle(artifact_path, session_directory, participant_count)
+                .generate_codingame_bundle(&artifact_path, &session_directory, participant_count)
                 .await;
         }
         let port = available_local_port().await?;
         let prepared = RefereeAdapter::from(&self.inner.referee)
             .prepare_replay_command(
-                artifact_path,
-                session_directory,
-                session_directory,
+                &artifact_path,
+                &session_directory,
+                &session_directory,
                 port,
                 participant_count,
             )
@@ -711,14 +717,29 @@ mod tests {
         replay: &str,
         startup_timeout: Duration,
     ) -> (TempDir, ReplayViewer, PathBuf, PathBuf, CancellationToken) {
-        let temporary_directory = tempfile::tempdir().unwrap();
-        let arena_path = temporary_directory.path().join("codingame arena");
-        fs::create_dir_all(&arena_path).await.unwrap();
-        let artifact_path = arena_path.join("replay.json");
-        fs::write(&artifact_path, replay).await.unwrap();
-        let session_directory = arena_path.join("session");
-        fs::create_dir_all(&session_directory).await.unwrap();
-        let launcher_path = arena_path.join("fake java.sh");
+        let current_directory = std::env::current_dir().unwrap();
+        let temporary_directory = tempfile::tempdir_in(&current_directory).unwrap();
+        let absolute_arena_path = temporary_directory.path().join("codingame arena");
+        fs::create_dir_all(&absolute_arena_path).await.unwrap();
+        let absolute_artifact_path = absolute_arena_path.join("replay.json");
+        fs::write(&absolute_artifact_path, replay).await.unwrap();
+        let absolute_session_directory = absolute_arena_path.join("session");
+        fs::create_dir_all(&absolute_session_directory)
+            .await
+            .unwrap();
+        let launcher_path = absolute_arena_path.join("fake java.sh");
+        let arena_path = absolute_arena_path
+            .strip_prefix(&current_directory)
+            .unwrap()
+            .to_path_buf();
+        let artifact_path = absolute_artifact_path
+            .strip_prefix(&current_directory)
+            .unwrap()
+            .to_path_buf();
+        let session_directory = absolute_session_directory
+            .strip_prefix(&current_directory)
+            .unwrap()
+            .to_path_buf();
         fs::write(
             &launcher_path,
             format!(

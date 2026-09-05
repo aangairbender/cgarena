@@ -188,7 +188,9 @@ impl RefereeAdapter<'_> {
         let Self::CodingameJar(config) = self else {
             return Ok(());
         };
-        let jar_path = resolve_path(arena_path, &config.path);
+        let configured_path = resolve_path(arena_path, &config.path);
+        let jar_path = std::fs::canonicalize(&configured_path)
+            .with_context(|| format!("cannot access referee JAR {}", configured_path.display()))?;
         let metadata = std::fs::metadata(&jar_path)
             .with_context(|| format!("cannot access referee JAR {}", jar_path.display()))?;
         if !metadata.is_file() {
