@@ -217,108 +217,39 @@ Type of worker. Currently only `"embedded"` is supported.
 
 Controls the number of concurrent matches being run. Don't set this higher than the number of cpu cores you have.
 
-### `cmd_play_match`
+### `referee`
 
-CG Arena executes `cmd_play_match` once per scheduled match. The command is parsed into
-an executable and arguments; it is not passed through a shell. Quote literal arguments in
-the configuration when they contain spaces.
+Select exactly one referee adapter.
 
-CG Arena applies these substitutions:
+#### `codingame_jar`
 
-- `{SEED}` - match seed
-- `{REPLAY_PATH}` - a unique path owned by this match, under the arena's `replays` directory
-- `{P1}`, `{P2}`, ... - `cmd_run` configured for that participant
-- `{PLAYERS}` - all configured participant commands as separate arguments; use this for variable player counts
-
-Example on macOS/Linux:
+Runs a CG-Arena-compatible shaded CodinGame referee JAR directly. The JAR must be executable with `java -jar`, implement the maintained `-p1` through `-p8`, `-seed`, `-l`, `-r`, and `-port` contract, and report `cgarena-referee-v1` for `--cgarena-compat`. CG Arena probes that version marker at startup, then owns match-result conversion, replay persistence, static replay-bundle extraction, and renderer cleanup.
 
 ```toml
-cmd_play_match = "python3 play_game.py {SEED} {REPLAY_PATH} {PLAYERS}"
+[workers.referee]
+type = "codingame_jar"
+path = "referee/target/referee.jar"
+# java = "java"
+# league = 19
 ```
 
-On Windows, install Python 3 and use its configured launcher, for example:
+#### `command`
+
+Use this adapter for custom or non-Java referees. `play_match` must produce CG Arena's established JSON match result and write the owned `{REPLAY_PATH}` artifact. `watch_replay` must create `{REPLAY_DIR}/test.html`.
 
 ```toml
-cmd_play_match = "py -3 play_game.py {SEED} {REPLAY_PATH} {PLAYERS}"
+[workers.referee]
+type = "command"
+play_match = "my-referee {SEED} {REPLAY_PATH} {PLAYERS}"
+watch_replay = "my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
 ```
 
-The command must write the replay to `{REPLAY_PATH}`. A successful match that produces
-no non-empty artifact is still recorded, but replay is unavailable. Existing matches from
-arenas created before replay-path persistence are also unavailable; CG Arena never guesses
-an artifact from their seed.
+Legacy configurations with both `cmd_play_match` and `cmd_watch_replay` directly under
+`[[workers]]` continue to load as a `command` referee with their previous validation rules.
+New configuration must use the tagged table above and include every shown placeholder. Do not
+configure both forms; CG Arena rejects the ambiguous configuration.
 
-The command must print JSON to stdout in the following format:
-
-```json
-{ "ranks": [0, 1], "errors": [0, 0], "attributes": [] }
-```
-
-Where:
-
-- `ranks` - the list of numbers where i-th number is i-th match participant final placement (e.g. 0 for winner). Duplicates are allowed in the case of draw.
-- `errors` - the list of numbers where i-th number is 1 if i-th match participant failed during match or 0 otherwise
-- `attributes` - the list of match attributes emitted by the bot. Each attribute is a json object with the following fields:
-
-    - `name` - name of attribute
-    - `player` - index of a player who the attribute belongs to (or `null` if it's match attribute, not specific to a particular bot)
-    - `turn` - turn of the attribute (or `null` if the attribute is not specific to any particular turn)
-    - `value` - the attribute value (integer, float or string)
-
-Example:
-
-```js
-{
-    "ranks": [0, 1],
-    "errors": [0, 0],
-    "attributes": [
-        {
-            "name": "map_size",
-            "value": 16
-        },
-        {
-            "name": "final_score",
-            "player": 0,
-            "value": 86
-        },
-        {
-            "name": "final_score",
-            "player": 1,
-            "value": 53
-        },
-    ],
-}
-```
-
-### `cmd_watch_replay`
-
-`cmd_watch_replay` converts one persisted artifact into a static replay bundle. CG Arena
-runs it outside the arena actor, limits startup to 30 seconds, terminates and reaps failures,
-and requires the command to exit successfully. The command must create `{REPLAY_DIR}/test.html`;
-stdout is ignored.
-
-Substitutions:
-
-- `{REPLAY_PATH}` - absolute path to the persisted artifact
-- `{REPLAY_DIR}` - empty, session-owned output directory
-- `{PORT}` - an ephemeral loopback port for a renderer that needs a temporary HTTP listener
-- `{PLAYER_COUNT}` - participant count persisted with the match
-
-Example on macOS/Linux:
-
-```toml
-cmd_watch_replay = "python3 watch_replay.py {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
-```
-
-On Windows, replace `python3` with the installed launcher, for example `py -3`.
-`watch_replay.py` validates Python, Java, the referee JAR, the artifact JSON, and participant
-count before rendering. It invokes Java with an argument list, copies the generated static
-bundle, terminates the temporary Java renderer, and exits. CG Arena serves each bundle at
-`/api/replays/{session_id}/...` under its own origin; renderer ports are loopback-only and
-never sent to browsers.
-
-Each replay dialog owns a distinct session. Closing one session cannot affect another.
-Inactive sessions expire after 15 minutes, and all session directories are removed on arena
-shutdown.
+`cmd_run` is expanded once per participant. CG Arena passes each resulting command as one player argument to the JAR adapter; it is never shell-split.
 
 ### `cmd_build`
 
@@ -335,7 +266,7 @@ cmd_build = "sh build.sh {DIR} {LANG}"
 
 ### `cmd_run`
 
-This command is passed to `cmd_play_match` after applying substitutions for each bot.
+This command is passed to the configured referee after applying substitutions for each bot.
 
 The substitutions for `cmd_run` are same as for `cmd_build`:
 - `{DIR}` would be replaced with target bot directory

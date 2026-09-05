@@ -37,6 +37,7 @@ log = "0.4"
 nalgebra = "0.34.1"
 shell-words = "1.1"
 uuid = { version = "1.18", features = ["v4"] }
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.20"

@@ -1,12 +1,16 @@
-use crate::config::EmbeddedWorkerConfig;
+use crate::config::{EmbeddedWorkerConfig, RefereeConfig};
 use crate::domain::{
     BotId, Build, BuildResult, Language, MatchAttribute, MatchAttributeValue, Participant,
     SourceCode, WorkerName,
 };
+use crate::referee_adapter::{
+    read_codingame_match_result, validate_match_result, MatchCommandAttribute as CmdMatchAttribute,
+    MatchCommandOutput as CmdPlayMatchStdout, MatchResultSource, PreparedMatchCommand,
+    RefereeAdapter,
+};
 use crate::replay_artifact::{PendingReplay, ProvisionalReplay};
 use anyhow::{bail, Context};
 use itertools::Itertools;
-use serde::Deserialize;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -510,18 +514,13 @@ async fn execute_match(
     if cancellation_token.is_cancelled() {
         return Ok(None);
     }
-    let (command_parts, replay) = prepare_play_match_command(&config, &input, &worker_path)
+    let (command, replay) = prepare_play_match_command(&config, &input, &worker_path)
         .await
         .map_err(WorkerFailure::new)?;
-    let output = spawn_play_match_command(
-        command_parts,
-        replay,
-        worker_path,
-        &input,
-        &cancellation_token,
-    )
-    .await
-    .map_err(|error| WorkerFailure::new(format!("{error:#}")))?;
+    let output =
+        spawn_play_match_command(command, replay, worker_path, &input, &cancellation_token)
+            .await
+            .map_err(|error| WorkerFailure::new(format!("{error:#}")))?;
     Ok(output.map(|output| Completion::Match { input, output }))
 }
 
@@ -685,7 +684,7 @@ async fn prepare_play_match_command(
     config: &EmbeddedWorkerConfig,
     input: &PlayMatchInput,
     worker_path: &Path,
-) -> anyhow::Result<(Vec<String>, Option<ProvisionalReplay>)> {
+) -> anyhow::Result<(PreparedMatchCommand, Option<ProvisionalReplay>)> {
     let run_commands = input
         .bots
         .iter()
@@ -701,108 +700,66 @@ async fn prepare_play_match_command(
                 .replace("{LANG}", &bot.language))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-
-    let template =
-        shell_words::split(&config.cmd_play_match).context("invalid cmd_play_match quoting")?;
-    if template.is_empty() {
-        bail!("cmd_play_match must not be blank");
-    }
-
-    let replay = if template.iter().any(|part| part == "{REPLAY_PATH}") {
+    let adapter = RefereeAdapter::from(&config.referee);
+    let replay = if adapter.match_replay_required() {
         Some(ProvisionalReplay::create(worker_path).await?)
     } else {
         None
     };
-    let replay_path_value = replay
-        .as_ref()
-        .map(ProvisionalReplay::command_path)
-        .and_then(Path::to_str)
-        .context("replay path must be UTF-8")
-        .or_else(|error| if replay.is_none() { Ok("") } else { Err(error) })?;
-    let seed = input.seed.to_string();
-    let mut command_parts = Vec::new();
-
-    for part in template {
-        match part.as_str() {
-            "{SEED}" => command_parts.push(seed.clone()),
-            "{PLAYERS}" => command_parts.extend(run_commands.iter().cloned()),
-            "{REPLAY_PATH}" => command_parts.push(replay_path_value.to_string()),
-            _ => {
-                let player_index = part
-                    .strip_prefix("{P")
-                    .and_then(|value| value.strip_suffix('}'))
-                    .and_then(|value| value.parse::<usize>().ok());
-                if let Some(player_index) = player_index {
-                    let command = run_commands
-                        .get(player_index.saturating_sub(1))
-                        .with_context(|| format!("cmd_play_match references missing {part}"))?;
-                    command_parts.push(command.clone());
-                } else {
-                    command_parts.push(part);
-                }
-            }
-        }
-    }
-
-    Ok((command_parts, replay))
+    let command = adapter.prepare_match_command(
+        input.seed,
+        &run_commands,
+        replay.as_ref().map(ProvisionalReplay::command_path),
+    )?;
+    Ok((command, replay))
 }
 
 async fn spawn_play_match_command(
-    command_parts: Vec<String>,
+    command: PreparedMatchCommand,
     replay: Option<ProvisionalReplay>,
     worker_path: PathBuf,
     input: &PlayMatchInput,
     cancellation_token: &CancellationToken,
 ) -> anyhow::Result<Option<PlayMatchOutput>> {
-    let Some(cmd_output) = run_command(command_parts, &worker_path, cancellation_token).await?
+    let result_source = command.result_source;
+    let Some(cmd_output) = run_command(command.argv, &worker_path, cancellation_token).await?
     else {
         return Ok(None);
     };
-
-    let result = if cmd_output.status.success() {
-        let stdout = String::from_utf8(cmd_output.stdout).context("stdout is not valid UTF-8")?;
-        serde_json::from_str::<CmdPlayMatchStdout>(&stdout)
-            .context("play match output should be valid JSON")?
-    } else {
+    if !cmd_output.status.success() {
+        let stderr = String::from_utf8_lossy(&cmd_output.stderr);
+        let stdout = String::from_utf8_lossy(&cmd_output.stdout);
+        let diagnostic = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
         bail!(
-            "Error while running match: {}",
-            String::from_utf8(cmd_output.stderr).context("stderr is not valid UTF-8")?
+            "Error while running match ({}): {}",
+            cmd_output.status,
+            diagnostic
         );
+    }
+    let result = match result_source {
+        MatchResultSource::CodingameReplay => {
+            let replay_path = worker_path.join(
+                replay
+                    .as_ref()
+                    .context("codingame referee did not receive replay artifact")?
+                    .command_path(),
+            );
+            read_codingame_match_result(&replay_path, input.bots.len())?
+        }
+        MatchResultSource::CommandStdout => {
+            serde_json::from_slice::<CmdPlayMatchStdout>(&cmd_output.stdout)
+                .context("play match output should be valid JSON")?
+        }
     };
-
-    let bot_count = input.bots.len();
-    if result.ranks.len() != bot_count {
-        bail!(
-            "play match output has {} ranks for {bot_count} bots",
-            result.ranks.len()
-        );
-    }
-    if result.errors.len() != bot_count {
-        bail!(
-            "play match output has {} errors for {bot_count} bots",
-            result.errors.len()
-        );
-    }
-    if !result.scores.is_empty() && result.scores.len() != bot_count {
-        bail!(
-            "play match output has {} scores for {bot_count} bots",
-            result.scores.len()
-        );
-    }
-    if let Some(player) = result
-        .attributes
-        .iter()
-        .filter_map(|attribute| attribute.player)
-        .find(|player| *player >= bot_count)
-    {
-        bail!("play match output references missing player {player}");
-    }
-
+    validate_match_result(&result, input.bots.len())?;
     let replay = match replay {
         Some(replay) => replay.finish().await?,
         None => PendingReplay::default(),
     };
-
     Ok(Some(PlayMatchOutput {
         seed: input.seed,
         participants: input
@@ -820,9 +777,7 @@ async fn spawn_play_match_command(
             .attributes
             .into_iter()
             .map(|attribute| to_match_attribute(input, attribute))
-            .chain(if result.scores.is_empty() {
-                vec![].into_iter()
-            } else {
+            .chain(
                 input
                     .bots
                     .iter()
@@ -832,10 +787,8 @@ async fn spawn_play_match_command(
                         bot_id: Some(bot.bot_id),
                         turn: None,
                         value: MatchAttributeValue::Integer(score as _),
-                    })
-                    .collect_vec()
-                    .into_iter()
-            })
+                    }),
+            )
             .collect(),
         replay,
     }))
@@ -874,24 +827,6 @@ pub struct PlayMatchOutput {
     pub replay: PendingReplay,
 }
 
-#[derive(Deserialize)]
-pub struct CmdPlayMatchStdout {
-    #[serde(default)]
-    pub scores: Vec<i32>,
-    pub ranks: Vec<u8>,
-    pub errors: Vec<u8>,
-    #[serde(default)]
-    pub attributes: Vec<CmdMatchAttribute>,
-}
-
-#[derive(Deserialize, Default)]
-pub struct CmdMatchAttribute {
-    pub name: String,
-    pub player: Option<usize>,
-    pub turn: Option<u16>,
-    pub value: String,
-}
-
 fn to_match_attribute(input: &PlayMatchInput, attr: CmdMatchAttribute) -> MatchAttribute {
     let bot_id = attr.player.map(|p| input.bots[p].bot_id);
 
@@ -912,8 +847,12 @@ mod tests {
     fn config(cmd_build: String, cmd_play_match: String) -> EmbeddedWorkerConfig {
         EmbeddedWorkerConfig {
             threads: 1,
-            cmd_play_match,
-            cmd_watch_replay: "true".to_string(),
+            referee: RefereeConfig::Command(crate::config::CommandRefereeConfig {
+                play_match: cmd_play_match,
+                watch_replay: "true".to_string(),
+
+                legacy: false,
+            }),
             cmd_build,
             cmd_run: "true".to_string(),
         }
@@ -923,6 +862,17 @@ mod tests {
         let path = directory.join(name);
         fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         format!("sh {}", shell_words::quote(&path.to_string_lossy()))
+    }
+    #[cfg(unix)]
+    fn executable_script(directory: &Path, name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = directory.join(name);
+        fs::write(&path, format!("#!/bin/sh\nset -eu\n{body}\n")).unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+        path
     }
 
     fn build_input(bot_id: i64) -> BuildBotInput {
@@ -1106,6 +1056,228 @@ mod tests {
                 .count(),
             0
         );
+    }
+    #[tokio::test]
+    async fn referee_adapters_preserve_player_argument_contracts() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = match_input(42);
+        let command_config = config("true".to_string(), "runner {P1} {P2} {SEED}".to_string());
+        let (command, replay) =
+            prepare_play_match_command(&command_config, &input, directory.path())
+                .await
+                .unwrap();
+        assert_eq!(command.argv, ["runner", "true", "true", "42"]);
+        assert!(matches!(
+            command.result_source,
+            MatchResultSource::CommandStdout
+        ));
+        assert!(replay.is_none());
+
+        let jar_config = EmbeddedWorkerConfig {
+            threads: 1,
+            referee: RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
+                path: "referee.jar".to_string(),
+                java: None,
+                league: Some(7),
+            }),
+            cmd_build: "true".to_string(),
+            cmd_run: "run {DIR} --language {LANG}".to_string(),
+        };
+        let (command, replay) = prepare_play_match_command(&jar_config, &input, directory.path())
+            .await
+            .unwrap();
+        assert!(matches!(
+            command.result_source,
+            MatchResultSource::CodingameReplay
+        ));
+        assert!(replay.is_some());
+        assert_eq!(
+            &command.argv[..12],
+            [
+                "java",
+                "--add-opens",
+                "java.base/java.lang=ALL-UNNAMED",
+                "-jar",
+                "referee.jar",
+                "-p1",
+                "run bots/1 --language rust",
+                "-p2",
+                "run bots/2 --language rust",
+                "-seed",
+                "42",
+                "-league",
+            ]
+        );
+        assert_eq!(command.argv[12], "7");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codingame_adapter_runs_match_and_preserves_observable_contract() {
+        let directory = tempfile::tempdir().unwrap();
+        let java = executable_script(
+            directory.path(),
+            "fake-java.sh",
+            r#"replay=''
+player_one=''
+player_two=''
+seed=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -p1) player_one="$2"; shift 2 ;;
+    -p2) player_two="$2"; shift 2 ;;
+    -seed) seed="$2"; shift 2 ;;
+    -l) replay="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+test "$player_one" = "run bots/1 --language rust"
+test "$player_two" = "run bots/2 --language rust"
+test "$seed" = "73"
+printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null,"[tdata] rounds = 3"],"1":[null]}}' > "$replay""#,
+        );
+        let config = EmbeddedWorkerConfig {
+            threads: 1,
+            referee: RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
+                path: "fixture.jar".to_string(),
+                java: Some(java.to_string_lossy().to_string()),
+                league: None,
+            }),
+            cmd_build: "true".to_string(),
+            cmd_run: "run {DIR} --language {LANG}".to_string(),
+        };
+        let StartedWorker { worker, supervisor } =
+            start_embedded_worker(directory.path(), config).unwrap();
+
+        worker.submit(Work::Match(match_input(73))).await.unwrap();
+        let Completion::Match { input, output } = worker.next().await.unwrap() else {
+            panic!("expected a match completion");
+        };
+
+        assert_eq!(input.seed, 73);
+        assert_eq!(output.participants[0].rank, 0);
+        assert!(!output.participants[0].error);
+        assert_eq!(output.participants[1].rank, 1);
+        assert_eq!(
+            output
+                .attributes
+                .iter()
+                .find(|attribute| attribute.name == "rounds")
+                .and_then(|attribute| attribute.value.integer_value()),
+            Some(3)
+        );
+        assert_eq!(
+            fs::read_dir(directory.path().join("replays"))
+                .unwrap()
+                .count(),
+            1
+        );
+        supervisor.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codingame_adapter_reports_nonzero_status_and_stdout_diagnostic() {
+        let directory = tempfile::tempdir().unwrap();
+        let java = executable_script(
+            directory.path(),
+            "failing-java.sh",
+            "echo actionable-on-stdout\nexit 7",
+        );
+        let config = EmbeddedWorkerConfig {
+            threads: 1,
+            referee: RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
+                path: "fixture.jar".to_string(),
+                java: Some(java.to_string_lossy().to_string()),
+                league: None,
+            }),
+            cmd_build: "true".to_string(),
+            cmd_run: "true".to_string(),
+        };
+        let StartedWorker { worker, supervisor } =
+            start_embedded_worker(directory.path(), config).unwrap();
+
+        worker.submit(Work::Match(match_input(9))).await.unwrap();
+        let failure = supervisor.failed().await;
+
+        assert!(failure.to_string().contains("exit status: 7"));
+        assert!(failure.to_string().contains("actionable-on-stdout"));
+        assert!(supervisor.shutdown().await.is_err());
+    }
+
+    #[test]
+    fn codingame_replay_conversion_preserves_results_and_attributes() {
+        let directory = tempfile::tempdir().unwrap();
+        let replay = directory.path().join("replay.json");
+        fs::write(
+            &replay,
+            r#"{
+                "scores": {"0": 10, "1": -1},
+                "errors": {
+                    "0": [null, "[TDATA][12] map_size = 16\n[PDATA] final_score = 10"],
+                    "1": [null, "[pdata] lower_case = kept"]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let result = read_codingame_match_result(&replay, 2).unwrap();
+
+        assert_eq!(result.scores, [10, -1]);
+        assert_eq!(result.ranks, [0, 1]);
+        assert_eq!(result.errors, [0, 1]);
+        assert_eq!(result.attributes.len(), 3);
+        assert_eq!(result.attributes[0].name, "map_size");
+        assert_eq!(result.attributes[0].player, None);
+        assert_eq!(result.attributes[0].turn, Some(12));
+        assert_eq!(result.attributes[1].name, "final_score");
+        assert_eq!(result.attributes[1].player, Some(0));
+        assert_eq!(result.attributes[2].name, "lower_case");
+        assert_eq!(result.attributes[2].player, Some(1));
+    }
+
+    #[test]
+    fn codingame_replay_conversion_rejects_wrong_score_count() {
+        let directory = tempfile::tempdir().unwrap();
+        let replay = directory.path().join("replay.json");
+        fs::write(&replay, r#"{"scores":{"0":10},"errors":{}}"#).unwrap();
+
+        let error = read_codingame_match_result(&replay, 2).unwrap_err();
+
+        assert!(error.to_string().contains("1 scores for 2 bots"));
+    }
+
+    #[test]
+    fn command_result_rejects_wrong_score_count() {
+        let result = CmdPlayMatchStdout {
+            scores: vec![10],
+            ranks: vec![0, 1],
+            errors: vec![0, 0],
+            attributes: Vec::new(),
+        };
+
+        let error = validate_match_result(&result, 2).unwrap_err();
+
+        assert!(error.to_string().contains("1 scores for 2 bots"));
+    }
+
+    #[test]
+    fn command_result_rejects_attribute_for_missing_player() {
+        let result = CmdPlayMatchStdout {
+            scores: Vec::new(),
+            ranks: vec![0, 1],
+            errors: vec![0, 0],
+            attributes: vec![CmdMatchAttribute {
+                name: "score".to_string(),
+                player: Some(2),
+                turn: None,
+                value: "10".to_string(),
+            }],
+        };
+
+        let error = validate_match_result(&result, 2).unwrap_err();
+
+        assert!(error.to_string().contains("missing player 2"));
     }
 
     #[tokio::test]

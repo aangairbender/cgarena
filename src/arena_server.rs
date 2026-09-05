@@ -1,6 +1,7 @@
 use crate::arena_handle::ArenaHandle;
 use crate::cg_referee::CgReferee;
 use crate::config::{Config, WorkerConfig};
+use crate::referee_adapter::RefereeAdapter;
 use crate::replay_viewer::ReplayViewer;
 use crate::{api, arena, db, worker};
 use anyhow::{bail, Context};
@@ -43,6 +44,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
             cg_referee.ensure_initialized()?;
         }
     }
+    validate_referees(arena_path, &config.workers).await?;
 
     let pool = db::connect(arena_path)
         .await
@@ -75,7 +77,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let replay_viewer = ReplayViewer::new(
         pool.clone(),
         arena_path.to_owned(),
-        cfg.cmd_watch_replay.clone(),
+        cfg.referee.clone(),
         token.clone(),
     );
 
@@ -179,23 +181,22 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn validate_referees(arena_path: &Path, workers: &[WorkerConfig]) -> anyhow::Result<()> {
+    for worker in workers {
+        let WorkerConfig::Embedded(worker) = worker;
+        RefereeAdapter::from(&worker.referee)
+            .validate_startup(arena_path)
+            .await?;
+    }
+    Ok(())
+}
+
 static DEFAULT_FILES: &[(&str, &str)] = &[
     (
         "cgarena_config.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/assets/default_config.toml"
-        )),
-    ),
-    (
-        "play_game.py",
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/play_game.py")),
-    ),
-    (
-        "watch_replay.py",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/watch_replay.py"
         )),
     ),
     (
@@ -268,8 +269,8 @@ mod test {
         let path = dir.path().join("test");
         init(&path).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
-        assert!(path.join("play_game.py").exists());
-        assert!(path.join("watch_replay.py").exists());
+        assert!(!path.join("play_game.py").exists());
+        assert!(!path.join("watch_replay.py").exists());
         assert!(path.join("CommandLineInterface.java").exists());
         assert!(path.join("pom_build_section.xml").exists());
     }
@@ -281,5 +282,49 @@ mod test {
         std::fs::create_dir(&path).unwrap();
         init(&path).unwrap();
         assert!(path.join("cgarena_config.toml").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codingame_referee_compatibility_is_validated_relative_to_arena() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let current_directory = std::env::current_dir().unwrap();
+        let arena = tempfile::tempdir_in(&current_directory).unwrap();
+        let relative_arena = arena.path().strip_prefix(&current_directory).unwrap();
+        let jar = arena.path().join("referee/target/referee.jar");
+        std::fs::create_dir_all(jar.parent().unwrap()).unwrap();
+        std::fs::write(&jar, b"fixture").unwrap();
+        let java = arena.path().join("fake-java.sh");
+        std::fs::write(
+            &java,
+            "#!/bin/sh\ntest \"$5\" = --cgarena-compat\nprintf '%s\\n' cgarena-referee-v1\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&java).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&java, permissions).unwrap();
+        let mut config = Config::default();
+        let WorkerConfig::Embedded(worker) = &mut config.workers[0];
+        let crate::config::RefereeConfig::CodingameJar(referee) = &mut worker.referee else {
+            panic!("default worker must use codingame_jar");
+        };
+        referee.java = Some(java.to_string_lossy().to_string());
+
+        validate_referees(relative_arena, &config.workers)
+            .await
+            .unwrap();
+
+        std::fs::write(&java, "#!/bin/sh\necho incompatible\nexit 1\n").unwrap();
+        let error = validate_referees(relative_arena, &config.workers)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("unsupported referee JAR"));
+
+        std::fs::remove_file(&jar).unwrap();
+        let error = validate_referees(relative_arena, &config.workers)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("referee.jar"));
     }
 }

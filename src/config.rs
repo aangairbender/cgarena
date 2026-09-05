@@ -53,13 +53,76 @@ pub enum WorkerConfig {
     // Remote
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Clone)]
 pub struct EmbeddedWorkerConfig {
     pub threads: u8,
-    pub cmd_play_match: String,
-    pub cmd_watch_replay: String,
+    pub referee: RefereeConfig,
     pub cmd_build: String,
     pub cmd_run: String,
+}
+
+#[derive(Deserialize)]
+struct RawEmbeddedWorkerConfig {
+    threads: u8,
+    referee: Option<RefereeConfig>,
+    cmd_play_match: Option<String>,
+    cmd_watch_replay: Option<String>,
+    cmd_build: String,
+    cmd_run: String,
+}
+
+impl<'de> Deserialize<'de> for EmbeddedWorkerConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = RawEmbeddedWorkerConfig::deserialize(deserializer)?;
+        let referee = match (raw.referee, raw.cmd_play_match, raw.cmd_watch_replay) {
+            (Some(referee), None, None) => referee,
+            (None, Some(play_match), Some(watch_replay)) => {
+                RefereeConfig::Command(CommandRefereeConfig {
+                    play_match,
+                    watch_replay,
+                    legacy: true,
+                })
+            }
+            (Some(_), _, _) => {
+                return Err(serde::de::Error::custom(
+                    "referee cannot be combined with legacy cmd_play_match or cmd_watch_replay",
+                ))
+            }
+            (None, _, _) => {
+                return Err(serde::de::Error::custom(
+                    "configure referee or both legacy cmd_play_match and cmd_watch_replay",
+                ))
+            }
+        };
+        Ok(Self {
+            threads: raw.threads,
+            referee,
+            cmd_build: raw.cmd_build,
+            cmd_run: raw.cmd_run,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RefereeConfig {
+    CodingameJar(CodingameJarRefereeConfig),
+    Command(CommandRefereeConfig),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CodingameJarRefereeConfig {
+    pub path: String,
+    pub java: Option<String>,
+    pub league: Option<u8>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CommandRefereeConfig {
+    pub play_match: String,
+    pub watch_replay: String,
+    #[serde(skip)]
+    pub(crate) legacy: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -115,15 +178,67 @@ impl Config {
             if config.cmd_run.split_ascii_whitespace().count() == 0 {
                 bail!("cmd_run must not be blank");
             }
-            if config.cmd_play_match.split_ascii_whitespace().count() == 0 {
-                bail!("cmd_play_match must not be blank");
-            }
-            if config.cmd_watch_replay.split_ascii_whitespace().count() == 0 {
-                bail!("cmd_watch_replay must not be blank");
+            match &config.referee {
+                RefereeConfig::CodingameJar(config) => {
+                    if config.path.trim().is_empty() {
+                        bail!("codingame_jar referee path must not be blank");
+                    }
+                    if config
+                        .java
+                        .as_deref()
+                        .is_some_and(|java| java.trim().is_empty())
+                    {
+                        bail!("codingame_jar referee java must not be blank");
+                    }
+                    if config
+                        .league
+                        .is_some_and(|league| league == 0 || league >= 20)
+                    {
+                        bail!("codingame_jar referee league must be between 1 and 19");
+                    }
+                }
+
+                RefereeConfig::Command(config) => {
+                    if config.play_match.split_ascii_whitespace().count() == 0 {
+                        bail!("command referee play_match must not be blank");
+                    }
+                    if config.watch_replay.split_ascii_whitespace().count() == 0 {
+                        bail!("command referee watch_replay must not be blank");
+                    }
+                    if !config.legacy {
+                        let play_match = shell_words::split(&config.play_match)
+                            .context("command referee play_match has invalid quoting")?;
+                        let watch_replay = shell_words::split(&config.watch_replay)
+                            .context("command referee watch_replay has invalid quoting")?;
+                        require_placeholder(&play_match, "{SEED}", "play_match")?;
+                        require_placeholder(&play_match, "{REPLAY_PATH}", "play_match")?;
+                        if !play_match.iter().any(|part| part == "{PLAYERS}") {
+                            for player in 1..=self.game.max_players {
+                                require_placeholder(
+                                    &play_match,
+                                    &format!("{{P{player}}}"),
+                                    "play_match",
+                                )?;
+                            }
+                        }
+                        for placeholder in
+                            ["{REPLAY_PATH}", "{REPLAY_DIR}", "{PORT}", "{PLAYER_COUNT}"]
+                        {
+                            require_placeholder(&watch_replay, placeholder, "watch_replay")?;
+                        }
+                    }
+                }
             }
         }
         Ok(())
     }
+}
+
+fn require_placeholder(template: &[String], placeholder: &str, field: &str) -> anyhow::Result<()> {
+    if !template.iter().any(|part| part == placeholder) {
+        bail!("command referee {field} must contain {placeholder}");
+    }
+    Ok(())
 }
 
 const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
@@ -139,7 +254,81 @@ mod test {
 
     #[test]
     fn default_config_is_valid() {
-        let _: Config = toml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
+        let config: Config = toml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
+        config.validate().expect("default config should validate");
+    }
+
+    #[test]
+    fn legacy_match_commands_migrate_to_command_referee() {
+        let config: EmbeddedWorkerConfig = toml::from_str(
+            r#"threads = 1
+cmd_play_match = "runner {SEED} {PLAYERS}"
+cmd_watch_replay = "renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
+cmd_build = "build"
+cmd_run = "run""#,
+        )
+        .unwrap();
+        let RefereeConfig::Command(referee) = config.referee else {
+            panic!("legacy command fields must migrate");
+        };
+        assert_eq!(referee.play_match, "runner {SEED} {PLAYERS}");
+    }
+
+    #[test]
+    fn mixed_legacy_and_tagged_referee_configuration_is_rejected() {
+        let result = toml::from_str::<EmbeddedWorkerConfig>(
+            r#"threads = 1
+cmd_play_match = "legacy"
+cmd_watch_replay = "legacy"
+cmd_build = "build"
+cmd_run = "run"
+
+[referee]
+type = "command"
+play_match = "new"
+watch_replay = "new""#,
+        );
+        let Err(error) = result else {
+            panic!("mixed referee configuration must be rejected");
+        };
+
+        assert!(error.to_string().contains("cannot be combined"));
+    }
+
+    #[test]
+    fn tagged_command_referee_requires_complete_templates() {
+        let mut config = Config::default();
+        let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
+            panic!("default config must contain one embedded worker");
+        };
+        worker.referee = RefereeConfig::Command(CommandRefereeConfig {
+            play_match: "runner {SEED} {REPLAY_PATH} {PLAYERS}".to_string(),
+            watch_replay: "renderer {REPLAY_PATH}".to_string(),
+            legacy: false,
+        });
+
+        let error = config.validate().unwrap_err();
+
+        assert!(error.to_string().contains("{REPLAY_DIR}"));
+    }
+
+    #[test]
+    fn migrated_legacy_command_templates_keep_previous_validation_rules() {
+        let legacy: EmbeddedWorkerConfig = toml::from_str(
+            r#"threads = 1
+cmd_play_match = "runner"
+cmd_watch_replay = "renderer"
+cmd_build = "build"
+cmd_run = "run""#,
+        )
+        .unwrap();
+        let mut config = Config::default();
+        let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
+            panic!("default config must contain one embedded worker");
+        };
+        worker.referee = legacy.referee;
+
+        config.validate().unwrap();
     }
 
     #[test]

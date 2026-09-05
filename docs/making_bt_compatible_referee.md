@@ -211,6 +211,7 @@ The interface defines the match and replay contract:
 - `-l`: replay JSON output path
 - `-r`: replay JSON input path
 - `-port`: loopback replay renderer port, default `8888`
+- `--cgarena-compat`: print `cgarena-referee-v1` and exit
 
 Match mode writes the JSON artifact requested by `-l`, prints scores and referee input to
 stdout, prints failures to stderr, and exits nonzero on failure. Different processes may use
@@ -218,8 +219,8 @@ the same seed safely when their `-l` paths differ.
 
 Replay mode reads the complete CodinGame replay JSON, derives participant count from its
 `agents` array, starts `Renderer` on `-port`, then prints its renderer URL and
-`Exposed web server dir: <path>`. `watch_replay.py` consumes the directory line, copies the
-static bundle, terminates the renderer, and reaps it.
+`Exposed web server dir: <path>`. CG Arena copies that static bundle into an isolated replay
+session, terminates the renderer, and reaps it.
 
 The generated `pom_build_section.xml` is the maintained Maven build configuration. Replace
 the referee POM's existing `<build>` section with its contents. Keep the `commons-cli`
@@ -235,8 +236,18 @@ mvn package
 ```
 
 The maintained Maven configuration writes `target/referee.jar`. Keep the referee repository
-at `<arena>/referee`, so the generated Python launchers find
+at `<arena>/referee`, matching the default native adapter path
 `<arena>/referee/target/referee.jar`.
+
+Verify the versioned CG Arena contract before running a match:
+
+```sh
+java --add-opens java.base/java.lang=ALL-UNNAMED \
+  -jar target/referee.jar --cgarena-compat
+```
+
+The command must exit `0` and print `cgarena-referee-v1`. CG Arena performs this probe during
+startup and rejects JARs built without the maintained interface.
 
 Verify a deterministic two-player match outside CG Arena:
 
@@ -264,6 +275,6 @@ Read the printed HTTP URL in a browser. Stop the renderer with `Ctrl+C`. Invalid
 or an occupied port is written to stderr and exits nonzero. The replay JSON's `agents` array
 is the source of participant count for two-player and multiplayer artifacts.
 
-The integration is supported on macOS, Linux, and Windows with Python 3.9 or newer, Java 17
-or newer, and Maven for referee builds. Use platform-native path syntax and the installed
-Python launcher (`python3` on macOS/Linux, commonly `py -3` on Windows).
+The integration is supported on macOS, Linux, and Windows with Java 17 or newer and Maven for
+referee builds. Use platform-native path syntax and configure `workers.referee.java` when the
+Java executable is not available as `java` on `PATH`.

@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.common.io.Files;
+import org.apache.commons.cli.Option;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
@@ -18,6 +19,8 @@ import java.util.List;
 import java.util.Properties;
 
 public class CommandLineInterface {
+    private static final String CGARENA_COMPATIBILITY_VERSION = "cgarena-referee-v1";
+
 
     public static void main(String[] args) {
         try {
@@ -46,9 +49,18 @@ public class CommandLineInterface {
                     .addOption("r", true, "File input for replay")
                     .addOption("l", true, "File output for logs")
                     .addOption("seed", true, "Seed")
-                    .addOption("port", true, "Replay server port");
+                    .addOption("port", true, "Replay server port")
+                    .addOption(Option.builder()
+                            .longOpt("cgarena-compat")
+                            .desc("Print the CG Arena referee compatibility version")
+                            .build());
 
             CommandLine cmd = new DefaultParser().parse(options, args);
+
+            if (cmd.hasOption("cgarena-compat")) {
+                System.out.println(CGARENA_COMPATIBILITY_VERSION);
+                return;
+            }
 
             int playerCount = 0;
             // CG supports multiplayer games up to 8 players
