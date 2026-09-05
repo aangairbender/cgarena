@@ -206,12 +206,16 @@ impl Config {
                         bail!("command referee watch_replay must not be blank");
                     }
                     if !config.legacy {
-                        require_placeholder(&config.play_match, "{SEED}", "play_match")?;
-                        require_placeholder(&config.play_match, "{REPLAY_PATH}", "play_match")?;
-                        if !config.play_match.contains("{PLAYERS}") {
+                        let play_match = shell_words::split(&config.play_match)
+                            .context("command referee play_match has invalid quoting")?;
+                        let watch_replay = shell_words::split(&config.watch_replay)
+                            .context("command referee watch_replay has invalid quoting")?;
+                        require_placeholder(&play_match, "{SEED}", "play_match")?;
+                        require_placeholder(&play_match, "{REPLAY_PATH}", "play_match")?;
+                        if !play_match.iter().any(|part| part == "{PLAYERS}") {
                             for player in 1..=self.game.max_players {
                                 require_placeholder(
-                                    &config.play_match,
+                                    &play_match,
                                     &format!("{{P{player}}}"),
                                     "play_match",
                                 )?;
@@ -220,7 +224,7 @@ impl Config {
                         for placeholder in
                             ["{REPLAY_PATH}", "{REPLAY_DIR}", "{PORT}", "{PLAYER_COUNT}"]
                         {
-                            require_placeholder(&config.watch_replay, placeholder, "watch_replay")?;
+                            require_placeholder(&watch_replay, placeholder, "watch_replay")?;
                         }
                     }
                 }
@@ -230,8 +234,8 @@ impl Config {
     }
 }
 
-fn require_placeholder(template: &str, placeholder: &str, field: &str) -> anyhow::Result<()> {
-    if !template.contains(placeholder) {
+fn require_placeholder(template: &[String], placeholder: &str, field: &str) -> anyhow::Result<()> {
+    if !template.iter().any(|part| part == placeholder) {
         bail!("command referee {field} must contain {placeholder}");
     }
     Ok(())
