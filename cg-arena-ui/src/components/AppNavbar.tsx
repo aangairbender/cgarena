@@ -13,7 +13,7 @@ import { useDialogs } from "@/hooks/useDialogs";
 import { useAppStore } from "@/hooks/useAppStore";
 import { Link } from "@tanstack/react-router";
 
-function AppNavbar() {
+function AppNavbar({ runtimeAvailable }: { runtimeAvailable: boolean }) {
   const { submitBotDialog } = useDialogs();
   const loading = useAppStore((state) => state.loading);
   const status = useAppStore((state) => state.status);
@@ -24,8 +24,8 @@ function AppNavbar() {
   const openSubmitDialog = () => {
     submitBotDialog.show({ onSubmit: submitNewBot });
   };
-  const pillBg = status == "connected" ? "success" : "warning";
-  const pillText = status == "connected" ? "light" : "dark";
+  const connected = runtimeAvailable && status === "connected";
+  const statusText = runtimeAvailable ? status : "setup";
 
   return (
     <Navbar className="bg-body-tertiary">
@@ -40,35 +40,47 @@ function AppNavbar() {
         <Navbar.Toggle aria-controls="basic-navbar-nav" />
         <Navbar.Collapse id="basic-navbar-nav">
           <Nav className="me-auto">
-            <Link
-              to="/"
-              className="nav-link"
-              search={(prev) => ({ selectedBotId: prev.selectedBotId })}
-            >
-              Home
-            </Link>
-            <Link to="/matches" className="nav-link">
-              Matches
-            </Link>
-            {/* <Link to="/config" className="nav-link">
+            {runtimeAvailable && (
+              <>
+                <Link
+                  to="/"
+                  className="nav-link"
+                  search={(prev) => ({ selectedBotId: prev.selectedBotId })}
+                >
+                  Home
+                </Link>
+                <Link to="/matches" className="nav-link">
+                  Matches
+                </Link>
+              </>
+            )}
+            <Link to="/config" className="nav-link">
               Config
-            </Link> */}
+            </Link>
           </Nav>
         </Navbar.Collapse>
 
         <Stack direction="horizontal" gap={3}>
           {loading && <Spinner animation="border" />}
-          <Badge pill bg={pillBg} text={pillText}>
-            {status}
+          <Badge
+            pill
+            bg={connected ? "success" : "warning"}
+            text={connected ? "light" : "dark"}
+          >
+            {statusText}
           </Badge>
-          <Form.Switch
-            checked={matchmakingEnabled}
-            onChange={(e) => enableMatchmaking(e.target.checked)}
-            label="Matchmaking"
-          />
-          <Button variant="primary" onClick={openSubmitDialog}>
-            Submit a new bot
-          </Button>
+          {runtimeAvailable && (
+            <>
+              <Form.Switch
+                checked={matchmakingEnabled}
+                onChange={(event) => enableMatchmaking(event.target.checked)}
+                label="Matchmaking"
+              />
+              <Button variant="primary" onClick={openSubmitDialog}>
+                Submit a new bot
+              </Button>
+            </>
+          )}
           <ThemeSwitcher />
         </Stack>
       </Container>

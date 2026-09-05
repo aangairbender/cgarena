@@ -1,3 +1,78 @@
+export interface ConfigurationState {
+  active: ArenaConfiguration | null;
+  runtime_available: boolean;
+}
+
+export interface ArenaConfiguration {
+  game: GameConfiguration;
+  matchmaking: MatchmakingConfiguration;
+  ranking: RankingConfiguration;
+  leaderboards: LeaderboardsConfiguration;
+  workers: EmbeddedWorkerConfiguration[];
+}
+
+export interface GameConfiguration {
+  min_players: number;
+  max_players: number;
+  symmetric: boolean;
+  referee_git_url: string | null;
+}
+
+export type MatchmakingConfiguration =
+  | {
+      algorithm: "v1";
+      min_matches: number;
+      min_matches_preference: number;
+      enabled_on_start: boolean | null;
+    }
+  | {
+      algorithm: "v2";
+      min_matches_against_best: number | null;
+      min_matches_per_pair: number;
+      max_matches: number | null;
+      enabled_on_start: boolean | null;
+    };
+
+export type RankingConfiguration =
+  | {
+      algorithm: "OpenSkill";
+      beta: number | null;
+      uncertainty_tolerance: number | null;
+    }
+  | {
+      algorithm: "TrueSkill";
+      draw_probability: number | null;
+      beta: number | null;
+      default_dynamics: number | null;
+    }
+  | { algorithm: "Elo"; k: number | null }
+  | { algorithm: "BradleyTerry"; max_iter: number | null };
+
+export interface LeaderboardsConfiguration {
+  uncertainty_coefficient: number | null;
+}
+
+export interface EmbeddedWorkerConfiguration {
+  type: "embedded";
+  threads: number;
+  referee: RefereeConfiguration;
+  cmd_build: string;
+  cmd_run: string;
+}
+
+export type RefereeConfiguration =
+  | {
+      type: "codingame_jar";
+      path: string;
+      java: string | null;
+      league: number | null;
+    }
+  | {
+      type: "command";
+      play_match: string;
+      watch_replay: string;
+    };
+
 export interface CreateBotRequest {
   name: string;
   source_code: string;

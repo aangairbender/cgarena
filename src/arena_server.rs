@@ -1,10 +1,11 @@
 use crate::arena_handle::ArenaHandle;
 use crate::cg_referee::CgReferee;
-use crate::config::{Config, WorkerConfig};
+use crate::config::{BootstrapConfig, Config, WorkerConfig};
 use crate::referee_adapter::RefereeAdapter;
 use crate::replay_viewer::ReplayViewer;
 use crate::{api, arena, db, worker};
 use anyhow::{bail, Context};
+use api::RuntimeDependencies;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -15,17 +16,23 @@ use tracing::{info, warn, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
-    let config = Config::load(arena_path).context("Cannot load arena config")?;
-
-    config.validate().context("Invalid config")?;
+    let bootstrap =
+        BootstrapConfig::load(arena_path).context("Cannot load bootstrap configuration")?;
 
     let log_file = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(arena_path.join(config.log.file.unwrap_or("cgarena.log".to_string())))
+        .open(
+            arena_path.join(
+                bootstrap
+                    .log
+                    .file
+                    .unwrap_or_else(|| "cgarena.log".to_string()),
+            ),
+        )
         .context("Cannot write to cgarena.log")?;
 
-    let log_level = config
+    let log_level = bootstrap
         .log
         .level
         .and_then(|lvl| Level::from_str(&lvl).ok())
@@ -38,23 +45,16 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         .with_span_events(FmtSpan::CLOSE)
         .init();
 
-    if let Some(ref git_url) = config.game.referee_git_url {
-        if !git_url.is_empty() {
-            let cg_referee = CgReferee::new(git_url.clone(), arena_path.join("referee"));
-            cg_referee.ensure_initialized()?;
-        }
-    }
-    validate_referees(arena_path, &config.workers).await?;
-
     let pool = db::connect(arena_path)
         .await
         .context("Cannot connect to db")?;
+    db::migrate(&pool).await?;
     let token = CancellationToken::new();
-    let exposed = config.server.expose;
+    let exposed = bootstrap.server.expose;
     let addr = if exposed {
-        SocketAddr::from(([0, 0, 0, 0], config.server.port))
+        SocketAddr::from(([0, 0, 0, 0], bootstrap.server.port))
     } else {
-        SocketAddr::from(([127, 0, 0, 1], config.server.port))
+        SocketAddr::from(([127, 0, 0, 1], bootstrap.server.port))
     };
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -64,6 +64,19 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let bind_addr = listener
         .local_addr()
         .context("Cannot get local address of tcp binding")?;
+
+    let Some(config) = Config::load_legacy(arena_path).context("Cannot load arena config")? else {
+        return run_setup_server(listener, pool, token, exposed, bind_addr).await;
+    };
+    config.validate().context("Invalid config")?;
+
+    if let Some(ref git_url) = config.game.referee_git_url {
+        if !git_url.is_empty() {
+            let cg_referee = CgReferee::new(git_url.clone(), arena_path.join("referee"));
+            cg_referee.ensure_initialized()?;
+        }
+    }
+    validate_referees(arena_path, &config.workers).await?;
 
     let [WorkerConfig::Embedded(cfg)] = config.workers.as_slice() else {
         bail!("In the current version only single embedded worker supported");
@@ -88,7 +101,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
         config.matchmaking,
         config.leaderboards,
         config.ranking,
-        pool,
+        pool.clone(),
         arena_path.to_owned(),
         worker,
         arena_rx,
@@ -111,8 +124,11 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     let arena_handle = ArenaHandle::new(arena_tx);
     let mut api_task_handle = tokio::spawn(api::start(
         listener,
-        arena_handle,
-        replay_viewer.clone(),
+        pool.clone(),
+        Some(RuntimeDependencies {
+            arena_handle,
+            replay_viewer: replay_viewer.clone(),
+        }),
         token.clone(),
     ));
 
@@ -181,6 +197,45 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn run_setup_server(
+    listener: tokio::net::TcpListener,
+    pool: sqlx::SqlitePool,
+    token: CancellationToken,
+    exposed: bool,
+    bind_addr: SocketAddr,
+) -> anyhow::Result<()> {
+    let mut api_task_handle = tokio::spawn(api::start(listener, pool, None, token.clone()));
+
+    info!("CG Arena setup started");
+    println!("CG Arena setup started, press Ctrl+C to stop it");
+    println!("Local:   http://localhost:{}/", bind_addr.port());
+    if exposed {
+        if let Ok(ip) = local_ip_address::local_ip() {
+            println!("Network: http://{}:{}/", ip, bind_addr.port());
+        }
+    } else {
+        println!("Network: use 'server.expose' config param to expose");
+    }
+    println!();
+
+    tokio::select! {
+        _ = shutdown_signal() => {
+            println!("Stopping CG Arena... press Ctrl+C again to kill it");
+        },
+        result = &mut api_task_handle => {
+            result.context("API task terminated unexpectedly")?;
+            bail!("API task terminated unexpectedly");
+        }
+    }
+
+    token.cancel();
+    api_task_handle
+        .await
+        .context("API task terminated unexpectedly")?;
+    info!("CG Arena stopped");
+    Ok(())
+}
+
 async fn validate_referees(arena_path: &Path, workers: &[WorkerConfig]) -> anyhow::Result<()> {
     for worker in workers {
         let WorkerConfig::Embedded(worker) = worker;
@@ -191,31 +246,15 @@ async fn validate_referees(arena_path: &Path, workers: &[WorkerConfig]) -> anyho
     Ok(())
 }
 
-static DEFAULT_FILES: &[(&str, &str)] = &[
-    (
-        "cgarena_config.toml",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/default_config.toml"
-        )),
-    ),
-    (
-        "CommandLineInterface.java",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/CommandLineInterface.java"
-        )),
-    ),
-    (
-        "pom_build_section.xml",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/pom_build_section.xml"
-        )),
-    ),
-];
+static DEFAULT_FILES: &[(&str, &str)] = &[(
+    "cgarena_config.toml",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/bootstrap_config.toml"
+    )),
+)];
 
-pub fn init(path: &Path) -> anyhow::Result<()> {
+pub async fn init(path: &Path) -> anyhow::Result<()> {
     match std::fs::create_dir(path) {
         Ok(_) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
@@ -231,6 +270,11 @@ pub fn init(path: &Path) -> anyhow::Result<()> {
             .write_all(content.as_bytes())
             .context(format!("Cannot write to {file}"))?;
     }
+    let pool = db::connect(path)
+        .await
+        .context("Cannot create arena database")?;
+    db::migrate(&pool).await?;
+    pool.close().await;
     println!("New arena has been initialized in {}", path.display());
     Ok(())
 }
@@ -263,25 +307,36 @@ async fn shutdown_signal() {
 mod test {
     use super::*;
 
-    #[test]
-    fn new_arena_can_be_created_in_new_folder() {
+    #[tokio::test]
+    async fn new_arena_can_be_created_in_new_folder() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test");
-        init(&path).unwrap();
-        assert!(path.join("cgarena_config.toml").exists());
-        assert!(!path.join("play_game.py").exists());
-        assert!(!path.join("watch_replay.py").exists());
-        assert!(path.join("CommandLineInterface.java").exists());
-        assert!(path.join("pom_build_section.xml").exists());
+        init(&path).await.unwrap();
+
+        let bootstrap: toml::Value =
+            toml::from_str(&std::fs::read_to_string(path.join("cgarena_config.toml")).unwrap())
+                .unwrap();
+        assert_eq!(
+            bootstrap.as_table().unwrap().keys().collect::<Vec<_>>(),
+            vec!["log", "server"]
+        );
+        assert!(path.join("cgarena.db").exists());
+        assert!(!path.join("CommandLineInterface.java").exists());
+        assert!(!path.join("pom_build_section.xml").exists());
+
+        let pool = db::connect(&path).await.unwrap();
+        db::migrate(&pool).await.unwrap();
+        assert!(db::fetch_arena_config(&pool).await.unwrap().is_none());
     }
 
-    #[test]
-    fn new_arena_can_be_created_in_existing_folder() {
+    #[tokio::test]
+    async fn new_arena_can_be_created_in_existing_folder() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test");
         std::fs::create_dir(&path).unwrap();
-        init(&path).unwrap();
+        init(&path).await.unwrap();
         assert!(path.join("cgarena_config.toml").exists());
+        assert!(path.join("cgarena.db").exists());
     }
 
     #[cfg(unix)]

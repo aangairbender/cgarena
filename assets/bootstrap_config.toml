@@ -1,0 +1,10 @@
+# Settings required before the configuration UI is available.
+[server]
+# Omit or set to 0 to let the OS assign an available port.
+port = 1234
+# Expose only on a trusted local network; CG Arena has no authentication.
+expose = false
+
+[log]
+level = "INFO"
+file = "cgarena.log"

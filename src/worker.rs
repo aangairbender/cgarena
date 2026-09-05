@@ -1,4 +1,6 @@
-use crate::config::{EmbeddedWorkerConfig, RefereeConfig};
+use crate::config::EmbeddedWorkerConfig;
+#[cfg(test)]
+use crate::config::RefereeConfig;
 use crate::domain::{
     BotId, Build, BuildResult, Language, MatchAttribute, MatchAttributeValue, Participant,
     SourceCode, WorkerName,

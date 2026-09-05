@@ -1,5 +1,6 @@
 pub mod bots;
 pub mod charts;
+pub mod configuration;
 pub mod enable_matchmaking;
 pub mod fetch_status;
 pub mod leaderboards;

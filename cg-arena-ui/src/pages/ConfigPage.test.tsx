@@ -1,0 +1,155 @@
+// @vitest-environment jsdom
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { PropsWithChildren } from "react";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { ConfigurationAdapter } from "@/configuration";
+import { ArenaConfiguration, ConfigurationState } from "@/models";
+import ConfigPage from "./ConfigPage";
+
+class InMemoryConfigurationAdapter implements ConfigurationAdapter {
+  readonly applied: ArenaConfiguration[] = [];
+
+  constructor(
+    private state: ConfigurationState,
+    private readonly applyError?: Error,
+  ) {}
+
+  async fetch(): Promise<ConfigurationState> {
+    return this.state;
+  }
+
+  async apply(candidate: ArenaConfiguration): Promise<ConfigurationState> {
+    this.applied.push(candidate);
+    if (this.applyError) {
+      throw this.applyError;
+    }
+    this.state = { active: candidate, runtime_available: false };
+    return this.state;
+  }
+}
+
+function renderPage(adapter: ConfigurationAdapter) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  });
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  return render(<ConfigPage adapter={adapter} />, { wrapper });
+}
+
+afterEach(() => {
+  document.body.innerHTML = "";
+});
+
+describe("first-run configuration page", () => {
+  it("edits and atomically applies one complete arena configuration", async () => {
+    const adapter = new InMemoryConfigurationAdapter({
+      active: null,
+      runtime_available: false,
+    });
+    renderPage(adapter);
+
+    expect(
+      await screen.findByRole("heading", { name: "Set up your arena" }),
+    ).toBeTruthy();
+    for (const section of [
+      "Game",
+      "Matchmaking",
+      "Ranking and leaderboard",
+      "Embedded worker",
+      "Referee",
+    ]) {
+      expect(screen.getByText(section)).toBeTruthy();
+    }
+
+    fireEvent.change(screen.getByLabelText("Minimum players"), {
+      target: { value: "3" },
+    });
+    fireEvent.change(screen.getByLabelText("Maximum players"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText("Worker threads"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByLabelText("Ranking algorithm"), {
+      target: { value: "Elo" },
+    });
+    fireEvent.change(screen.getByLabelText("Elo K-factor"), {
+      target: { value: "24" },
+    });
+    fireEvent.change(screen.getByLabelText("Play-match command"), {
+      target: {
+        value: "my-referee {SEED} {REPLAY_PATH} {PLAYERS}",
+      },
+    });
+    fireEvent.change(screen.getByLabelText("Watch-replay command"), {
+      target: {
+        value: "my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Apply configuration" }),
+    );
+
+    await waitFor(() => expect(adapter.applied).toHaveLength(1));
+    expect(adapter.applied[0]).toMatchObject({
+      game: { min_players: 3, max_players: 4, symmetric: true },
+      matchmaking: { algorithm: "v2", enabled_on_start: true },
+      ranking: { algorithm: "Elo", k: 24 },
+      workers: [
+        {
+          type: "embedded",
+          threads: 2,
+          referee: { type: "command" },
+        },
+      ],
+    });
+    expect(
+      await screen.findByText(
+        /Configuration saved as the active configuration/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("shows server validation errors without replacing the draft", async () => {
+    const adapter = new InMemoryConfigurationAdapter(
+      { active: null, runtime_available: false },
+      new Error(
+        "Validation failed: command referee play_match must contain {SEED}",
+      ),
+    );
+    renderPage(adapter);
+
+    const playMatch = await screen.findByLabelText("Play-match command");
+    fireEvent.change(playMatch, { target: { value: "broken command" } });
+    fireEvent.change(screen.getByLabelText("Watch-replay command"), {
+      target: {
+        value:
+          "my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Apply configuration" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Validation failed: command referee play_match must contain {SEED}",
+      ),
+    ).toBeTruthy();
+    expect(adapter.applied).toHaveLength(1);
+    expect(
+      (screen.getByLabelText("Play-match command") as HTMLInputElement).value,
+    ).toBe("broken command");
+    expect(
+      screen.queryByText(/Configuration saved as the active configuration/),
+    ).toBeNull();
+  });
+});
