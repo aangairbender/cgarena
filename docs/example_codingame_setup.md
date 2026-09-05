@@ -56,8 +56,10 @@ path = "referee/target/referee.jar"
 
 Install Java 17 or newer. Patch and build the referee using
 [the referee guide](making_bt_compatible_referee.md), then place the compatible shaded JAR at
-`referee/target/referee.jar`. CG Arena invokes the JAR directly, records each match at a unique
-replay path, extracts the static replay bundle, and serves it under its own HTTP origin.
+`referee/target/referee.jar`. At startup CG Arena verifies the maintained
+`--cgarena-compat`/`cgarena-referee-v1` contract. It then invokes the JAR directly, records each
+match at a unique replay path, extracts the static replay bundle, and serves it under its own
+HTTP origin.
 
 Use the [`command` referee adapter](configuration.md#command) for a custom or non-Java referee.
 

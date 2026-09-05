@@ -14,6 +14,7 @@ mod domain;
 mod match_retrieval;
 mod matchmaking;
 mod ranking;
+mod referee_adapter;
 mod replay_artifact;
 mod replay_viewer;
 mod worker;

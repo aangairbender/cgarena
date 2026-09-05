@@ -223,7 +223,7 @@ Select exactly one referee adapter.
 
 #### `codingame_jar`
 
-Runs a CG-Arena-compatible shaded CodinGame referee JAR directly. The JAR must be executable with `java -jar` and implement the maintained `-p1` through `-p8`, `-seed`, `-l`, `-r`, and `-port` contract. CG Arena owns match-result conversion, replay persistence, static replay-bundle extraction, and renderer cleanup.
+Runs a CG-Arena-compatible shaded CodinGame referee JAR directly. The JAR must be executable with `java -jar`, implement the maintained `-p1` through `-p8`, `-seed`, `-l`, `-r`, and `-port` contract, and report `cgarena-referee-v1` for `--cgarena-compat`. CG Arena probes that version marker at startup, then owns match-result conversion, replay persistence, static replay-bundle extraction, and renderer cleanup.
 
 ```toml
 [workers.referee]
@@ -245,8 +245,9 @@ watch_replay = "my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
 ```
 
 Legacy configurations with both `cmd_play_match` and `cmd_watch_replay` directly under
-`[[workers]]` continue to load as a `command` referee. New configuration must use the tagged
-table above. Do not configure both forms; CG Arena rejects the ambiguous configuration.
+`[[workers]]` continue to load as a `command` referee with their previous validation rules.
+New configuration must use the tagged table above and include every shown placeholder. Do not
+configure both forms; CG Arena rejects the ambiguous configuration.
 
 `cmd_run` is expanded once per participant. CG Arena passes each resulting command as one player argument to the JAR adapter; it is never shell-split.
 

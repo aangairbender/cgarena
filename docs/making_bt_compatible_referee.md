@@ -211,6 +211,7 @@ The interface defines the match and replay contract:
 - `-l`: replay JSON output path
 - `-r`: replay JSON input path
 - `-port`: loopback replay renderer port, default `8888`
+- `--cgarena-compat`: print `cgarena-referee-v1` and exit
 
 Match mode writes the JSON artifact requested by `-l`, prints scores and referee input to
 stdout, prints failures to stderr, and exits nonzero on failure. Different processes may use
@@ -237,6 +238,16 @@ mvn package
 The maintained Maven configuration writes `target/referee.jar`. Keep the referee repository
 at `<arena>/referee`, matching the default native adapter path
 `<arena>/referee/target/referee.jar`.
+
+Verify the versioned CG Arena contract before running a match:
+
+```sh
+java --add-opens java.base/java.lang=ALL-UNNAMED \
+  -jar target/referee.jar --cgarena-compat
+```
+
+The command must exit `0` and print `cgarena-referee-v1`. CG Arena performs this probe during
+startup and rejects JARs built without the maintained interface.
 
 Verify a deterministic two-player match outside CG Arena:
 

@@ -1,8 +1,8 @@
 # Native CodinGame referee-JAR integration
 
-## Decision
+## Research conclusion
 
-**Implement this feature, but do not define it as “accept any `referee.jar`.”**
+This note records non-normative implementation evidence for specification issue #21. The supported product contract is: **implement this feature, but do not define it as “accept any `referee.jar`.”**
 
 A path-only configuration can remove `play_game.py` and `watch_replay.py` for the normal CodinGame workflow **when the file is an executable, self-contained, CG-Arena-compatible referee JAR**. A generic official referee source checkout or arbitrary JAR does not supply a stable command-line contract, and cannot safely be inferred.
 

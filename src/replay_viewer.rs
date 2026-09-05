@@ -1,4 +1,7 @@
 use crate::config::RefereeConfig;
+use crate::referee_adapter::{
+    import_codingame_replay_bundle, validate_codingame_replay, RefereeAdapter,
+};
 use std::{
     collections::HashMap,
     path::{Component, Path, PathBuf},
@@ -245,45 +248,41 @@ impl ReplayViewer {
         session_directory: &Path,
         participant_count: u8,
     ) -> Result<(), ReplayError> {
-        if let RefereeConfig::CodingameJar(referee) = &self.inner.referee {
+        if matches!(self.inner.referee, RefereeConfig::CodingameJar(_)) {
             return self
-                .generate_codingame_bundle(
-                    artifact_path,
-                    session_directory,
-                    participant_count,
-                    referee,
-                )
+                .generate_codingame_bundle(artifact_path, session_directory, participant_count)
                 .await;
         }
         let port = available_local_port().await?;
-        let command_parts = replay_command(
-            &self.inner.referee,
-            artifact_path,
-            session_directory,
-            port,
-            participant_count,
-        )?;
-        let mut command = Command::new(&command_parts[0]);
+        let prepared = RefereeAdapter::from(&self.inner.referee)
+            .prepare_replay_command(
+                artifact_path,
+                session_directory,
+                session_directory,
+                port,
+                participant_count,
+            )
+            .map_err(|error| ReplayError::InvalidCommand(error.to_string()))?;
+        let mut command = Command::new(prepared.program);
         command
-            .args(&command_parts[1..])
+            .args(prepared.args)
             .current_dir(&self.inner.arena_path)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         #[cfg(unix)]
         command.process_group(0);
-        let mut child = command
-            .spawn()
+        let mut renderer = ManagedRenderer::spawn(command)
             .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| ReplayError::Internal("cannot capture renderer stderr".to_string()))?;
+        let stderr =
+            renderer.child_mut().stderr.take().ok_or_else(|| {
+                ReplayError::Internal("cannot capture renderer stderr".to_string())
+            })?;
         let stderr_task = tokio::spawn(read_stderr(stderr));
-        let status = match timeout(self.inner.startup_timeout, child.wait()).await {
+        let status = match timeout(self.inner.startup_timeout, renderer.wait()).await {
             Ok(result) => result.map_err(|error| ReplayError::StartupFailed(error.to_string()))?,
             Err(_) => {
-                let _ = terminate_renderer(&mut child).await;
+                let _ = renderer.terminate().await;
                 let stderr = stderr_task
                     .await
                     .ok()
@@ -319,25 +318,23 @@ impl ReplayViewer {
         artifact_path: &Path,
         session_directory: &Path,
         participant_count: u8,
-        referee: &crate::config::CodingameJarRefereeConfig,
     ) -> Result<(), ReplayError> {
-        validate_codingame_replay(artifact_path, participant_count).await?;
+        validate_codingame_replay(artifact_path, participant_count)
+            .await
+            .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
         let temporary_directory = session_directory.join(format!(".jvm-{}", Uuid::new_v4()));
         fs::create_dir_all(&temporary_directory)
             .await
             .map_err(|error| ReplayError::Internal(error.to_string()))?;
-        let temporary_directory = fs::canonicalize(&temporary_directory)
-            .await
-            .map_err(|error| ReplayError::Internal(error.to_string()))?;
+        let temporary_directory = RendererTemporaryDirectory::new(
+            fs::canonicalize(&temporary_directory)
+                .await
+                .map_err(|error| ReplayError::Internal(error.to_string()))?,
+        );
         let result = self
-            .run_codingame_renderer(
-                artifact_path,
-                session_directory,
-                &temporary_directory,
-                referee,
-            )
+            .run_codingame_renderer(artifact_path, session_directory, temporary_directory.path())
             .await;
-        let _ = fs::remove_dir_all(&temporary_directory).await;
+        let _ = fs::remove_dir_all(temporary_directory.path()).await;
         result
     }
 
@@ -346,36 +343,35 @@ impl ReplayViewer {
         artifact_path: &Path,
         session_directory: &Path,
         temporary_directory: &Path,
-        referee: &crate::config::CodingameJarRefereeConfig,
     ) -> Result<(), ReplayError> {
         let port = available_local_port().await?;
-        let mut command = Command::new(referee.java.as_deref().unwrap_or("java"));
+        let prepared = RefereeAdapter::from(&self.inner.referee)
+            .prepare_replay_command(
+                artifact_path,
+                session_directory,
+                temporary_directory,
+                port,
+                0,
+            )
+            .map_err(|error| ReplayError::InvalidCommand(error.to_string()))?;
+        let mut command = Command::new(prepared.program);
         command
-            .args([
-                format!("-Djava.io.tmpdir={}", temporary_directory.display()),
-                "--add-opens".to_string(),
-                "java.base/java.lang=ALL-UNNAMED".to_string(),
-                "-jar".to_string(),
-                referee.path.clone(),
-                "-r".to_string(),
-                artifact_path.to_string_lossy().to_string(),
-                "-port".to_string(),
-                port.to_string(),
-            ])
+            .args(prepared.args)
             .current_dir(&self.inner.arena_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         #[cfg(unix)]
         command.process_group(0);
-        let mut child = command
-            .spawn()
+        let mut renderer = ManagedRenderer::spawn(command)
             .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
-        let stdout = child
+        let stdout = renderer
+            .child_mut()
             .stdout
             .take()
             .expect("renderer stdout is configured as piped");
-        let stderr = child
+        let stderr = renderer
+            .child_mut()
             .stderr
             .take()
             .expect("renderer stderr is configured as piped");
@@ -389,7 +385,7 @@ impl ReplayViewer {
                 result.unwrap_or_else(|_| Err(ReplayError::StartupTimeout(String::new())))
             }
         };
-        let termination_result = terminate_renderer(&mut child).await;
+        let termination_result = renderer.terminate().await;
         let stderr = stderr_task
             .await
             .map_err(|error| ReplayError::Internal(error.to_string()))?
@@ -412,9 +408,7 @@ impl ReplayViewer {
                 "renderer exposed a directory outside its temporary directory".to_string(),
             ));
         }
-        copy_directory(&exposed, session_directory)
-            .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
-        normalize_replay_bundle(session_directory)
+        import_codingame_replay_bundle(&exposed, session_directory)
             .map_err(|error| ReplayError::StartupFailed(error.to_string()))?;
         if !session_directory.join("test.html").is_file() {
             return Err(ReplayError::StartupFailed(
@@ -462,28 +456,6 @@ impl ReplayViewer {
     }
 }
 
-async fn validate_codingame_replay(
-    artifact_path: &Path,
-    participant_count: u8,
-) -> Result<(), ReplayError> {
-    let bytes = fs::read(artifact_path)
-        .await
-        .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
-    let replay: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
-    let agents = replay
-        .get("agents")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| ReplayError::InvalidArtifact("artifact has no agents array".to_string()))?;
-    if agents.len() != usize::from(participant_count) {
-        return Err(ReplayError::InvalidArtifact(format!(
-            "artifact has {} participants, match has {participant_count}",
-            agents.len()
-        )));
-    }
-    Ok(())
-}
-
 async fn read_exposed_directory<R>(lines: &mut tokio::io::Lines<R>) -> Result<PathBuf, ReplayError>
 where
     R: tokio::io::AsyncBufRead + Unpin,
@@ -515,18 +487,93 @@ fn with_renderer_stderr(error: ReplayError, stderr: &[u8]) -> ReplayError {
     }
 }
 
-async fn terminate_renderer(child: &mut Child) -> std::io::Result<()> {
-    #[cfg(unix)]
-    if let Some(pid) = child.id() {
-        // The renderer is launched in its own process group; a negative PID addresses the group.
-        let result = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
-        if result == -1 {
-            let error = std::io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error);
-            }
+struct RendererTemporaryDirectory {
+    path: PathBuf,
+}
+
+impl RendererTemporaryDirectory {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for RendererTemporaryDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+struct ManagedRenderer {
+    child: Option<Child>,
+}
+
+impl ManagedRenderer {
+    fn spawn(mut command: Command) -> std::io::Result<Self> {
+        Ok(Self {
+            child: Some(command.spawn()?),
+        })
+    }
+
+    fn child_mut(&mut self) -> &mut Child {
+        self.child
+            .as_mut()
+            .expect("managed renderer child is present")
+    }
+
+    async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        let status = self.child_mut().wait().await?;
+        self.child.take();
+        Ok(status)
+    }
+
+    async fn terminate(&mut self) -> std::io::Result<()> {
+        let Some(mut child) = self.child.take() else {
+            return Ok(());
+        };
+        terminate_renderer(&mut child).await
+    }
+}
+
+impl Drop for ManagedRenderer {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+        #[cfg(unix)]
+        let _ = kill_renderer_process_group(&child);
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let _ = terminate_renderer(&mut child).await;
+            });
+        } else {
+            let _ = child.start_kill();
         }
     }
+}
+
+#[cfg(unix)]
+fn kill_renderer_process_group(child: &Child) -> std::io::Result<()> {
+    let Some(pid) = child.id() else {
+        return Ok(());
+    };
+    // Renderers launch in their own process group; a negative PID addresses the full tree.
+    let result = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+    if result == -1 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+async fn terminate_renderer(child: &mut Child) -> std::io::Result<()> {
+    #[cfg(unix)]
+    kill_renderer_process_group(child)?;
     #[cfg(windows)]
     if let Some(pid) = child.id() {
         let _ = Command::new("taskkill")
@@ -539,98 +586,6 @@ async fn terminate_renderer(child: &mut Child) -> std::io::Result<()> {
         let _ = child.start_kill();
     }
     child.wait().await.map(|_| ())
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(source)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        if file_type.is_symlink() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "renderer bundle contains a symbolic link",
-            ));
-        }
-        let target = destination.join(entry.file_name());
-        if file_type.is_dir() {
-            std::fs::create_dir_all(&target)?;
-            copy_directory(&entry.path(), &target)?;
-        } else if file_type.is_file() {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
-}
-fn normalize_replay_bundle(directory: &Path) -> std::io::Result<()> {
-    let assets = directory.join("assets");
-    if assets.is_dir() {
-        let nested = assets.join("assets");
-        std::fs::create_dir_all(&nested)?;
-        for entry in std::fs::read_dir(&assets)? {
-            let entry = entry?;
-            if entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "png")
-            {
-                std::fs::copy(entry.path(), nested.join(entry.file_name()))?;
-            }
-        }
-    }
-    let app = directory.join("app.js");
-    if app.is_file() {
-        let content = std::fs::read_to_string(&app)?
-            .replace("from '../config.js'", "from './config.js'")
-            .replace("from '../demo.js'", "from './demo.js'")
-            .replace(
-                "viewerUrl: '/core/Drawer.js'",
-                "viewerUrl: './core/Drawer.js'",
-            );
-        std::fs::write(app, content)?;
-    }
-    Ok(())
-}
-
-fn replay_command(
-    referee: &RefereeConfig,
-    artifact_path: &Path,
-    session_directory: &Path,
-    port: u16,
-    participant_count: u8,
-) -> Result<Vec<String>, ReplayError> {
-    let RefereeConfig::Command(referee) = referee else {
-        return Err(ReplayError::InvalidCommand(
-            "codingame_jar replay rendering is not implemented".to_string(),
-        ));
-    };
-    let mut parts = shell_words::split(&referee.watch_replay)
-        .map_err(|error| ReplayError::InvalidCommand(error.to_string()))?;
-    if parts.is_empty() {
-        return Err(ReplayError::InvalidCommand(
-            "cmd_watch_replay must not be blank".to_string(),
-        ));
-    }
-
-    let port = port.to_string();
-    let participant_count = participant_count.to_string();
-    let replacements = [
-        ("{REPLAY_PATH}", artifact_path.to_str()),
-        ("{REPLAY_DIR}", session_directory.to_str()),
-        ("{PORT}", Some(port.as_str())),
-        ("{PLAYER_COUNT}", Some(participant_count.as_str())),
-    ];
-    for (placeholder, value) in replacements {
-        let value = value.ok_or_else(|| {
-            ReplayError::InvalidCommand(format!("{placeholder} value is not valid UTF-8"))
-        })?;
-        let Some(part) = parts.iter_mut().find(|part| part.as_str() == placeholder) else {
-            return Err(ReplayError::InvalidCommand(format!(
-                "cmd_watch_replay must contain {placeholder}"
-            )));
-        };
-        *part = value.to_string();
-    }
-    Ok(parts)
 }
 
 async fn available_local_port() -> Result<u16, ReplayError> {
@@ -726,6 +681,7 @@ mod tests {
             RefereeConfig::Command(crate::config::CommandRefereeConfig {
                 play_match: "true".to_string(),
                 watch_replay: command,
+                legacy: false,
             }),
             startup_timeout,
             Duration::from_secs(60),
@@ -951,7 +907,7 @@ exec sleep 30"#,
             codingame_fixture(
             "echo $$ > renderer.pid\nsleep 30 &\necho $! > renderer-child.pid\necho actionable-timeout >&2\nwait",
             r#"{"agents":[{},{}]}"#,
-            Duration::from_secs(1),
+            Duration::from_secs(3),
         )
         .await;
 
@@ -1030,6 +986,49 @@ exec sleep 30"#,
                 .starts_with(".jvm-")
         }));
     }
+
+    #[tokio::test]
+    async fn codingame_renderer_is_reaped_when_request_future_is_dropped() {
+        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
+            codingame_fixture(
+                "echo $$ > renderer.pid\nsleep 30 &\necho $! > renderer-child.pid\nwait",
+                r#"{"agents":[{},{}]}"#,
+                Duration::from_secs(30),
+            )
+            .await;
+        let renderer_pid = temporary_directory
+            .path()
+            .join("codingame arena/renderer.pid");
+        let renderer_child_pid = temporary_directory
+            .path()
+            .join("codingame arena/renderer-child.pid");
+        let session_for_request = session.clone();
+        let request = tokio::spawn(async move {
+            viewer
+                .generate_bundle(&artifact, &session_for_request, 2)
+                .await
+        });
+        for _ in 0..200 {
+            if renderer_child_pid.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(renderer_child_pid.exists(), "renderer did not start");
+
+        request.abort();
+        let _ = request.await;
+
+        assert_process_gone(&renderer_pid).await;
+        assert_process_gone(&renderer_child_pid).await;
+        assert!(!std::fs::read_dir(&session).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".jvm-")
+        }));
+    }
     #[tokio::test]
     async fn codingame_renderer_returns_early_stderr() {
         let (_temporary_directory, viewer, artifact, session, _cancellation_token) =
@@ -1064,41 +1063,42 @@ exec sleep 30"#,
 
     #[test]
     fn replay_command_preserves_quoted_paths_and_requires_contract() {
-        let command = replay_command(
-            &RefereeConfig::Command(crate::config::CommandRefereeConfig {
-                play_match: "true".to_string(),
-                watch_replay: "\"renderer path\" {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
-                    .to_string(),
-            }),
-            Path::new("/artifact path/replay.json"),
-            Path::new("/session path"),
-            12345,
-            4,
-        )
-        .unwrap();
+        let config = RefereeConfig::Command(crate::config::CommandRefereeConfig {
+            play_match: "true".to_string(),
+            watch_replay: "\"renderer path\" {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
+                .to_string(),
+            legacy: false,
+        });
+        let command = RefereeAdapter::from(&config)
+            .prepare_replay_command(
+                Path::new("/artifact path/replay.json"),
+                Path::new("/session path"),
+                Path::new("/unused"),
+                12345,
+                4,
+            )
+            .unwrap();
+        assert_eq!(command.program, "renderer path");
         assert_eq!(
-            command,
-            [
-                "renderer path",
-                "/artifact path/replay.json",
-                "/session path",
-                "12345",
-                "4",
-            ]
+            command.args,
+            ["/artifact path/replay.json", "/session path", "12345", "4",]
         );
 
-        assert!(matches!(
-            replay_command(
-                &RefereeConfig::Command(crate::config::CommandRefereeConfig {
-                    play_match: "true".to_string(),
-                    watch_replay: "renderer {REPLAY_PATH}".to_string(),
-                }),
-                Path::new("replay.json"),
-                Path::new("session"),
-                1,
-                2,
-            ),
-            Err(ReplayError::InvalidCommand(_))
-        ));
+        let incomplete = RefereeConfig::Command(crate::config::CommandRefereeConfig {
+            play_match: "true".to_string(),
+            watch_replay: "renderer {REPLAY_PATH}".to_string(),
+            legacy: false,
+        });
+        let result = RefereeAdapter::from(&incomplete).prepare_replay_command(
+            Path::new("replay.json"),
+            Path::new("session"),
+            Path::new("unused"),
+            1,
+            2,
+        );
+        let Err(error) = result else {
+            panic!("incomplete replay command must be rejected");
+        };
+        assert!(error.to_string().contains("{REPLAY_DIR}"));
     }
 }

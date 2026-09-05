@@ -31,7 +31,7 @@ file = "cgarena.log"
 # `referee` selects exactly one match/replay integration:
 # - codingame_jar runs a compatible shaded CodinGame JAR directly.
 # - command preserves the custom referee command contract.
-# codingame_jar requires an executable JAR implementing -p1..-p8, -seed, -l, -r, and -port.
+# codingame_jar requires -p1..-p8, -seed, -l, -r, -port, and --cgarena-compat.
 # cmd_build builds a bot and cmd_run returns its complete command line.
 # 'cmd_build' should output bot's executable to the same folder
 [[workers]]
@@ -43,7 +43,7 @@ cmd_run = "./{DIR}/a"
 [workers.referee]
 type = "codingame_jar"
 path = "referee/target/referee.jar"
- 
+
 
 # or a generic version
 # cmd_run = "sh run.sh {DIR} {LANG}"

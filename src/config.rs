@@ -80,6 +80,7 @@ impl<'de> Deserialize<'de> for EmbeddedWorkerConfig {
                 RefereeConfig::Command(CommandRefereeConfig {
                     play_match,
                     watch_replay,
+                    legacy: true,
                 })
             }
             (Some(_), _, _) => {
@@ -120,6 +121,8 @@ pub struct CodingameJarRefereeConfig {
 pub struct CommandRefereeConfig {
     pub play_match: String,
     pub watch_replay: String,
+    #[serde(skip)]
+    pub(crate) legacy: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -202,11 +205,36 @@ impl Config {
                     if config.watch_replay.split_ascii_whitespace().count() == 0 {
                         bail!("command referee watch_replay must not be blank");
                     }
+                    if !config.legacy {
+                        require_placeholder(&config.play_match, "{SEED}", "play_match")?;
+                        require_placeholder(&config.play_match, "{REPLAY_PATH}", "play_match")?;
+                        if !config.play_match.contains("{PLAYERS}") {
+                            for player in 1..=self.game.max_players {
+                                require_placeholder(
+                                    &config.play_match,
+                                    &format!("{{P{player}}}"),
+                                    "play_match",
+                                )?;
+                            }
+                        }
+                        for placeholder in
+                            ["{REPLAY_PATH}", "{REPLAY_DIR}", "{PORT}", "{PLAYER_COUNT}"]
+                        {
+                            require_placeholder(&config.watch_replay, placeholder, "watch_replay")?;
+                        }
+                    }
                 }
             }
         }
         Ok(())
     }
+}
+
+fn require_placeholder(template: &str, placeholder: &str, field: &str) -> anyhow::Result<()> {
+    if !template.contains(placeholder) {
+        bail!("command referee {field} must contain {placeholder}");
+    }
+    Ok(())
 }
 
 const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
@@ -222,7 +250,8 @@ mod test {
 
     #[test]
     fn default_config_is_valid() {
-        let _: Config = toml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
+        let config: Config = toml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
+        config.validate().expect("default config should validate");
     }
 
     #[test]
@@ -260,6 +289,42 @@ watch_replay = "new""#,
         };
 
         assert!(error.to_string().contains("cannot be combined"));
+    }
+
+    #[test]
+    fn tagged_command_referee_requires_complete_templates() {
+        let mut config = Config::default();
+        let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
+            panic!("default config must contain one embedded worker");
+        };
+        worker.referee = RefereeConfig::Command(CommandRefereeConfig {
+            play_match: "runner {SEED} {REPLAY_PATH} {PLAYERS}".to_string(),
+            watch_replay: "renderer {REPLAY_PATH}".to_string(),
+            legacy: false,
+        });
+
+        let error = config.validate().unwrap_err();
+
+        assert!(error.to_string().contains("{REPLAY_DIR}"));
+    }
+
+    #[test]
+    fn migrated_legacy_command_templates_keep_previous_validation_rules() {
+        let legacy: EmbeddedWorkerConfig = toml::from_str(
+            r#"threads = 1
+cmd_play_match = "runner"
+cmd_watch_replay = "renderer"
+cmd_build = "build"
+cmd_run = "run""#,
+        )
+        .unwrap();
+        let mut config = Config::default();
+        let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
+            panic!("default config must contain one embedded worker");
+        };
+        worker.referee = legacy.referee;
+
+        config.validate().unwrap();
     }
 
     #[test]

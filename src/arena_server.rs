@@ -1,6 +1,7 @@
 use crate::arena_handle::ArenaHandle;
 use crate::cg_referee::CgReferee;
-use crate::config::{Config, RefereeConfig, WorkerConfig};
+use crate::config::{Config, WorkerConfig};
+use crate::referee_adapter::RefereeAdapter;
 use crate::replay_viewer::ReplayViewer;
 use crate::{api, arena, db, worker};
 use anyhow::{bail, Context};
@@ -43,7 +44,7 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
             cg_referee.ensure_initialized()?;
         }
     }
-    validate_referee_paths(arena_path, &config.workers)?;
+    validate_referees(arena_path, &config.workers).await?;
 
     let pool = db::connect(arena_path)
         .await
@@ -180,24 +181,12 @@ pub async fn start(arena_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_referee_paths(arena_path: &Path, workers: &[WorkerConfig]) -> anyhow::Result<()> {
+async fn validate_referees(arena_path: &Path, workers: &[WorkerConfig]) -> anyhow::Result<()> {
     for worker in workers {
         let WorkerConfig::Embedded(worker) = worker;
-        if let RefereeConfig::CodingameJar(referee) = &worker.referee {
-            let path = arena_path.join(&referee.path);
-            let metadata = std::fs::metadata(&path).with_context(|| {
-                format!("Cannot read codingame referee JAR at {}", path.display())
-            })?;
-            if !metadata.is_file() {
-                bail!(
-                    "Codingame referee JAR must be a regular file: {}",
-                    path.display()
-                );
-            }
-            std::fs::File::open(&path).with_context(|| {
-                format!("Cannot read codingame referee JAR at {}", path.display())
-            })?;
-        }
+        RefereeAdapter::from(&worker.referee)
+            .validate_startup(arena_path)
+            .await?;
     }
     Ok(())
 }
@@ -295,18 +284,45 @@ mod test {
         assert!(path.join("cgarena_config.toml").exists());
     }
 
-    #[test]
-    fn codingame_referee_path_is_validated_relative_to_arena() {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codingame_referee_compatibility_is_validated_relative_to_arena() {
+        use std::os::unix::fs::PermissionsExt;
+
         let arena = tempfile::tempdir().unwrap();
         let jar = arena.path().join("referee/target/referee.jar");
         std::fs::create_dir_all(jar.parent().unwrap()).unwrap();
         std::fs::write(&jar, b"fixture").unwrap();
-        let config = Config::default();
+        let java = arena.path().join("fake-java.sh");
+        std::fs::write(
+            &java,
+            "#!/bin/sh\ntest \"$5\" = --cgarena-compat\nprintf '%s\\n' cgarena-referee-v1\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&java).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&java, permissions).unwrap();
+        let mut config = Config::default();
+        let WorkerConfig::Embedded(worker) = &mut config.workers[0];
+        let crate::config::RefereeConfig::CodingameJar(referee) = &mut worker.referee else {
+            panic!("default worker must use codingame_jar");
+        };
+        referee.java = Some(java.to_string_lossy().to_string());
 
-        validate_referee_paths(arena.path(), &config.workers).unwrap();
+        validate_referees(arena.path(), &config.workers)
+            .await
+            .unwrap();
+
+        std::fs::write(&java, "#!/bin/sh\necho incompatible\nexit 1\n").unwrap();
+        let error = validate_referees(arena.path(), &config.workers)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("unsupported referee JAR"));
 
         std::fs::remove_file(&jar).unwrap();
-        let error = validate_referee_paths(arena.path(), &config.workers).unwrap_err();
+        let error = validate_referees(arena.path(), &config.workers)
+            .await
+            .unwrap_err();
         assert!(error.to_string().contains("referee.jar"));
     }
 }

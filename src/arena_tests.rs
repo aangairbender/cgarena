@@ -48,6 +48,7 @@ async fn create_test_arena(mut config: Config, play_output: Option<&str>) -> Tes
         crate::config::RefereeConfig::Command(crate::config::CommandRefereeConfig {
             play_match: format!("sh {}", shell_words::quote(&play_script.to_string_lossy())),
             watch_replay: "true".to_string(),
+            legacy: false,
         });
 
     let StartedWorker { worker, supervisor } =
