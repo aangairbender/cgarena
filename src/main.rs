@@ -76,7 +76,7 @@ async fn handle_cli_command(command: Commands) -> anyhow::Result<()> {
     match command {
         Commands::Init { path } => {
             let path = unwrap_or_current_dir(path)?;
-            arena_server::init(&path)?;
+            arena_server::init(&path).await?;
         }
         Commands::Run { path } => {
             let path = unwrap_or_current_dir(path)?;

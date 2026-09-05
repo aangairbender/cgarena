@@ -38,27 +38,18 @@ cd summer-challenge-2025
 
 ## Configuring the arena
 
-The `cgarena init` command generates the arena configuration plus the maintained Java CLI and
-Maven build patch used to produce a compatible CodinGame referee JAR:
+The `cgarena init` command creates:
 
-- `cgarena_config.toml`
-- `CommandLineInterface.java`
-- `pom_build_section.xml`
+- `cgarena_config.toml`, containing only server and logging bootstrap settings;
+- `cgarena.db`, containing arena behavior configuration and arena data.
 
-The default configuration runs `referee/target/referee.jar` directly; Python launchers are not
-required. Read the [configuration reference](configuration.md) and restart the arena after changes.
+Run the arena, open its **Local** URL, and complete the first-run form. The form validates and
+saves one complete game, matchmaking, ranking, leaderboard, embedded-worker, and referee
+configuration. Until a usable runtime is active, match, bot, matchmaking, and replay APIs report
+that the arena is unavailable while the setup page remains accessible.
 
-The default config supports c++ out of the box.
-
-The important params to configure:
-- `[game]`
-    - `min_players`: min amount of bots per match
-    - `max_players`: max amount of bots per match 
-    - `symmetric`: whether the game is symmetric
-- `[[workers]]`
-    - `threads`: amount of concurrent matches to run (check your CPU load when increasing)
-
-Refer to [this document](configuration.md) for complete configuration options.
+Read the [configuration reference](configuration.md) for every setting. Server bind and logging
+changes still require a restart because they are needed before the configuration UI starts.
 
 ## Running the arena
 
@@ -81,11 +72,8 @@ Local:   http://localhost:1234/
 Network: use 'server.expose' config param to expose
 ```
 
-Open the **Local** URL in your browser to access the web UI.
-
-The arena should initially look like this:
-
-![fresh-arena](img/fresh_arena.png)
+Open the **Local** URL in your browser. A new arena opens its first-run configuration form before
+bot submission, matchmaking, matches, or replays become available.
 
 The UI theme (light or dark) is selected based on your operating system settings.
 

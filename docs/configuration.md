@@ -1,6 +1,13 @@
 # Configuration reference
 
-CG Arena uses [toml](https://toml.io/) format for its' config.
+New arenas store game, matchmaking, ranking, leaderboard, worker, and referee settings in the
+database. Edit them together on the web UI's **Config** page; **Apply configuration** validates
+and saves the complete candidate atomically. Invalid candidates do not replace the active
+configuration.
+
+`cgarena_config.toml` is the bootstrap file. It contains only `[server]` and `[log]`, because
+those settings are required before the HTTP application can start. The remaining sections below
+describe database-backed UI fields and their legacy TOML representation.
 
 ## `[game]`
 

@@ -1,7 +1,8 @@
+use crate::config::ArenaConfig;
 use crate::domain::{
     Bot, BotId, Build, BuildResult, BuildStatus, Leaderboard, LeaderboardId, Match, MatchId,
 };
-use anyhow::bail;
+use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use indoc::indoc;
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, SqlitePool};
@@ -93,6 +94,12 @@ pub async fn connect(arena_path: &Path) -> anyhow::Result<SqlitePool> {
     let pool = SqlitePool::connect_with(opts).await?;
     Ok(pool)
 }
+pub async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::migrate!()
+        .run(pool)
+        .await
+        .context("Cannot run db migrations")
+}
 
 /// for tests
 #[cfg(test)]
@@ -104,6 +111,31 @@ pub async fn in_memory() -> anyhow::Result<SqlitePool> {
         .connect("sqlite::memory:")
         .await?;
     Ok(pool)
+}
+pub async fn fetch_arena_config(pool: &SqlitePool) -> anyhow::Result<Option<ArenaConfig>> {
+    let config_json: Option<String> =
+        sqlx::query_scalar("SELECT config_json FROM arena_configuration WHERE id = 1")
+            .fetch_optional(pool)
+            .await?;
+    config_json
+        .map(|json| {
+            serde_json::from_str(&json).context("Stored arena configuration is not valid JSON")
+        })
+        .transpose()
+}
+
+pub async fn persist_arena_config(pool: &SqlitePool, config: &ArenaConfig) -> anyhow::Result<()> {
+    config.validate()?;
+    let config_json =
+        serde_json::to_string(config).context("Cannot serialize arena configuration")?;
+    sqlx::query(
+        "INSERT INTO arena_configuration (id, config_json) VALUES (1, $1) \
+         ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json",
+    )
+    .bind(config_json)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 pub async fn persist_bot(pool: &SqlitePool, bot: &mut Bot) -> anyhow::Result<()> {

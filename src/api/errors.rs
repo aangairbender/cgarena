@@ -13,6 +13,8 @@ pub enum ApiError {
 
     #[error("Conflict: {0}")]
     Conflict(anyhow::Error),
+    #[error("Arena runtime is unavailable because its prerequisites are not active")]
+    RuntimeUnavailable,
 
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -26,6 +28,7 @@ impl ApiError {
             ApiError::NotFound => StatusCode::NOT_FOUND,
             ApiError::ValidationFailed(_) => StatusCode::BAD_REQUEST,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
+            ApiError::RuntimeUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::Replay(error) => match error {
                 crate::replay_viewer::ReplayError::MatchNotFound
@@ -50,6 +53,7 @@ impl ApiError {
             ApiError::NotFound => "not_found",
             ApiError::ValidationFailed(_) => "validation_failed",
             ApiError::Conflict(_) => "already_exists",
+            ApiError::RuntimeUnavailable => "arena_unavailable",
             ApiError::Internal(_) => "internal_error",
             ApiError::Replay(error) => match error {
                 crate::replay_viewer::ReplayError::MatchNotFound

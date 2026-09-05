@@ -22,6 +22,24 @@ pub struct Config {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct ArenaConfig {
+    pub game: GameConfig,
+    pub matchmaking: MatchmakingConfig,
+    pub ranking: RankingConfig,
+    #[serde(default)]
+    pub leaderboards: LeaderboardsConfig,
+    pub workers: Vec<WorkerConfig>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct BootstrapConfig {
+    #[serde(default)]
+    pub server: ServerConfig,
+    #[serde(default)]
+    pub log: LogConfig,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct GameConfig {
     pub min_players: u32,
     pub max_players: u32,
@@ -149,89 +167,156 @@ impl Default for Config {
         toml::from_str(DEFAULT_CONFIG_CONTENT).unwrap()
     }
 }
+impl From<Config> for ArenaConfig {
+    fn from(config: Config) -> Self {
+        Self {
+            game: config.game,
+            matchmaking: config.matchmaking,
+            ranking: config.ranking,
+            leaderboards: config.leaderboards,
+            workers: config.workers,
+        }
+    }
+}
+
+impl Default for ArenaConfig {
+    fn default() -> Self {
+        Config::default().into()
+    }
+}
 
 impl Config {
-    pub fn load(arena_path: &Path) -> Result<Config, anyhow::Error> {
-        let path = arena_path.join(CONFIG_FILE_NAME);
-        let config_content = std::fs::read_to_string(path).context("Cannot open config file")?;
-        let config: Config =
+    pub fn load_legacy(arena_path: &Path) -> Result<Option<Config>, anyhow::Error> {
+        let config_content = read_config_file(arena_path)?;
+        let value: toml::Value =
             toml::from_str(&config_content).context("Config file format should be a valid TOML")?;
-        Ok(config)
+        if value.get("game").is_none() {
+            return Ok(None);
+        }
+        value
+            .try_into()
+            .map(Some)
+            .context("Config file format should be a valid arena configuration")
     }
 
     pub fn validate(&self) -> Result<(), anyhow::Error> {
-        if self.game.max_players > 8 {
-            bail!("Games with up to 8 players are supported");
-        }
-        if self.game.min_players > self.game.max_players {
-            bail!("game.max_players must be not less than game.min_players");
-        }
-        for config in &self.workers {
-            let WorkerConfig::Embedded(config) = config;
-            if config.threads == 0 {
-                bail!("embedded worker must have at least one thread");
-            }
-
-            if config.cmd_build.split_ascii_whitespace().count() == 0 {
-                bail!("cmd_build must not be blank");
-            }
-            if config.cmd_run.split_ascii_whitespace().count() == 0 {
-                bail!("cmd_run must not be blank");
-            }
-            match &config.referee {
-                RefereeConfig::CodingameJar(config) => {
-                    if config.path.trim().is_empty() {
-                        bail!("codingame_jar referee path must not be blank");
-                    }
-                    if config
-                        .java
-                        .as_deref()
-                        .is_some_and(|java| java.trim().is_empty())
-                    {
-                        bail!("codingame_jar referee java must not be blank");
-                    }
-                    if config
-                        .league
-                        .is_some_and(|league| league == 0 || league >= 20)
-                    {
-                        bail!("codingame_jar referee league must be between 1 and 19");
-                    }
-                }
-
-                RefereeConfig::Command(config) => {
-                    if config.play_match.split_ascii_whitespace().count() == 0 {
-                        bail!("command referee play_match must not be blank");
-                    }
-                    if config.watch_replay.split_ascii_whitespace().count() == 0 {
-                        bail!("command referee watch_replay must not be blank");
-                    }
-                    if !config.legacy {
-                        let play_match = shell_words::split(&config.play_match)
-                            .context("command referee play_match has invalid quoting")?;
-                        let watch_replay = shell_words::split(&config.watch_replay)
-                            .context("command referee watch_replay has invalid quoting")?;
-                        require_placeholder(&play_match, "{SEED}", "play_match")?;
-                        require_placeholder(&play_match, "{REPLAY_PATH}", "play_match")?;
-                        if !play_match.iter().any(|part| part == "{PLAYERS}") {
-                            for player in 1..=self.game.max_players {
-                                require_placeholder(
-                                    &play_match,
-                                    &format!("{{P{player}}}"),
-                                    "play_match",
-                                )?;
-                            }
-                        }
-                        for placeholder in
-                            ["{REPLAY_PATH}", "{REPLAY_DIR}", "{PORT}", "{PLAYER_COUNT}"]
-                        {
-                            require_placeholder(&watch_replay, placeholder, "watch_replay")?;
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
+        validate_arena_config(
+            &self.game,
+            &self.matchmaking,
+            &self.ranking,
+            &self.leaderboards,
+            &self.workers,
+        )
     }
+}
+
+impl ArenaConfig {
+    pub fn validate(&self) -> Result<(), anyhow::Error> {
+        validate_arena_config(
+            &self.game,
+            &self.matchmaking,
+            &self.ranking,
+            &self.leaderboards,
+            &self.workers,
+        )
+    }
+}
+
+impl BootstrapConfig {
+    pub fn load(arena_path: &Path) -> Result<Self, anyhow::Error> {
+        let config_content = read_config_file(arena_path)?;
+        toml::from_str(&config_content)
+            .context("Config file format should contain valid server and logging settings")
+    }
+}
+
+fn read_config_file(arena_path: &Path) -> anyhow::Result<String> {
+    std::fs::read_to_string(arena_path.join(CONFIG_FILE_NAME)).context("Cannot open config file")
+}
+
+fn validate_arena_config(
+    game: &GameConfig,
+    _matchmaking: &MatchmakingConfig,
+    _ranking: &RankingConfig,
+    _leaderboards: &LeaderboardsConfig,
+    workers: &[WorkerConfig],
+) -> Result<(), anyhow::Error> {
+    if game.min_players == 0 {
+        bail!("game.min_players must be at least 1");
+    }
+    if game.max_players > 8 {
+        bail!("Games with up to 8 players are supported");
+    }
+    if game.min_players > game.max_players {
+        bail!("game.max_players must be not less than game.min_players");
+    }
+    if workers.len() != 1 {
+        bail!("exactly one embedded worker must be configured");
+    }
+    for config in workers {
+        let WorkerConfig::Embedded(config) = config;
+        if config.threads == 0 {
+            bail!("embedded worker must have at least one thread");
+        }
+
+        if config.cmd_build.split_ascii_whitespace().count() == 0 {
+            bail!("cmd_build must not be blank");
+        }
+        if config.cmd_run.split_ascii_whitespace().count() == 0 {
+            bail!("cmd_run must not be blank");
+        }
+        match &config.referee {
+            RefereeConfig::CodingameJar(config) => {
+                if config.path.trim().is_empty() {
+                    bail!("codingame_jar referee path must not be blank");
+                }
+                if config
+                    .java
+                    .as_deref()
+                    .is_some_and(|java| java.trim().is_empty())
+                {
+                    bail!("codingame_jar referee java must not be blank");
+                }
+                if config
+                    .league
+                    .is_some_and(|league| league == 0 || league >= 20)
+                {
+                    bail!("codingame_jar referee league must be between 1 and 19");
+                }
+            }
+
+            RefereeConfig::Command(config) => {
+                if config.play_match.split_ascii_whitespace().count() == 0 {
+                    bail!("command referee play_match must not be blank");
+                }
+                if config.watch_replay.split_ascii_whitespace().count() == 0 {
+                    bail!("command referee watch_replay must not be blank");
+                }
+                if !config.legacy {
+                    let play_match = shell_words::split(&config.play_match)
+                        .context("command referee play_match has invalid quoting")?;
+                    let watch_replay = shell_words::split(&config.watch_replay)
+                        .context("command referee watch_replay has invalid quoting")?;
+                    require_placeholder(&play_match, "{SEED}", "play_match")?;
+                    require_placeholder(&play_match, "{REPLAY_PATH}", "play_match")?;
+                    if !play_match.iter().any(|part| part == "{PLAYERS}") {
+                        for player in 1..=game.max_players {
+                            require_placeholder(
+                                &play_match,
+                                &format!("{{P{player}}}"),
+                                "play_match",
+                            )?;
+                        }
+                    }
+                    for placeholder in ["{REPLAY_PATH}", "{REPLAY_DIR}", "{PORT}", "{PLAYER_COUNT}"]
+                    {
+                        require_placeholder(&watch_replay, placeholder, "watch_replay")?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn require_placeholder(template: &[String], placeholder: &str, field: &str) -> anyhow::Result<()> {

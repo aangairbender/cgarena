@@ -14,7 +14,10 @@ pub async fn enable_matchmaking(
 ) -> Result<impl IntoResponse, ApiError> {
     let enabled = payload.enabled;
 
-    app_state.arena_handle.enable_matchmaking(enabled).await?;
+    app_state
+        .arena_handle()?
+        .enable_matchmaking(enabled)
+        .await?;
 
     Ok(())
 }

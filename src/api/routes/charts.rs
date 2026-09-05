@@ -26,7 +26,7 @@ pub async fn chart(
     }
 
     let res = app_state
-        .arena_handle
+        .arena_handle()?
         .chart(filter, payload.attribute_name)
         .await?;
 
