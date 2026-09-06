@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{oneshot, watch, Mutex};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -46,6 +46,7 @@ pub struct Worker {
 pub struct WorkerSupervisor {
     cancellation_token: CancellationToken,
     state_rx: watch::Receiver<WorkerState>,
+    work_tx: Sender<Work>,
     task: Option<JoinHandle<Result<(), WorkerFailure>>>,
 }
 
@@ -59,6 +60,7 @@ pub struct StartedWorker {
 pub enum Work {
     Build(BuildBotInput),
     Match(PlayMatchInput),
+    Drain(oneshot::Sender<()>),
 }
 
 /// A completed worker operation.
@@ -121,9 +123,19 @@ enum WorkerState {
 }
 
 /// Starts the concrete embedded worker and all supervised execution tasks.
+#[cfg(test)]
 pub fn start_embedded_worker(
     worker_path: &Path,
     config: EmbeddedWorkerConfig,
+) -> anyhow::Result<StartedWorker> {
+    let referee = RefereeAdapter::from(&config.referee);
+    start_embedded_worker_with_referee(worker_path, config, referee)
+}
+
+pub fn start_embedded_worker_with_referee(
+    worker_path: &Path,
+    config: EmbeddedWorkerConfig,
+    referee: RefereeAdapter,
 ) -> anyhow::Result<StartedWorker> {
     if config.threads == 0 {
         bail!("embedded worker must have at least one thread");
@@ -138,6 +150,7 @@ pub fn start_embedded_worker(
     let task = tokio::spawn(run_worker(
         worker_path.to_path_buf(),
         Arc::new(config),
+        Arc::new(referee),
         work_rx,
         completion_tx,
         state_tx,
@@ -146,7 +159,7 @@ pub fn start_embedded_worker(
 
     Ok(StartedWorker {
         worker: Worker {
-            work_tx,
+            work_tx: work_tx.clone(),
             completion_rx: Mutex::new(completion_rx),
             state_rx: state_rx.clone(),
             available_bot_ids,
@@ -154,6 +167,7 @@ pub fn start_embedded_worker(
         supervisor: WorkerSupervisor {
             cancellation_token,
             state_rx,
+            work_tx,
             task: Some(task),
         },
     })
@@ -229,6 +243,7 @@ impl Worker {
 }
 
 impl WorkerSupervisor {
+    #[cfg(test)]
     /// Resolves when the worker enters a terminal failed state.
     pub async fn failed(&self) -> WorkerFailure {
         let mut state_rx = self.state_rx.clone();
@@ -243,6 +258,20 @@ impl WorkerSupervisor {
                 return WorkerFailure::new("worker task terminated unexpectedly");
             }
         }
+    }
+    /// Waits until every item admitted before this call has completed.
+    pub async fn wait_until_idle(&self) -> Result<(), WorkerFailure> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.work_tx
+            .send(Work::Drain(response_tx))
+            .await
+            .map_err(|_| WorkerFailure::new("worker stopped before admitted work drained"))?;
+        response_rx
+            .await
+            .map_err(|_| match self.state_rx.borrow().clone() {
+                WorkerState::Failed(failure) => failure,
+                _ => WorkerFailure::new("worker stopped before admitted work drained"),
+            })
     }
 
     /// Rejects new work, cancels queued and running work, reaps child
@@ -305,6 +334,7 @@ enum StopReason {
 async fn run_worker(
     worker_path: PathBuf,
     config: Arc<EmbeddedWorkerConfig>,
+    referee: Arc<RefereeAdapter>,
     mut work_rx: Receiver<Work>,
     completion_tx: Sender<Completion>,
     state_tx: watch::Sender<WorkerState>,
@@ -319,16 +349,30 @@ async fn run_worker(
     let stop_reason = 'running: loop {
         if pending_work
             .as_ref()
+            .is_some_and(|work| matches!(work, Work::Drain(_)))
+            && !build_running
+            && matches_running == 0
+        {
+            let Work::Drain(response) = pending_work.take().expect("drain work must exist") else {
+                unreachable!();
+            };
+            let _ = response.send(());
+            continue;
+        }
+        if pending_work
+            .as_ref()
             .is_some_and(|work| can_start(work, build_running, matches_running, &config))
         {
             let work = pending_work.take().expect("pending work must exist");
             match &work {
                 Work::Build(_) => build_running = true,
                 Work::Match(_) => matches_running += 1,
+                Work::Drain(_) => unreachable!("drain messages are handled before execution"),
             }
             spawn_work(
                 &mut tasks,
                 worker_path.clone(),
+                Arc::clone(&referee),
                 Arc::clone(&config),
                 completion_tx.clone(),
                 execution_token.clone(),
@@ -419,12 +463,14 @@ fn can_start(
     match work {
         Work::Build(_) => !build_running,
         Work::Match(_) => matches_running < usize::from(config.threads),
+        Work::Drain(_) => false,
     }
 }
 
 fn spawn_work(
     tasks: &mut JoinSet<FinishedWork>,
     worker_path: PathBuf,
+    referee: Arc<RefereeAdapter>,
     config: Arc<EmbeddedWorkerConfig>,
     completion_tx: Sender<Completion>,
     cancellation_token: CancellationToken,
@@ -452,23 +498,28 @@ fn spawn_work(
                 }
             }
             Work::Match(input) => {
-                let result =
-                    match execute_match(worker_path, config, input, cancellation_token.clone())
-                        .await
-                    {
-                        Ok(Some(completion)) => {
-                            publish_completion(&completion_tx, completion, &cancellation_token)
-                                .await;
-                            Ok(())
-                        }
-                        Ok(None) => Ok(()),
-                        Err(failure) => Err(failure),
-                    };
+                let result = match execute_match(
+                    worker_path,
+                    config,
+                    referee,
+                    input,
+                    cancellation_token.clone(),
+                )
+                .await
+                {
+                    Ok(Some(completion)) => {
+                        publish_completion(&completion_tx, completion, &cancellation_token).await;
+                        Ok(())
+                    }
+                    Ok(None) => Ok(()),
+                    Err(failure) => Err(failure),
+                };
                 FinishedWork {
                     kind: WorkKind::Match,
                     result,
                 }
             }
+            Work::Drain(_) => unreachable!("drain messages are handled before execution"),
         }
     });
 }
@@ -510,13 +561,14 @@ async fn execute_build(
 async fn execute_match(
     worker_path: PathBuf,
     config: Arc<EmbeddedWorkerConfig>,
+    referee: Arc<RefereeAdapter>,
     input: PlayMatchInput,
     cancellation_token: CancellationToken,
 ) -> Result<Option<Completion>, WorkerFailure> {
     if cancellation_token.is_cancelled() {
         return Ok(None);
     }
-    let (command, replay) = prepare_play_match_command(&config, &input, &worker_path)
+    let (command, replay) = prepare_play_match_command(&config, &referee, &input, &worker_path)
         .await
         .map_err(WorkerFailure::new)?;
     let output =
@@ -684,6 +736,7 @@ async fn run_command(
 
 async fn prepare_play_match_command(
     config: &EmbeddedWorkerConfig,
+    adapter: &RefereeAdapter,
     input: &PlayMatchInput,
     worker_path: &Path,
 ) -> anyhow::Result<(PreparedMatchCommand, Option<ProvisionalReplay>)> {
@@ -702,7 +755,6 @@ async fn prepare_play_match_command(
                 .replace("{LANG}", &bot.language))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let adapter = RefereeAdapter::from(&config.referee);
     let replay = if adapter.match_replay_required() {
         Some(ProvisionalReplay::create(worker_path).await?)
     } else {
@@ -1064,8 +1116,9 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let input = match_input(42);
         let command_config = config("true".to_string(), "runner {P1} {P2} {SEED}".to_string());
+        let command_adapter = RefereeAdapter::from(&command_config.referee);
         let (command, replay) =
-            prepare_play_match_command(&command_config, &input, directory.path())
+            prepare_play_match_command(&command_config, &command_adapter, &input, directory.path())
                 .await
                 .unwrap();
         assert_eq!(command.argv, ["runner", "true", "true", "42"]);
@@ -1075,19 +1128,12 @@ mod tests {
         ));
         assert!(replay.is_none());
 
-        let jar_config = EmbeddedWorkerConfig {
-            threads: 1,
-            referee: RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
-                path: "referee.jar".to_string(),
-                java: None,
-                league: Some(7),
-            }),
-            cmd_build: "true".to_string(),
-            cmd_run: "run {DIR} --language {LANG}".to_string(),
-        };
-        let (command, replay) = prepare_play_match_command(&jar_config, &input, directory.path())
-            .await
-            .unwrap();
+        let jar_config = config("true".to_string(), "true".to_string());
+        let jar_adapter = RefereeAdapter::codingame(PathBuf::from("referee.jar"), "java");
+        let (command, replay) =
+            prepare_play_match_command(&jar_config, &jar_adapter, &input, directory.path())
+                .await
+                .unwrap();
         assert!(matches!(
             command.result_source,
             MatchResultSource::CodingameReplay
@@ -1102,15 +1148,15 @@ mod tests {
                 "-jar",
                 "referee.jar",
                 "-p1",
-                "run bots/1 --language rust",
+                "true",
                 "-p2",
-                "run bots/2 --language rust",
+                "true",
                 "-seed",
                 "42",
                 "-league",
             ]
         );
-        assert_eq!(command.argv[12], "7");
+        assert_eq!(command.argv[12], "19");
     }
 
     #[cfg(unix)]
@@ -1138,18 +1184,12 @@ test "$player_two" = "run bots/2 --language rust"
 test "$seed" = "73"
 printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null,"[tdata] rounds = 3"],"1":[null]}}' > "$replay""#,
         );
-        let config = EmbeddedWorkerConfig {
-            threads: 1,
-            referee: RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
-                path: "fixture.jar".to_string(),
-                java: Some(java.to_string_lossy().to_string()),
-                league: None,
-            }),
-            cmd_build: "true".to_string(),
-            cmd_run: "run {DIR} --language {LANG}".to_string(),
-        };
+        let mut config = config("true".to_string(), "true".to_string());
+        config.cmd_run = "run {DIR} --language {LANG}".to_string();
+        let referee =
+            RefereeAdapter::codingame(PathBuf::from("fixture.jar"), java.to_string_lossy());
         let StartedWorker { worker, supervisor } =
-            start_embedded_worker(directory.path(), config).unwrap();
+            start_embedded_worker_with_referee(directory.path(), config, referee).unwrap();
 
         worker.submit(Work::Match(match_input(73))).await.unwrap();
         let Completion::Match { input, output } = worker.next().await.unwrap() else {
@@ -1186,18 +1226,11 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null,"[tdata] rounds = 3"]
             "failing-java.sh",
             "echo actionable-on-stdout\nexit 7",
         );
-        let config = EmbeddedWorkerConfig {
-            threads: 1,
-            referee: RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
-                path: "fixture.jar".to_string(),
-                java: Some(java.to_string_lossy().to_string()),
-                league: None,
-            }),
-            cmd_build: "true".to_string(),
-            cmd_run: "true".to_string(),
-        };
+        let config = config("true".to_string(), "true".to_string());
+        let referee =
+            RefereeAdapter::codingame(PathBuf::from("fixture.jar"), java.to_string_lossy());
         let StartedWorker { worker, supervisor } =
-            start_embedded_worker(directory.path(), config).unwrap();
+            start_embedded_worker_with_referee(directory.path(), config, referee).unwrap();
 
         worker.submit(Work::Match(match_input(9))).await.unwrap();
         let failure = supervisor.failed().await;

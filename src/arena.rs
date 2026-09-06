@@ -115,6 +115,13 @@ async fn run_loop(
                 let Some(command) = command else {
                     return Ok(());
                 };
+                if matches!(
+                    &command,
+                    ArenaCommand::EnableMatchmaking(command) if !command.enabled
+                ) {
+                    submission = None;
+                    scheduled_work = Vec::new().into_iter();
+                }
                 arena.handle_command(command).await;
             }
             _ = chores.tick() => {

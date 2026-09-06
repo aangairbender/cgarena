@@ -16,6 +16,8 @@ import {
   WatchReplayResponse,
   ArenaConfiguration,
   ConfigurationState,
+  ManagedRefereeStatus,
+  RefereeAction,
 } from "@/models";
 
 const host = import.meta.env.DEV ? "http://127.0.0.1:1234" : "";
@@ -41,6 +43,23 @@ export const applyConfiguration = async (
     }),
   );
   return await parseResponse<ConfigurationState>(response);
+};
+export const fetchRefereeStatus = async (): Promise<ManagedRefereeStatus> => {
+  const response = await fetch(`${host}/api/referee`);
+  return await parseResponse<ManagedRefereeStatus>(response);
+};
+
+export const startRefereeAction = async (
+  action: RefereeAction,
+): Promise<void> => {
+  const response = await fetch(
+    new Request(`${host}/api/referee`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  await checkForErrors(response);
 };
 
 export const submitNewBot = async (

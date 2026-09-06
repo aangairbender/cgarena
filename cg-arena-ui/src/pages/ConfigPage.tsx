@@ -7,9 +7,10 @@ import {
   MatchmakingConfiguration,
   RankingConfiguration,
   RefereeConfiguration,
+  RefereeAction,
 } from "@/models";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
   Alert,
   Button,
@@ -32,7 +33,6 @@ function defaultConfiguration(): ArenaConfiguration {
       min_players: 2,
       max_players: 2,
       symmetric: true,
-      referee_git_url: null,
     },
     matchmaking: {
       algorithm: "v2",
@@ -50,9 +50,12 @@ function defaultConfiguration(): ArenaConfiguration {
         cmd_build: "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a",
         cmd_run: "./{DIR}/a",
         referee: {
-          type: "command",
-          play_match: "",
-          watch_replay: "",
+          type: "managed_codingame",
+          repository_url:
+            "https://github.com/CodinGame/SpringChallenge2023.git",
+          branch: null,
+          java: null,
+          maven: null,
         },
       },
     ],
@@ -110,6 +113,40 @@ function ConfigurationForm({
 
   const firstRun = state.active === null;
   const worker = draft.workers[0];
+  const refereeStatus = useQuery({
+    queryKey: ["managed-referee"],
+    queryFn: api.fetchRefereeStatus,
+    enabled: worker.referee.type === "managed_codingame",
+    refetchInterval: (query) =>
+      query.state.data?.operation.action ? 500 : false,
+  });
+  const refereeAction = useMutation({
+    mutationFn: async (action: RefereeAction) => {
+      if (action === "install") {
+        const nextState = await adapter.apply(draft);
+        queryClient.setQueryData(configurationQueryKey, nextState);
+        setState(nextState);
+      }
+      await api.startRefereeAction(action);
+    },
+    onSuccess: () => refereeStatus.refetch(),
+  });
+  useEffect(() => {
+    if (
+      refereeStatus.data?.operation.action === null &&
+      refereeStatus.data.operation.diagnostic
+    ) {
+      void adapter.fetch().then((nextState) => {
+        queryClient.setQueryData(configurationQueryKey, nextState);
+        setState(nextState);
+      });
+    }
+  }, [
+    queryClient,
+    refereeStatus.data?.operation.action,
+    adapter,
+    refereeStatus.data?.operation.diagnostic,
+  ]);
 
   const setWorker = (next: Partial<EmbeddedWorkerConfiguration>) => {
     setDraft((current) => ({
@@ -127,10 +164,15 @@ function ConfigurationForm({
     }
   };
 
-  const updateJarReferee = (
-    next: Partial<{ path: string; java: string | null; league: number | null }>,
+  const updateManagedReferee = (
+    next: Partial<{
+      repository_url: string;
+      branch: string | null;
+      java: string | null;
+      maven: string | null;
+    }>,
   ) => {
-    if (worker.referee.type === "codingame_jar") {
+    if (worker.referee.type === "managed_codingame") {
       setWorker({ referee: { ...worker.referee, ...next } });
     }
   };
@@ -156,6 +198,9 @@ function ConfigurationForm({
           The server is ready, but matches and replays stay unavailable until a
           valid arena configuration and its runtime prerequisites are active.
         </Alert>
+      )}
+      {state.runtime_error && (
+        <Alert variant="warning">{state.runtime_error}</Alert>
       )}
       {saved && (
         <Alert variant="success">
@@ -644,12 +689,14 @@ function ConfigurationForm({
                       value={worker.referee.type}
                       onChange={(event) => {
                         const referee: RefereeConfiguration =
-                          event.target.value === "codingame_jar"
+                          event.target.value === "managed_codingame"
                             ? {
-                                type: "codingame_jar",
-                                path: "referee/target/referee.jar",
+                                type: "managed_codingame",
+                                repository_url:
+                                  "https://github.com/CodinGame/SpringChallenge2023.git",
+                                branch: null,
                                 java: null,
-                                league: null,
+                                maven: null,
                               }
                             : {
                                 type: "command",
@@ -662,8 +709,8 @@ function ConfigurationForm({
                       }}
                     >
                       <option value="command">Custom commands</option>
-                      <option value="codingame_jar">
-                        Compatible CodinGame JAR
+                      <option value="managed_codingame">
+                        Managed CodinGame repository
                       </option>
                     </Form.Select>
                   </Form.Group>
@@ -702,35 +749,169 @@ function ConfigurationForm({
                 ) : (
                   <>
                     <Col md={8}>
-                      <Form.Group controlId="referee-jar-path">
-                        <Form.Label>Compatible JAR path</Form.Label>
+                      <Form.Group controlId="referee-repository-url">
+                        <Form.Label>Repository URL</Form.Label>
                         <Form.Control
                           required
-                          value={worker.referee.path}
+                          value={worker.referee.repository_url}
                           onChange={(event) =>
-                            updateJarReferee({ path: event.target.value })
+                            updateManagedReferee({
+                              repository_url: event.target.value,
+                            })
                           }
                         />
                       </Form.Group>
                     </Col>
                     <OptionalTextField
+                      id="referee-branch"
+                      label="Branch"
+                      value={worker.referee.branch}
+                      onChange={(branch) => updateManagedReferee({ branch })}
+                    />
+                    <OptionalTextField
                       id="java-command"
                       label="Java executable"
                       value={worker.referee.java}
                       placeholder="java"
-                      onChange={(java) => updateJarReferee({ java })}
+                      onChange={(java) => updateManagedReferee({ java })}
                     />
-                    <OptionalNumberField
-                      id="league"
-                      label="League"
-                      value={worker.referee.league}
-                      onChange={(league) => updateJarReferee({ league })}
+                    <OptionalTextField
+                      id="maven-command"
+                      label="Maven executable"
+                      value={worker.referee.maven}
+                      placeholder="mvn"
+                      onChange={(maven) => updateManagedReferee({ maven })}
                     />
                   </>
                 )}
               </Row>
             </Card.Body>
           </Card>
+
+          {worker.referee.type === "managed_codingame" && (
+            <Card>
+              <Card.Body>
+                <Card.Title>Managed referee lifecycle</Card.Title>
+                {refereeStatus.isPending && (
+                  <Spinner
+                    animation="border"
+                    size="sm"
+                    aria-label="Loading referee status"
+                  />
+                )}
+                {refereeStatus.error && (
+                  <Alert variant="danger">{refereeStatus.error.message}</Alert>
+                )}
+                {refereeStatus.data && (
+                  <Stack gap={2}>
+                    <div>
+                      Checkout: <code>{refereeStatus.data.checkout_path}</code>
+                      <br />
+                      Artifact: <code>{refereeStatus.data.artifact_path}</code>
+                    </div>
+                    <div>
+                      {refereeStatus.data.installed
+                        ? `Installed branch ${refereeStatus.data.branch} (${refereeStatus.data.update_status.replace(/_/g, " ")})`
+                        : "No managed referee is installed."}
+                    </div>
+                    {(refereeStatus.data.staged ||
+                      refereeStatus.data.unstaged ||
+                      refereeStatus.data.untracked) && (
+                      <Alert variant="warning" className="mb-0">
+                        Local checkout changes:
+                        {refereeStatus.data.staged && " staged"}
+                        {refereeStatus.data.unstaged && " unstaged"}
+                        {refereeStatus.data.untracked && " untracked"}
+                      </Alert>
+                    )}
+                    {refereeStatus.data.operation.phase && (
+                      <Alert variant="info" className="mb-0">
+                        {refereeStatus.data.operation.action}:{" "}
+                        {refereeStatus.data.operation.phase}
+                      </Alert>
+                    )}
+                    {refereeStatus.data.operation.diagnostic && (
+                      <Alert variant="secondary" className="mb-0">
+                        {refereeStatus.data.operation.diagnostic}
+                      </Alert>
+                    )}
+                    {refereeStatus.data.last_successful_check && (
+                      <small className="text-body-secondary">
+                        Last successful check:{" "}
+                        {new Date(
+                          refereeStatus.data.last_successful_check,
+                        ).toLocaleString()}
+                      </small>
+                    )}
+                    <div className="d-flex flex-wrap gap-2">
+                      {(!refereeStatus.data.installed ||
+                        refereeStatus.data.installed_repository_url !==
+                          worker.referee.repository_url ||
+                        (worker.referee.branch !== null &&
+                          refereeStatus.data.branch !==
+                            worker.referee.branch)) && (
+                        <Button
+                          type="button"
+                          disabled={
+                            refereeAction.isPending ||
+                            refereeStatus.data.operation.action !== null
+                          }
+                          onClick={() => refereeAction.mutate("install")}
+                        >
+                          {refereeStatus.data.installed
+                            ? "Replace referee"
+                            : "Install referee"}
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline-primary"
+                        disabled={
+                          !refereeStatus.data.installed ||
+                          refereeAction.isPending ||
+                          refereeStatus.data.operation.action !== null
+                        }
+                        onClick={() => refereeAction.mutate("check")}
+                      >
+                        Check for updates
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline-primary"
+                        disabled={
+                          !refereeStatus.data.installed ||
+                          refereeAction.isPending ||
+                          refereeStatus.data.operation.action !== null
+                        }
+                        onClick={() => refereeAction.mutate("rebuild")}
+                      >
+                        Rebuild referee
+                      </Button>
+                      {refereeStatus.data.update_status ===
+                        "update_available" && (
+                        <Button
+                          type="button"
+                          variant="outline-primary"
+                          disabled={
+                            refereeAction.isPending ||
+                            refereeStatus.data.operation.action !== null
+                          }
+                          onClick={() => refereeAction.mutate("update")}
+                        >
+                          Update referee
+                        </Button>
+                      )}
+                    </div>
+                  </Stack>
+                )}
+                {refereeAction.error && (
+                  <Alert variant="danger" className="mt-3 mb-0">
+                    {refereeAction.error.message}
+                  </Alert>
+                )}
+              </Card.Body>
+            </Card>
+          )}
 
           <div>
             <Button type="submit" disabled={apply.isPending}>

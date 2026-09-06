@@ -32,15 +32,9 @@ We would need to set `threads` based on our CPU. In my case I set to **4**.
 threads = 4
 ```
 
-### Referee and generated files
+### Managed referee
 
-`cgarena init` creates:
-
-- `cgarena_config.toml`
-- `CommandLineInterface.java`
-- `pom_build_section.xml`
-
-The default embedded worker configuration uses the native CodinGame JAR adapter:
+The default embedded worker configuration selects a managed public repository:
 
 ```toml
 [[workers]]
@@ -50,16 +44,19 @@ cmd_build = "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a"
 cmd_run = "./{DIR}/a"
 
 [workers.referee]
-type = "codingame_jar"
-path = "referee/target/referee.jar"
+type = "managed_codingame"
+repository_url = "https://github.com/CodinGame/WinterChallenge2024-Cellularena.git"
 ```
 
-Install Java 17 or newer. Patch and build the referee using
-[the referee guide](making_bt_compatible_referee.md), then place the compatible shaded JAR at
-`referee/target/referee.jar`. At startup CG Arena verifies the maintained
-`--cgarena-compat`/`cgarena-referee-v1` contract. It then invokes the JAR directly, records each
-match at a unique replay path, extracts the static replay bundle, and serves it under its own
-HTTP origin.
+Install Java 17 or newer, start CG Arena, open **Arena configuration**, and choose **Install
+referee**. This explicit action clones the repository into `referee`, creates the reserved local
+`cgarena` branch, installs the maintained command-line and Maven adaptation, prefers the
+repository Maven Wrapper, builds and validates the candidate, and publishes the active JAR to an
+arena-owned location. Saving configuration or restarting does not contact Git or rebuild.
+
+Use **Check for updates**, **Update referee**, or **Rebuild referee** explicitly. Local commits and
+working-tree changes are reported in the same panel. A repository or branch change is a
+separately validated **Replace referee** operation.
 
 Use the [`command` referee adapter](configuration.md#command) for a custom or non-Java referee.
 

@@ -15,7 +15,8 @@ pub async fn enable_matchmaking(
     let enabled = payload.enabled;
 
     app_state
-        .arena_handle()?
+        .arena_handle()
+        .await?
         .enable_matchmaking(enabled)
         .await?;
 

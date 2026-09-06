@@ -125,6 +125,16 @@ pub async fn fetch_arena_config(pool: &SqlitePool) -> anyhow::Result<Option<Aren
 }
 
 pub async fn persist_arena_config(pool: &SqlitePool, config: &ArenaConfig) -> anyhow::Result<()> {
+    let mut transaction = pool.begin().await?;
+    persist_arena_config_transaction(&mut transaction, config).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+pub async fn persist_arena_config_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    config: &ArenaConfig,
+) -> anyhow::Result<()> {
     config.validate()?;
     let config_json =
         serde_json::to_string(config).context("Cannot serialize arena configuration")?;
@@ -133,7 +143,7 @@ pub async fn persist_arena_config(pool: &SqlitePool, config: &ArenaConfig) -> an
          ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json",
     )
     .bind(config_json)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await?;
     Ok(())
 }

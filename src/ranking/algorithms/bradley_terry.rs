@@ -4,7 +4,7 @@ use nalgebra::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     max_iter: Option<usize>,
 }

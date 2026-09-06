@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PropsWithChildren } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ConfigurationAdapter } from "@/configuration";
 import { ArenaConfiguration, ConfigurationState } from "@/models";
@@ -26,12 +26,41 @@ class InMemoryConfigurationAdapter implements ConfigurationAdapter {
     if (this.applyError) {
       throw this.applyError;
     }
-    this.state = { active: candidate, runtime_available: false };
+    this.state = {
+      active: candidate,
+      runtime_available: false,
+      runtime_error: null,
+    };
     return this.state;
   }
 }
 
 function renderPage(adapter: ConfigurationAdapter) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        selected: null,
+        installed: false,
+        replacement_required: false,
+        checkout_path: "/arena/referee",
+        artifact_path: "/arena/.cgarena/referee/referee.jar",
+        installed_repository_url: null,
+        branch: null,
+        upstream_commit: null,
+        adaptation_commit: null,
+        committed_ahead: null,
+        committed_behind: null,
+        staged: false,
+        unstaged: false,
+        untracked: false,
+        update_status: "unavailable",
+        last_successful_check: null,
+        observed_remote_commit: null,
+        operation: { action: null, phase: null, diagnostic: null },
+      }),
+    ),
+  );
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0 },
@@ -46,6 +75,7 @@ function renderPage(adapter: ConfigurationAdapter) {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  vi.unstubAllGlobals();
 });
 
 describe("first-run configuration page", () => {
@@ -53,6 +83,7 @@ describe("first-run configuration page", () => {
     const adapter = new InMemoryConfigurationAdapter({
       active: null,
       runtime_available: false,
+      runtime_error: null,
     });
     renderPage(adapter);
 
@@ -68,6 +99,22 @@ describe("first-run configuration page", () => {
     ]) {
       expect(screen.getByText(section)).toBeTruthy();
     }
+    expect(
+      (screen.getByLabelText("Repository URL") as HTMLInputElement).value,
+    ).toBe("https://github.com/CodinGame/SpringChallenge2023.git");
+    expect(
+      await screen.findByRole("button", { name: "Install referee" }),
+    ).toBeTruthy();
+    expect(
+      (
+        (await screen.findByRole("button", {
+          name: "Check for updates",
+        })) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText("Adapter"), {
+      target: { value: "command" },
+    });
 
     fireEvent.change(screen.getByLabelText("Minimum players"), {
       target: { value: "3" },
@@ -120,19 +167,21 @@ describe("first-run configuration page", () => {
 
   it("shows server validation errors without replacing the draft", async () => {
     const adapter = new InMemoryConfigurationAdapter(
-      { active: null, runtime_available: false },
+      { active: null, runtime_available: false, runtime_error: null },
       new Error(
         "Validation failed: command referee play_match must contain {SEED}",
       ),
     );
     renderPage(adapter);
+    fireEvent.change(await screen.findByLabelText("Adapter"), {
+      target: { value: "command" },
+    });
 
     const playMatch = await screen.findByLabelText("Play-match command");
     fireEvent.change(playMatch, { target: { value: "broken command" } });
     fireEvent.change(screen.getByLabelText("Watch-replay command"), {
       target: {
-        value:
-          "my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}",
+        value: "my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}",
       },
     });
     fireEvent.click(

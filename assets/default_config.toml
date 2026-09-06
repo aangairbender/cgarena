@@ -6,7 +6,6 @@ max_players = 2
 # if 'symmetric' = true CG Arena will play 1 match per seed.
 # if 'symmetric' = false CG Arena will play n! matches per seed, where n is the amount of players.
 symmetric = true
-referee_git_url = ""
 
 [matchmaking]
 algorithm = "v2"
@@ -28,10 +27,8 @@ level = "INFO"
 file = "cgarena.log"
 
 # one embedded worker is currently supported; threads controls concurrent matches.
-# `referee` selects exactly one match/replay integration:
-# - codingame_jar runs a compatible shaded CodinGame JAR directly.
-# - command preserves the custom referee command contract.
-# codingame_jar requires -p1..-p8, -seed, -l, -r, -port, and --cgarena-compat.
+# `referee` selects either a managed CodinGame repository or custom commands.
+# Managed repository installation is an explicit UI action.
 # cmd_build builds a bot and cmd_run returns its complete command line.
 # 'cmd_build' should output bot's executable to the same folder
 [[workers]]
@@ -41,8 +38,8 @@ cmd_build = "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a"
 cmd_run = "./{DIR}/a"
 
 [workers.referee]
-type = "codingame_jar"
-path = "referee/target/referee.jar"
+type = "managed_codingame"
+repository_url = "https://github.com/CodinGame/SpringChallenge2023.git"
 
 
 # or a generic version
