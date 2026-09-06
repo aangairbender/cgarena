@@ -616,18 +616,40 @@ async fn adapt_checkout(checkout: &Path) -> anyhow::Result<()> {
         }
     }
     let pom_path = checkout.join("pom.xml");
-    let cli_path = checkout.join(CLI_PATH);
-    if !pom_path.is_file() || cli_path.parent().is_none_or(|parent| !parent.is_dir()) {
-        bail!("unsupported CodinGame referee structure: expected pom.xml and {CLI_PATH}");
+    if !pom_path.is_file() {
+        bail!("unsupported CodinGame referee structure: expected pom.xml");
     }
-    let cli = fs::read_to_string(&cli_path).await?;
-    if !cli.contains("CGARENA_COMPATIBILITY_VERSION") {
+    let cli_path = checkout.join(CLI_PATH);
+    let cli_parent = cli_path
+        .parent()
+        .context("maintained referee CLI path has no parent directory")?;
+    fs::create_dir_all(cli_parent).await?;
+    let cli = match fs::read_to_string(&cli_path).await {
+        Ok(contents) => Some(contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    if cli.is_none_or(|contents| !contents.contains("CGARENA_COMPATIBILITY_VERSION")) {
         fs::write(&cli_path, CLI_CONTENTS).await?;
     }
     let source = fs::read(&pom_path).await?;
     let mut project = Element::parse(source.as_slice()).context("cannot parse referee pom.xml")?;
     if project.name != "project" {
         bail!("unsupported Maven structure: pom.xml root must be project");
+    }
+    let schema_location_prefix = project.namespaces.as_ref().and_then(|namespaces| {
+        namespaces.0.iter().find_map(|(prefix, namespace)| {
+            (!prefix.is_empty() && namespace == "http://www.w3.org/2001/XMLSchema-instance")
+                .then(|| prefix.clone())
+        })
+    });
+    if let (Some(prefix), Some(value)) = (
+        schema_location_prefix,
+        project.attributes.remove("schemaLocation"),
+    ) {
+        project
+            .attributes
+            .insert(format!("{prefix}:schemaLocation"), value);
     }
     let dependencies = child_mut(&mut project, "dependencies")
         .context("unsupported Maven structure: project/dependencies is required")?;
@@ -743,6 +765,10 @@ async fn build_and_validate(
 }
 
 async fn find_jar(target: &Path) -> anyhow::Result<PathBuf> {
+    let maintained = target.join("referee.jar");
+    if maintained.is_file() {
+        return Ok(maintained);
+    }
     let mut entries = fs::read_dir(target)
         .await
         .with_context(|| format!("Maven did not create {}", target.display()))?;
@@ -844,6 +870,97 @@ mod tests {
                 "-m",
                 message,
             ],
+        );
+    }
+
+    #[tokio::test]
+    async fn find_jar_prefers_maintained_referee_artifact() {
+        let target = tempfile::tempdir().unwrap();
+        let referee = target.path().join("referee.jar");
+        std::fs::write(&referee, "maintained").unwrap();
+        std::fs::write(
+            target
+                .path()
+                .join("summer-challenge-2025-super-soaker-1.0-SNAPSHOT.jar"),
+            "original",
+        )
+        .unwrap();
+
+        assert_eq!(find_jar(target.path()).await.unwrap(), referee);
+    }
+
+    #[tokio::test]
+    async fn adaptation_preserves_namespaced_schema_location() {
+        let checkout = tempfile::tempdir().unwrap();
+        std::fs::write(
+            checkout.path().join("pom.xml"),
+            r#"<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"><modelVersion>4.0.0</modelVersion><dependencies></dependencies></project>"#,
+        )
+        .unwrap();
+
+        adapt_checkout(checkout.path()).await.unwrap();
+
+        let adapted = std::fs::read_to_string(checkout.path().join("pom.xml")).unwrap();
+        assert!(
+            adapted.contains(r#"xsi:schemaLocation=""#),
+            "adapted POM lost the xsi namespace prefix:\n{adapted}"
+        );
+        assert!(
+            !adapted.contains(r#" schemaLocation=""#),
+            "adapted POM contains Maven's invalid unqualified schemaLocation:\n{adapted}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn install_adapts_standard_referee_without_command_line_interface() {
+        let arena = tempfile::tempdir().unwrap();
+        let source = arena.path().join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            source.join("pom.xml"),
+            "<project><modelVersion>4.0.0</modelVersion><dependencies></dependencies></project>",
+        )
+        .unwrap();
+        std::fs::write(
+            source.join("mvnw"),
+            "#!/bin/sh\nset -eu\nmkdir -p target\nprintf fixture > target/referee.jar\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(source.join("mvnw"))
+            .unwrap()
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(source.join("mvnw"), permissions).unwrap();
+        git(&source, &["init", "-b", "trunk"]);
+        commit(&source, "initial");
+
+        let java = arena.path().join("java");
+        std::fs::write(&java, "#!/bin/sh\nprintf '%s\\n' cgarena-referee-v1\n").unwrap();
+        let mut permissions = std::fs::metadata(&java).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&java, permissions).unwrap();
+        let selected = ManagedCodingameRefereeConfig {
+            repository_url: source.display().to_string(),
+            branch: None,
+            java: Some(java.display().to_string()),
+            maven: None,
+        };
+
+        let manager = ManagedReferee::new(arena.path().to_owned());
+        let ActionOutcome::Candidate(installed) = manager
+            .execute(RefereeAction::Install, &selected)
+            .await
+            .expect("a standard referee must be adapted during installation")
+        else {
+            panic!("install must produce a candidate");
+        };
+        let checkout = installed
+            .checkout
+            .expect("install must retain its checkout");
+        assert_eq!(
+            std::fs::read_to_string(checkout.join(CLI_PATH)).unwrap(),
+            CLI_CONTENTS
         );
     }
 
