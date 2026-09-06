@@ -425,22 +425,31 @@ fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'
         .map(|_| &value[prefix.len()..])
 }
 
-pub async fn validate_codingame_replay(
+pub async fn prepare_codingame_replay(
     artifact_path: &Path,
-    participant_count: u8,
+    prepared_path: &Path,
+    participant_names: &[String],
 ) -> anyhow::Result<()> {
     let bytes = tokio::fs::read(artifact_path).await?;
-    let replay: Value = serde_json::from_slice(&bytes)?;
+    let mut replay: Value = serde_json::from_slice(&bytes)?;
     let agents = replay
-        .get("agents")
-        .and_then(Value::as_array)
+        .get_mut("agents")
+        .and_then(Value::as_array_mut)
         .context("artifact has no agents array")?;
-    if agents.len() != usize::from(participant_count) {
+    if agents.len() != participant_names.len() {
         bail!(
-            "artifact has {} participants, match has {participant_count}",
-            agents.len()
+            "artifact has {} participants, match has {}",
+            agents.len(),
+            participant_names.len()
         );
     }
+    for (index, (agent, name)) in agents.iter_mut().zip(participant_names).enumerate() {
+        agent
+            .as_object_mut()
+            .with_context(|| format!("artifact agent {index} is not an object"))?
+            .insert("name".to_string(), Value::String(name.clone()));
+    }
+    tokio::fs::write(prepared_path, serde_json::to_vec(&replay)?).await?;
     Ok(())
 }
 

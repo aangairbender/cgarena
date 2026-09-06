@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::config::RefereeConfig;
 use crate::referee_adapter::{
-    import_codingame_replay_bundle, validate_codingame_replay, RefereeAdapter,
+    import_codingame_replay_bundle, prepare_codingame_replay, RefereeAdapter,
 };
 use std::{
     collections::HashMap,
@@ -158,7 +158,7 @@ impl ReplayViewer {
             .generate_bundle(
                 artifact.path(),
                 &session_directory,
-                artifact.participant_count(),
+                artifact.participant_names(),
             )
             .await;
         if let Err(error) = result {
@@ -249,8 +249,12 @@ impl ReplayViewer {
         &self,
         artifact_path: &Path,
         session_directory: &Path,
-        participant_count: u8,
+        participant_names: &[String],
     ) -> Result<(), ReplayError> {
+        let participant_count = participant_names
+            .len()
+            .try_into()
+            .map_err(|_| ReplayError::Internal("match has too many participants".to_string()))?;
         let artifact_path = fs::canonicalize(artifact_path)
             .await
             .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
@@ -259,7 +263,7 @@ impl ReplayViewer {
             .map_err(|error| ReplayError::Internal(error.to_string()))?;
         if matches!(self.inner.referee, RefereeAdapter::CodingameJar(_)) {
             return self
-                .generate_codingame_bundle(&artifact_path, &session_directory, participant_count)
+                .generate_codingame_bundle(&artifact_path, &session_directory, participant_names)
                 .await;
         }
         let port = available_local_port().await?;
@@ -328,11 +332,8 @@ impl ReplayViewer {
         &self,
         artifact_path: &Path,
         session_directory: &Path,
-        participant_count: u8,
+        participant_names: &[String],
     ) -> Result<(), ReplayError> {
-        validate_codingame_replay(artifact_path, participant_count)
-            .await
-            .map_err(|error| ReplayError::InvalidArtifact(error.to_string()))?;
         let temporary_directory = session_directory.join(format!(".jvm-{}", Uuid::new_v4()));
         fs::create_dir_all(&temporary_directory)
             .await
@@ -342,9 +343,24 @@ impl ReplayViewer {
                 .await
                 .map_err(|error| ReplayError::Internal(error.to_string()))?,
         );
-        let result = self
-            .run_codingame_renderer(artifact_path, session_directory, temporary_directory.path())
-            .await;
+        let prepared_replay = temporary_directory.path().join("replay.json");
+        let result = match prepare_codingame_replay(
+            artifact_path,
+            &prepared_replay,
+            participant_names,
+        )
+        .await
+        {
+            Ok(()) => {
+                self.run_codingame_renderer(
+                    &prepared_replay,
+                    session_directory,
+                    temporary_directory.path(),
+                )
+                .await
+            }
+            Err(error) => Err(ReplayError::InvalidArtifact(error.to_string())),
+        };
         let _ = fs::remove_dir_all(temporary_directory.path()).await;
         result
     }
@@ -723,13 +739,24 @@ mod tests {
         script_body: &str,
         replay: &str,
         startup_timeout: Duration,
-    ) -> (TempDir, ReplayViewer, PathBuf, PathBuf, CancellationToken) {
+    ) -> (
+        TempDir,
+        ReplayViewer,
+        MatchId,
+        PathBuf,
+        PathBuf,
+        CancellationToken,
+    ) {
         let current_directory = std::env::current_dir().unwrap();
         let temporary_directory = tempfile::tempdir_in(&current_directory).unwrap();
         let absolute_arena_path = temporary_directory.path().join("codingame arena");
-        fs::create_dir_all(&absolute_arena_path).await.unwrap();
-        let absolute_artifact_path = absolute_arena_path.join("replay.json");
+        let provisional = ProvisionalReplay::create(&absolute_arena_path)
+            .await
+            .unwrap();
+        let relative_artifact_path = provisional.command_path().to_owned();
+        let absolute_artifact_path = absolute_arena_path.join(&relative_artifact_path);
         fs::write(&absolute_artifact_path, replay).await.unwrap();
+        let pending = provisional.finish().await.unwrap();
         let absolute_session_directory = absolute_arena_path.join("session");
         fs::create_dir_all(&absolute_session_directory)
             .await
@@ -750,7 +777,7 @@ mod tests {
         fs::write(
             &launcher_path,
             format!(
-                "#!/bin/sh\nset -eu\ntmp=''\nfor argument in \"$@\"; do\n  case \"$argument\" in\n    -Djava.io.tmpdir=*) tmp=\"${{argument#*=}}\" ;;\n  esac\ndone\n{script_body}\n"
+                "#!/bin/sh\nset -eu\ntmp=''\nreplay=''\nwhile [ \"$#\" -gt 0 ]; do\n  case \"$1\" in\n    -Djava.io.tmpdir=*) tmp=\"${{1#*=}}\"; shift ;;\n    -r) replay=\"$2\"; shift 2 ;;\n    *) shift ;;\n  esac\ndone\n{script_body}\n"
             ),
         )
         .await
@@ -759,8 +786,41 @@ mod tests {
         permissions.set_mode(0o755);
         std::fs::set_permissions(&launcher_path, permissions).unwrap();
         let cancellation_token = CancellationToken::new();
+        let pool = db::in_memory().await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let mut bot_ids = Vec::new();
+        for name in ["one", "two"] {
+            let bot_id: BotId = sqlx::query(
+                "INSERT INTO bots (name, source_code, language, created_at) VALUES (?, '', 'rust', 0)",
+            )
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid()
+            .into();
+            bot_ids.push(bot_id);
+        }
+        let mut replay_match = Match::new(
+            7,
+            bot_ids
+                .into_iter()
+                .enumerate()
+                .map(|(rank, bot_id)| Participant {
+                    bot_id,
+                    rank: rank as u8,
+                    error: false,
+                })
+                .collect(),
+            vec![],
+            None,
+        );
+        ReplayArtifacts::new(pool.clone(), arena_path.clone())
+            .persist_match(pending, &mut replay_match)
+            .await
+            .unwrap();
         let viewer = ReplayViewer::new_with_timeouts(
-            db::in_memory().await.unwrap(),
+            pool,
             arena_path,
             RefereeAdapter::codingame(
                 PathBuf::from("fixture.jar"),
@@ -773,10 +833,15 @@ mod tests {
         (
             temporary_directory,
             viewer,
+            replay_match.id,
             artifact_path,
             session_directory,
             cancellation_token,
         )
+    }
+
+    fn player_names() -> [String; 2] {
+        ["one".to_string(), "two".to_string()]
     }
 
     #[tokio::test]
@@ -857,8 +922,14 @@ mod tests {
 
     #[tokio::test]
     async fn codingame_renderer_normalizes_bundle_and_reaps_process() {
-        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
-            codingame_fixture(
+        let (
+            temporary_directory,
+            viewer,
+            _match_id,
+            artifact,
+            session,
+            _cancellation_token,
+        ) = codingame_fixture(
             r#"mkdir -p "$tmp/codingame/assets"
 printf '<html>native replay</html>' > "$tmp/codingame/test.html"
 printf png > "$tmp/codingame/assets/image.png"
@@ -871,8 +942,10 @@ exec sleep 30"#,
         )
         .await;
 
+        let names = player_names();
+
         viewer
-            .generate_bundle(&artifact, &session, 2)
+            .generate_bundle(&artifact, &session, &names)
             .await
             .unwrap();
 
@@ -909,8 +982,37 @@ exec sleep 30"#,
     }
 
     #[tokio::test]
+    async fn watch_injects_current_bot_names_without_mutating_the_artifact() {
+        let (_temporary_directory, viewer, match_id, artifact, _session, _cancellation_token) =
+            codingame_fixture(
+                r#"mkdir -p "$tmp/codingame"
+printf '<html>native replay</html>' > "$tmp/codingame/test.html"
+cp "$replay" "$tmp/codingame/game.json"
+echo "Exposed web server dir: $tmp/codingame"
+exec sleep 30"#,
+                r#"{"agents":[{"name":"./bots/5/a"},{"name":"./bots/4/a"}]}"#,
+                Duration::from_secs(2),
+            )
+            .await;
+
+        let started = viewer.watch(match_id).await.unwrap();
+        let game = viewer
+            .asset(&started.session_id, "game.json")
+            .await
+            .unwrap();
+        let replay: serde_json::Value = serde_json::from_slice(&game.bytes).unwrap();
+        assert_eq!(replay["agents"][0]["name"], "one");
+        assert_eq!(replay["agents"][1]["name"], "two");
+
+        let original: serde_json::Value =
+            serde_json::from_slice(&fs::read(artifact).await.unwrap()).unwrap();
+        assert_eq!(original["agents"][0]["name"], "./bots/5/a");
+        assert_eq!(original["agents"][1]["name"], "./bots/4/a");
+    }
+
+    #[tokio::test]
     async fn codingame_replay_rejects_participant_mismatch_before_launch() {
-        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
+        let (temporary_directory, viewer, _match_id, artifact, session, _cancellation_token) =
             codingame_fixture(
                 "touch renderer-started",
                 r#"{"agents":[{}]}"#,
@@ -918,8 +1020,12 @@ exec sleep 30"#,
             )
             .await;
 
+        let names = player_names();
+
         assert!(matches!(
-            viewer.generate_bundle(&artifact, &session, 2).await,
+            viewer
+                .generate_bundle(&artifact, &session, &names)
+                .await,
             Err(ReplayError::InvalidArtifact(message)) if message.contains("1 participants")
         ));
         assert!(!temporary_directory
@@ -930,15 +1036,23 @@ exec sleep 30"#,
 
     #[tokio::test]
     async fn codingame_renderer_reports_stderr_on_timeout_and_is_reaped() {
-        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
-            codingame_fixture(
+        let (
+            temporary_directory,
+            viewer,
+            _match_id,
+            artifact,
+            session,
+            _cancellation_token,
+        ) = codingame_fixture(
             "echo $$ > renderer.pid\nsleep 30 &\necho $! > renderer-child.pid\necho actionable-timeout >&2\nwait",
             r#"{"agents":[{},{}]}"#,
             Duration::from_secs(3),
         )
         .await;
 
-        let result = viewer.generate_bundle(&artifact, &session, 2).await;
+        let names = player_names();
+
+        let result = viewer.generate_bundle(&artifact, &session, &names).await;
         assert!(
             matches!(
                 &result,
@@ -970,7 +1084,7 @@ exec sleep 30"#,
 
     #[tokio::test]
     async fn codingame_renderer_is_reaped_on_cancellation() {
-        let (temporary_directory, viewer, artifact, session, cancellation_token) =
+        let (temporary_directory, viewer, _match_id, artifact, session, cancellation_token) =
             codingame_fixture(
                 "echo $$ > renderer.pid\nsleep 30 &\necho $! > renderer-child.pid\nwait",
                 r#"{"agents":[{},{}]}"#,
@@ -995,7 +1109,9 @@ exec sleep 30"#,
             panic!("renderer did not start");
         });
 
-        let result = viewer.generate_bundle(&artifact, &session, 2).await;
+        let names = player_names();
+
+        let result = viewer.generate_bundle(&artifact, &session, &names).await;
         cancellation.await.unwrap();
 
         assert!(matches!(
@@ -1016,7 +1132,7 @@ exec sleep 30"#,
 
     #[tokio::test]
     async fn codingame_renderer_is_reaped_when_request_future_is_dropped() {
-        let (temporary_directory, viewer, artifact, session, _cancellation_token) =
+        let (temporary_directory, viewer, _match_id, artifact, session, _cancellation_token) =
             codingame_fixture(
                 "echo $$ > renderer.pid\nsleep 30 &\necho $! > renderer-child.pid\nwait",
                 r#"{"agents":[{},{}]}"#,
@@ -1030,9 +1146,10 @@ exec sleep 30"#,
             .path()
             .join("codingame arena/renderer-child.pid");
         let session_for_request = session.clone();
+        let names = player_names();
         let request = tokio::spawn(async move {
             viewer
-                .generate_bundle(&artifact, &session_for_request, 2)
+                .generate_bundle(&artifact, &session_for_request, &names)
                 .await
         });
         for _ in 0..200 {
@@ -1058,7 +1175,7 @@ exec sleep 30"#,
     }
     #[tokio::test]
     async fn codingame_renderer_returns_early_stderr() {
-        let (_temporary_directory, viewer, artifact, session, _cancellation_token) =
+        let (_temporary_directory, viewer, _match_id, artifact, session, _cancellation_token) =
             codingame_fixture(
                 "echo actionable-failure >&2\nexit 7",
                 r#"{"agents":[{},{}]}"#,
@@ -1066,15 +1183,19 @@ exec sleep 30"#,
             )
             .await;
 
+        let names = player_names();
+
         assert!(matches!(
-            viewer.generate_bundle(&artifact, &session, 2).await,
+            viewer
+                .generate_bundle(&artifact, &session, &names)
+                .await,
             Err(ReplayError::StartupFailed(message)) if message.contains("actionable-failure")
         ));
     }
 
     #[tokio::test]
     async fn codingame_renderer_rejects_exposed_directory_escape() {
-        let (_temporary_directory, viewer, artifact, session, _cancellation_token) =
+        let (_temporary_directory, viewer, _match_id, artifact, session, _cancellation_token) =
             codingame_fixture(
                 "mkdir -p outside\necho \"Exposed web server dir: $(pwd)/outside\"\nexec sleep 30",
                 r#"{"agents":[{},{}]}"#,
@@ -1082,8 +1203,12 @@ exec sleep 30"#,
             )
             .await;
 
+        let names = player_names();
+
         assert!(matches!(
-            viewer.generate_bundle(&artifact, &session, 2).await,
+            viewer
+                .generate_bundle(&artifact, &session, &names)
+                .await,
             Err(ReplayError::StartupFailed(message)) if message.contains("outside")
         ));
     }

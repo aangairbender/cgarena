@@ -76,10 +76,35 @@ impl ReplayArtifacts {
                 "artifact is not a non-empty file".to_string(),
             ));
         }
+        let participants = sqlx::query_as::<_, (i64, String)>(
+            "SELECT p.`index`, b.name
+             FROM participations p
+             INNER JOIN bots b ON b.id = p.bot_id
+             WHERE p.match_id = ?
+             ORDER BY p.`index`",
+        )
+        .bind::<i64>(match_id.into())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| ReplayLookupError::Internal(error.to_string()))?;
+        if participants.len() != usize::from(row.1) {
+            return Err(ReplayLookupError::Internal(
+                "persisted replay participant count does not match its participants".to_string(),
+            ));
+        }
+        let mut participant_names = Vec::with_capacity(participants.len());
+        for (expected_index, (index, name)) in participants.into_iter().enumerate() {
+            if index != expected_index as i64 {
+                return Err(ReplayLookupError::Internal(
+                    "persisted replay participant indexes are not contiguous".to_string(),
+                ));
+            }
+            participant_names.push(name);
+        }
 
         Ok(ReadableReplay {
             path,
-            participant_count: row.1,
+            participant_names,
         })
     }
 
@@ -267,7 +292,7 @@ impl Drop for OwnedReplay {
 
 pub struct ReadableReplay {
     path: PathBuf,
-    participant_count: u8,
+    participant_names: Vec<String>,
 }
 
 impl ReadableReplay {
@@ -275,8 +300,8 @@ impl ReadableReplay {
         &self.path
     }
 
-    pub fn participant_count(&self) -> u8 {
-        self.participant_count
+    pub fn participant_names(&self) -> &[String] {
+        &self.participant_names
     }
 }
 
@@ -408,7 +433,7 @@ mod tests {
         let readable = artifacts.lookup(new_match.id).await.unwrap();
 
         assert_eq!(readable.path(), arena.path().join(&relative_path));
-        assert_eq!(readable.participant_count(), 2);
+        assert_eq!(readable.participant_names(), ["one", "two"]);
         assert!(readable.path().exists());
     }
 
