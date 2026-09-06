@@ -4,5 +4,6 @@ pub mod configuration;
 pub mod enable_matchmaking;
 pub mod fetch_status;
 pub mod leaderboards;
+pub mod managed_referee;
 pub mod matches;
 pub mod replays;

@@ -7,7 +7,7 @@ use rand::prelude::SliceRandom;
 use rand::{random, rng, Rng};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "algorithm", rename_all = "snake_case")]
 pub enum MatchmakingAlgorithmConfig {
     V1(MatchmakingAlgorithmV1Config),
@@ -18,13 +18,13 @@ pub enum MatchmakingAlgorithmConfig {
     Legacy(MatchmakingAlgorithmV1Config),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MatchmakingAlgorithmV1Config {
     pub min_matches: u64,
     pub min_matches_preference: f64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MatchmakingAlgorithmV2Config {
     pub min_matches_against_best: Option<u64>,
     pub min_matches_per_pair: u64,

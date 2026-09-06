@@ -15,7 +15,7 @@
 ## Match attributes overview
 
 CG Arena records attributes returned by a custom `command` referee or extracted from tagged
-CodinGame replay errors by the `codingame_jar` referee. These attributes can be used for match
+CodinGame replay errors by the `managed_codingame` referee. These attributes can be used for match
 filtering later.
 
 The attributes can describe 2 kinds of data:

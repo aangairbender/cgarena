@@ -11,6 +11,7 @@ use crate::{
 pub struct ConfigurationState {
     pub active: Option<ArenaConfig>,
     pub runtime_available: bool,
+    pub runtime_error: Option<String>,
 }
 
 pub async fn fetch_configuration(
@@ -19,7 +20,8 @@ pub async fn fetch_configuration(
     let active = db::fetch_arena_config(&app_state.pool).await?;
     Ok(Json(ConfigurationState {
         active,
-        runtime_available: app_state.runtime_available(),
+        runtime_available: app_state.runtime_available().await,
+        runtime_error: app_state.runtime.last_error().await,
     }))
 }
 
@@ -28,9 +30,15 @@ pub async fn apply_configuration(
     Json(candidate): Json<ArenaConfig>,
 ) -> Result<Json<ConfigurationState>, ApiError> {
     candidate.validate().map_err(ApiError::ValidationFailed)?;
-    db::persist_arena_config(&app_state.pool, &candidate).await?;
+    app_state
+        .runtime
+        .apply(candidate)
+        .await
+        .map_err(ApiError::ValidationFailed)?;
+    let active = db::fetch_arena_config(&app_state.pool).await?;
     Ok(Json(ConfigurationState {
-        active: Some(candidate),
-        runtime_available: app_state.runtime_available(),
+        active,
+        runtime_available: app_state.runtime_available().await,
+        runtime_error: app_state.runtime.last_error().await,
     }))
 }

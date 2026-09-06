@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::config::RefereeConfig;
 use crate::referee_adapter::{
     import_codingame_replay_bundle, validate_codingame_replay, RefereeAdapter,
@@ -41,7 +42,7 @@ pub struct ReplayViewer {
 struct ReplayViewerInner {
     replay_artifacts: ReplayArtifacts,
     arena_path: PathBuf,
-    referee: RefereeConfig,
+    referee: RefereeAdapter,
     sessions: Mutex<HashMap<String, ReplaySession>>,
     startup_timeout: Duration,
     idle_lifetime: Duration,
@@ -101,9 +102,10 @@ impl ReplayViewer {
     pub fn new(
         pool: sqlx::SqlitePool,
         arena_path: PathBuf,
-        referee: RefereeConfig,
+        referee: impl Into<RefereeAdapter>,
         cancellation_token: CancellationToken,
     ) -> Self {
+        let referee = referee.into();
         let viewer = Self::new_with_timeouts(
             pool,
             arena_path,
@@ -119,11 +121,12 @@ impl ReplayViewer {
     fn new_with_timeouts(
         pool: sqlx::SqlitePool,
         arena_path: PathBuf,
-        referee: RefereeConfig,
+        referee: impl Into<RefereeAdapter>,
         startup_timeout: Duration,
         idle_lifetime: Duration,
         cancellation_token: CancellationToken,
     ) -> Self {
+        let referee = referee.into();
         let replay_artifacts = ReplayArtifacts::new(pool, arena_path.clone());
         Self {
             inner: Arc::new(ReplayViewerInner {
@@ -254,13 +257,15 @@ impl ReplayViewer {
         let session_directory = fs::canonicalize(session_directory)
             .await
             .map_err(|error| ReplayError::Internal(error.to_string()))?;
-        if matches!(self.inner.referee, RefereeConfig::CodingameJar(_)) {
+        if matches!(self.inner.referee, RefereeAdapter::CodingameJar(_)) {
             return self
                 .generate_codingame_bundle(&artifact_path, &session_directory, participant_count)
                 .await;
         }
         let port = available_local_port().await?;
-        let prepared = RefereeAdapter::from(&self.inner.referee)
+        let prepared = self
+            .inner
+            .referee
             .prepare_replay_command(
                 &artifact_path,
                 &session_directory,
@@ -351,7 +356,9 @@ impl ReplayViewer {
         temporary_directory: &Path,
     ) -> Result<(), ReplayError> {
         let port = available_local_port().await?;
-        let prepared = RefereeAdapter::from(&self.inner.referee)
+        let prepared = self
+            .inner
+            .referee
             .prepare_replay_command(
                 artifact_path,
                 session_directory,
@@ -755,11 +762,10 @@ mod tests {
         let viewer = ReplayViewer::new_with_timeouts(
             db::in_memory().await.unwrap(),
             arena_path,
-            RefereeConfig::CodingameJar(crate::config::CodingameJarRefereeConfig {
-                path: "fixture.jar".to_string(),
-                java: Some(launcher_path.to_string_lossy().to_string()),
-                league: None,
-            }),
+            RefereeAdapter::codingame(
+                PathBuf::from("fixture.jar"),
+                launcher_path.to_string_lossy(),
+            ),
             startup_timeout,
             Duration::from_secs(60),
             cancellation_token.clone(),

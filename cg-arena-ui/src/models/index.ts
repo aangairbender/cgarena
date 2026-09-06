@@ -1,6 +1,7 @@
 export interface ConfigurationState {
   active: ArenaConfiguration | null;
   runtime_available: boolean;
+  runtime_error: string | null;
 }
 
 export interface ArenaConfiguration {
@@ -15,7 +16,6 @@ export interface GameConfiguration {
   min_players: number;
   max_players: number;
   symmetric: boolean;
-  referee_git_url: string | null;
 }
 
 export type MatchmakingConfiguration =
@@ -62,16 +62,45 @@ export interface EmbeddedWorkerConfiguration {
 
 export type RefereeConfiguration =
   | {
-      type: "codingame_jar";
-      path: string;
+      type: "managed_codingame";
+      repository_url: string;
+      branch: string | null;
       java: string | null;
-      league: number | null;
+      maven: string | null;
     }
   | {
       type: "command";
       play_match: string;
       watch_replay: string;
     };
+export type RefereeAction = "install" | "check" | "rebuild" | "update";
+
+export interface RefereeOperationStatus {
+  action: RefereeAction | null;
+  phase: string | null;
+  diagnostic: string | null;
+}
+
+export interface ManagedRefereeStatus {
+  selected: Extract<RefereeConfiguration, { type: "managed_codingame" }> | null;
+  installed: boolean;
+  replacement_required: boolean;
+  checkout_path: string;
+  artifact_path: string;
+  installed_repository_url: string | null;
+  branch: string | null;
+  upstream_commit: string | null;
+  adaptation_commit: string | null;
+  committed_ahead: number | null;
+  committed_behind: number | null;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  update_status: "up_to_date" | "update_available" | "unavailable";
+  last_successful_check: string | null;
+  observed_remote_commit: string | null;
+  operation: RefereeOperationStatus;
+}
 
 export interface CreateBotRequest {
   name: string;

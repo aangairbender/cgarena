@@ -1,4 +1,4 @@
-use crate::config::{CodingameJarRefereeConfig, CommandRefereeConfig, RefereeConfig};
+use crate::config::{CommandRefereeConfig, RefereeConfig};
 use anyhow::{bail, Context};
 use serde::Deserialize;
 use serde_json::Value;
@@ -11,9 +11,16 @@ pub const COMPATIBILITY_ARGUMENT: &str = "--cgarena-compat";
 pub const COMPATIBILITY_VERSION: &str = "cgarena-referee-v1";
 const COMPATIBILITY_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub enum RefereeAdapter<'a> {
-    CodingameJar(&'a CodingameJarRefereeConfig),
-    Command(&'a CommandRefereeConfig),
+#[derive(Clone)]
+pub enum RefereeAdapter {
+    CodingameJar(PreparedCodingameReferee),
+    Command(CommandRefereeConfig),
+}
+
+#[derive(Clone)]
+pub struct PreparedCodingameReferee {
+    path: PathBuf,
+    java: String,
 }
 
 #[derive(Clone, Copy)]
@@ -32,16 +39,38 @@ pub struct PreparedReplayCommand {
     pub args: Vec<String>,
 }
 
-impl<'a> From<&'a RefereeConfig> for RefereeAdapter<'a> {
-    fn from(config: &'a RefereeConfig) -> Self {
+impl From<&RefereeConfig> for RefereeAdapter {
+    fn from(config: &RefereeConfig) -> Self {
         match config {
-            RefereeConfig::CodingameJar(config) => Self::CodingameJar(config),
-            RefereeConfig::Command(config) => Self::Command(config),
+            RefereeConfig::ManagedCodingame(config) => {
+                Self::CodingameJar(PreparedCodingameReferee {
+                    path: PathBuf::from(".cgarena/referee/referee.jar"),
+                    java: config.java.clone().unwrap_or_else(|| "java".to_string()),
+                })
+            }
+            RefereeConfig::Command(config) => Self::Command(config.clone()),
         }
     }
 }
+impl From<RefereeConfig> for RefereeAdapter {
+    fn from(config: RefereeConfig) -> Self {
+        Self::from(&config)
+    }
+}
 
-impl RefereeAdapter<'_> {
+impl RefereeAdapter {
+    pub(crate) fn codingame_candidate(path: PathBuf, java: impl Into<String>) -> Self {
+        Self::CodingameJar(PreparedCodingameReferee {
+            path,
+            java: java.into(),
+        })
+    }
+
+    #[cfg(test)]
+    pub fn codingame(path: PathBuf, java: impl Into<String>) -> Self {
+        Self::codingame_candidate(path, java)
+    }
+
     pub fn match_replay_required(&self) -> bool {
         match self {
             Self::CodingameJar(_) => true,
@@ -60,11 +89,11 @@ impl RefereeAdapter<'_> {
                 let replay_path =
                     replay_path.context("codingame referee requires a replay path")?;
                 let mut argv = vec![
-                    config.java.as_deref().unwrap_or("java").to_string(),
+                    config.java.clone(),
                     "--add-opens".to_string(),
                     "java.base/java.lang=ALL-UNNAMED".to_string(),
                     "-jar".to_string(),
-                    config.path.clone(),
+                    config.path.to_string_lossy().to_string(),
                 ];
                 for (index, player_command) in player_commands.iter().enumerate() {
                     argv.push(format!("-p{}", index + 1));
@@ -74,7 +103,7 @@ impl RefereeAdapter<'_> {
                     "-seed".to_string(),
                     seed.to_string(),
                     "-league".to_string(),
-                    config.league.unwrap_or(19).to_string(),
+                    "19".to_string(),
                     "-l".to_string(),
                     replay_path.to_string_lossy().to_string(),
                 ]);
@@ -138,13 +167,13 @@ impl RefereeAdapter<'_> {
     ) -> anyhow::Result<PreparedReplayCommand> {
         match self {
             Self::CodingameJar(config) => Ok(PreparedReplayCommand {
-                program: config.java.as_deref().unwrap_or("java").to_string(),
+                program: config.java.clone(),
                 args: vec![
                     format!("-Djava.io.tmpdir={}", temporary_directory.display()),
                     "--add-opens".to_string(),
                     "java.base/java.lang=ALL-UNNAMED".to_string(),
                     "-jar".to_string(),
-                    config.path.clone(),
+                    config.path.to_string_lossy().to_string(),
                     "-r".to_string(),
                     artifact_path.to_string_lossy().to_string(),
                     "-port".to_string(),
@@ -189,17 +218,32 @@ impl RefereeAdapter<'_> {
             return Ok(());
         };
         let configured_path = resolve_path(arena_path, &config.path);
-        let jar_path = std::fs::canonicalize(&configured_path)
-            .with_context(|| format!("cannot access referee JAR {}", configured_path.display()))?;
-        let metadata = std::fs::metadata(&jar_path)
-            .with_context(|| format!("cannot access referee JAR {}", jar_path.display()))?;
+        let jar_path = std::fs::canonicalize(&configured_path).with_context(|| {
+            format!(
+                "cannot access managed referee artifact {}",
+                configured_path.display()
+            )
+        })?;
+        let metadata = std::fs::metadata(&jar_path).with_context(|| {
+            format!(
+                "cannot access managed referee artifact {}",
+                jar_path.display()
+            )
+        })?;
         if !metadata.is_file() {
-            bail!("referee JAR is not a file: {}", jar_path.display());
+            bail!(
+                "managed referee artifact is not a file: {}",
+                jar_path.display()
+            );
         }
-        std::fs::File::open(&jar_path)
-            .with_context(|| format!("referee JAR is not readable: {}", jar_path.display()))?;
+        std::fs::File::open(&jar_path).with_context(|| {
+            format!(
+                "managed referee artifact is not readable: {}",
+                jar_path.display()
+            )
+        })?;
 
-        let mut command = Command::new(config.java.as_deref().unwrap_or("java"));
+        let mut command = Command::new(&config.java);
         command
             .args(["--add-opens", "java.base/java.lang=ALL-UNNAMED", "-jar"])
             .arg(&jar_path)
@@ -238,8 +282,8 @@ impl RefereeAdapter<'_> {
     }
 }
 
-fn resolve_path(arena_path: &Path, configured_path: &str) -> PathBuf {
-    let path = Path::new(configured_path);
+fn resolve_path(arena_path: &Path, configured_path: &Path) -> PathBuf {
+    let path = configured_path;
     if path.is_absolute() {
         path.to_path_buf()
     } else {

@@ -35,7 +35,8 @@ pub async fn create_bot(
         .map_err(ApiError::ValidationFailed)?;
 
     let res = app_state
-        .arena_handle()?
+        .arena_handle()
+        .await?
         .create_bot(name, source_code, language)
         .await?;
 
@@ -53,7 +54,7 @@ pub async fn delete_bot(
 ) -> Result<impl IntoResponse, ApiError> {
     let bot_id: BotId = id.into();
 
-    app_state.arena_handle()?.delete_bot(bot_id).await?;
+    app_state.arena_handle().await?.delete_bot(bot_id).await?;
 
     Ok(StatusCode::OK)
 }
@@ -69,7 +70,11 @@ pub async fn rename_bot(
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
 
-    let res = app_state.arena_handle()?.rename_bot(id, new_name).await?;
+    let res = app_state
+        .arena_handle()
+        .await?
+        .rename_bot(id, new_name)
+        .await?;
 
     match res {
         RenameBotResult::Renamed => Ok(()),
@@ -86,7 +91,11 @@ pub async fn fetch_source_code(
 ) -> Result<impl IntoResponse, ApiError> {
     let id: BotId = id.into();
 
-    let res = app_state.arena_handle()?.fetch_bot_source_code(id).await?;
+    let res = app_state
+        .arena_handle()
+        .await?
+        .fetch_bot_source_code(id)
+        .await?;
 
     match res {
         Some(res) => Ok(Json(BotSourceCodeResponse::from(res))),

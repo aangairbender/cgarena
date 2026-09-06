@@ -228,17 +228,27 @@ Controls the number of concurrent matches being run. Don't set this higher than 
 
 Select exactly one referee adapter.
 
-#### `codingame_jar`
+#### `managed_codingame`
 
-Runs a CG-Arena-compatible shaded CodinGame referee JAR directly. The JAR must be executable with `java -jar`, implement the maintained `-p1` through `-p8`, `-seed`, `-l`, `-r`, and `-port` contract, and report `cgarena-referee-v1` for `--cgarena-compat`. CG Arena probes that version marker at startup, then owns match-result conversion, replay persistence, static replay-bundle extraction, and renderer cleanup.
+Selects a public CodinGame referee repository. Saving configuration does not contact the
+repository. Use **Install referee** in the configuration UI to clone its default branch (or the
+configured `branch`), add CG Arena's maintained command-line/Maven adaptation on the reserved
+local `cgarena` branch, build and probe a candidate, and activate it. The Maven Wrapper is used
+when present; otherwise `mvn` is used. Every match uses league 19.
 
 ```toml
 [workers.referee]
-type = "codingame_jar"
-path = "referee/target/referee.jar"
+type = "managed_codingame"
+repository_url = "https://github.com/CodinGame/SpringChallenge2023.git"
+# branch = "main"
 # java = "java"
-# league = 19
+# maven = "mvn"
 ```
+
+The visible checkout is `<arena>/referee`; the active JAR is an internal stable artifact. Install,
+Check for updates, Rebuild, Update, and Replace are explicit asynchronous UI actions. Startup,
+configuration saves, and status reads never fetch or build. Local Git changes remain visible and
+are preserved by rebuilds and updates; a dirty checkout blocks replacement.
 
 #### `command`
 
@@ -256,7 +266,7 @@ Legacy configurations with both `cmd_play_match` and `cmd_watch_replay` directly
 New configuration must use the tagged table above and include every shown placeholder. Do not
 configure both forms; CG Arena rejects the ambiguous configuration.
 
-`cmd_run` is expanded once per participant. CG Arena passes each resulting command as one player argument to the JAR adapter; it is never shell-split.
+`cmd_run` is expanded once per participant. The managed adapter passes each resulting command as one player argument; it is never shell-split.
 
 ### `cmd_build`
 

@@ -34,7 +34,8 @@ pub async fn create_leaderboard(
     let filter: MatchFilter = payload.filter.parse().map_err(ApiError::ValidationFailed)?;
 
     let res = app_state
-        .arena_handle()?
+        .arena_handle()
+        .await?
         .create_leaderboard(name, filter)
         .await?;
 
@@ -54,7 +55,8 @@ pub async fn patch_leaderboard(
     let filter: MatchFilter = payload.filter.parse().map_err(ApiError::ValidationFailed)?;
 
     let res = app_state
-        .arena_handle()?
+        .arena_handle()
+        .await?
         .patch_leaderboard(id, name, filter)
         .await?;
 
@@ -69,6 +71,10 @@ pub async fn delete_leaderboard(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let id: LeaderboardId = id.into();
-    app_state.arena_handle()?.delete_leaderboard(id).await?;
+    app_state
+        .arena_handle()
+        .await?
+        .delete_leaderboard(id)
+        .await?;
     Ok(())
 }

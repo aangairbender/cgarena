@@ -27,7 +27,8 @@ pub async fn fetch_matches(
     let (filter, including_bots, offset, limit) = parse_request(&payload)?;
 
     let page = app_state
-        .arena_handle()?
+        .arena_handle()
+        .await?
         .fetch_matches(MatchPageRequest {
             filter,
             including_bots,

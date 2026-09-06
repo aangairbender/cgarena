@@ -4,7 +4,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use skillratings::{trueskill::*, MultiTeamOutcome};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     pub draw_probability: Option<f64>,
     pub beta: Option<f64>,

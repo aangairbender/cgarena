@@ -6,17 +6,18 @@ mod arena_server;
 #[cfg(test)]
 mod arena_tests;
 mod async_leaderboard;
-mod cg_referee;
 mod chart;
 mod config;
 mod db;
 mod domain;
+mod managed_referee;
 mod match_retrieval;
 mod matchmaking;
 mod ranking;
 mod referee_adapter;
 mod replay_artifact;
 mod replay_viewer;
+mod runtime;
 mod worker;
 
 use anyhow::Context;

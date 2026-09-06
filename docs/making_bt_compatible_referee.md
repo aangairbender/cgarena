@@ -1,5 +1,9 @@
 # How to make a brutaltester-compatible referee
 
+CG Arena's `managed_codingame` referee mode now performs this supported adaptation, build, and
+compatibility probe through the explicit **Install referee** action. The steps below document the
+maintained integration contract for manual/custom workflows.
+
 Let's use [CodinGame's Winter Challenge 2024](https://www.codingame.com/contests/winter-challenge-2024) as an example.
 
 ## Prerequisites 
@@ -235,9 +239,8 @@ Build the shaded JAR:
 mvn package
 ```
 
-The maintained Maven configuration writes `target/referee.jar`. Keep the referee repository
-at `<arena>/referee`, matching the default native adapter path
-`<arena>/referee/target/referee.jar`.
+The managed lifecycle publishes the validated JAR to
+`<arena>/.cgarena/referee/referee.jar`; candidate output never overwrites the active artifact.
 
 Verify the versioned CG Arena contract before running a match:
 

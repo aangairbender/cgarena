@@ -25,7 +25,7 @@ impl From<WengLinRating> for Rating {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     pub beta: Option<f64>,
     pub uncertainty_tolerance: Option<f64>,

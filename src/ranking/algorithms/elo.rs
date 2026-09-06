@@ -3,7 +3,7 @@ use crate::ranking::{Algorithm, OnlineAlgorithm};
 use serde::{Deserialize, Serialize};
 use skillratings::{elo::*, Outcomes};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     pub k: Option<f64>,
 }

@@ -21,7 +21,7 @@ pub struct Config {
     pub workers: Vec<WorkerConfig>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ArenaConfig {
     pub game: GameConfig,
     pub matchmaking: MatchmakingConfig,
@@ -39,22 +39,21 @@ pub struct BootstrapConfig {
     pub log: LogConfig,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GameConfig {
     pub min_players: u32,
     pub max_players: u32,
     pub symmetric: bool,
-    pub referee_git_url: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MatchmakingConfig {
     #[serde(flatten)]
     pub algorithm: MatchmakingAlgorithmConfig,
     pub enabled_on_start: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "algorithm")]
 pub enum RankingConfig {
     OpenSkill(openskill::Config),
@@ -63,7 +62,7 @@ pub enum RankingConfig {
     BradleyTerry(bradley_terry::Config),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerConfig {
@@ -124,15 +123,16 @@ impl<'de> Deserialize<'de> for EmbeddedWorkerConfig {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RefereeConfig {
-    CodingameJar(CodingameJarRefereeConfig),
+    ManagedCodingame(ManagedCodingameRefereeConfig),
     Command(CommandRefereeConfig),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct CodingameJarRefereeConfig {
-    pub path: String,
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ManagedCodingameRefereeConfig {
+    pub repository_url: String,
+    pub branch: Option<String>,
     pub java: Option<String>,
-    pub league: Option<u8>,
+    pub maven: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -157,7 +157,7 @@ pub struct LogConfig {
     pub file: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct LeaderboardsConfig {
     pub uncertainty_coefficient: Option<f64>,
 }
@@ -266,22 +266,25 @@ fn validate_arena_config(
             bail!("cmd_run must not be blank");
         }
         match &config.referee {
-            RefereeConfig::CodingameJar(config) => {
-                if config.path.trim().is_empty() {
-                    bail!("codingame_jar referee path must not be blank");
+            RefereeConfig::ManagedCodingame(config) => {
+                if config.repository_url.trim().is_empty() {
+                    bail!("managed CodinGame repository URL must not be blank");
+                }
+                for (name, value) in [
+                    ("branch", config.branch.as_deref()),
+                    ("java", config.java.as_deref()),
+                    ("maven", config.maven.as_deref()),
+                ] {
+                    if value.is_some_and(|value| value.trim().is_empty()) {
+                        bail!("managed CodinGame repository {name} must not be blank");
+                    }
                 }
                 if config
-                    .java
+                    .branch
                     .as_deref()
-                    .is_some_and(|java| java.trim().is_empty())
+                    .is_some_and(|branch| branch.starts_with('-'))
                 {
-                    bail!("codingame_jar referee java must not be blank");
-                }
-                if config
-                    .league
-                    .is_some_and(|league| league == 0 || league >= 20)
-                {
-                    bail!("codingame_jar referee league must be between 1 and 19");
+                    bail!("managed CodinGame repository branch must not begin with '-'");
                 }
             }
 
