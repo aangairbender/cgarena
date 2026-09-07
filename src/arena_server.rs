@@ -1,6 +1,6 @@
 use crate::{
     api,
-    config::{BootstrapConfig, Config},
+    config::{BootstrapConfig, LegacyConfig},
     db,
     runtime::ArenaRuntime,
 };
@@ -125,7 +125,7 @@ async fn load_or_migrate_arena_configuration(
         return Ok(Some(config));
     }
 
-    let Some(legacy) = Config::load_legacy(arena_path)? else {
+    let Some(legacy) = LegacyConfig::load(arena_path)? else {
         return Ok(None);
     };
     legacy.validate().context("Invalid legacy configuration")?;
@@ -296,14 +296,36 @@ mod test {
 
     async fn legacy_arena() -> (tempfile::TempDir, sqlx::SqlitePool, String) {
         let directory = tempfile::tempdir().unwrap();
-        let legacy = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/default_config.toml"
-        ))
-        .replace(
-            "[workers.referee]\ntype = \"managed_codingame\"\nrepository_url = \"https://github.com/CodinGame/SpringChallenge2023.git\"",
-            "cmd_play_match = \"runner\"\ncmd_watch_replay = \"renderer\"",
-        );
+        let legacy = r#"[game]
+min_players = 2
+max_players = 2
+symmetric = true
+
+[matchmaking]
+enabled_on_start = true
+min_matches = 100
+min_matches_preference = 0.5
+
+[ranking]
+algorithm = "BradleyTerry"
+
+[server]
+port = 1234
+expose = false
+
+[log]
+level = "INFO"
+file = "cgarena.log"
+
+[[workers]]
+type = "embedded"
+threads = 1
+cmd_play_match = "runner"
+cmd_watch_replay = "renderer"
+cmd_build = "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a"
+cmd_run = "./{DIR}/a"
+"#
+        .to_string();
         std::fs::write(directory.path().join("cgarena_config.toml"), &legacy).unwrap();
         let pool = db::connect(directory.path()).await.unwrap();
         db::migrate(&pool).await.unwrap();

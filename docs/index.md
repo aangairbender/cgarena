@@ -73,7 +73,7 @@ Network: use 'server.expose' config param to expose
 ```
 
 Open the **Local** URL in your browser. A new arena opens its first-run configuration form before
-bot submission, evaluation scheduling, matches, or replays become available.
+bot submission, matchmaking, matches, or replays become available.
 
 The UI theme (light or dark) is selected based on your operating system settings.
 
@@ -135,7 +135,7 @@ You can check your bot's source code by clicking on the "code" icon in the "Acti
 ### Global leaderboard
 
 Once a Candidate and enough active Benchmarks are available for the configured player count,
-evaluation scheduling begins. The global leaderboard ranks active bots using all retained finished
+matchmaking begins. The global leaderboard ranks active bots using all retained finished
 matches.
 
 Here is an example of a global leaderboard in the middle of the contest:
@@ -282,4 +282,5 @@ while (!std::cin.eof()) {
 }
 ```
 
-Another way is to not use `run.sh` and embed `g++` call directly into `cmd_run` in your `cgarena_config.toml`.
+Another way is to skip `run.sh` and put the `g++` invocation directly in the **Run command**
+field on the **Config** page.

@@ -8,7 +8,7 @@ CG Arena uses bounded evaluation of candidate bots against a live benchmark pool
 - Each evaluation Match contains exactly one candidate, with all remaining player slots filled by active benchmarks.
 - Every candidate pins the evaluation-plan revision active at submission, while later promotions and benchmark archival change the live opponent pool for active candidates.
 - Evaluation plans contain ordered stages defining seed source, coverage policy, and player-count range.
-- Arena-level generated seeds stay fixed until explicit regeneration; curated and fresh-random seed stages provide edge-case and generalization evidence.
+- An arena-level key produces an unbounded deterministic seed sequence reused across candidate evaluations; curated and fresh-random seed stages provide edge-case and generalization evidence.
 - Player counts are balanced deterministically within each stage's configured range.
 - Completion means evidence collection is complete. Promotion and rejection remain entirely user-controlled, with no automatic verdict.
 - The primary UI is an evaluation dashboard while global and custom leaderboards remain first-class evidence surfaces.

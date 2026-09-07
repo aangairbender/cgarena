@@ -77,7 +77,7 @@ The retirement of a weak benchmark bot from future evaluation and active views w
 _Avoid_: Benchmark deletion
 
 **Coverage policy**:
-The rule that determines when a candidate has accumulated enough match evidence. Policies may require coverage per benchmark, across the whole benchmark pool, or according to benchmark weights.
+The rule that determines when a candidate has accumulated enough match evidence. Policies may require coverage per benchmark or across the whole benchmark pool.
 _Avoid_: Matchmaking algorithm, match limit
 
 **Per-benchmark coverage**:
@@ -104,16 +104,16 @@ _Avoid_: Current stage settings, per-match settings copy
 The balanced, deterministic distribution of evaluation matches across an evaluation stage's allowed player-count range. Static seed assignments remain stable across candidates.
 _Avoid_: Random player-count selection
 
-**Generated seed suite**:
-An arena-level set of randomly generated seeds reused across candidate evaluations and benchmark pairings until the user explicitly regenerates it.
-_Avoid_: Per-candidate seeds, permanently fixed seeds
+**Generated seed sequence**:
+An arena-level deterministic stream of Match seeds identified by a sequence key and reused across candidate evaluations and benchmark pairings. Changing the key creates a different stream for future evaluations without imposing a fixed sequence length.
+_Avoid_: Per-candidate seeds, finite seed suite
 
 **Curated seed**:
 A user-selected seed retained because it represents a known scenario or edge case worth evaluating repeatedly.
 _Avoid_: Hardcoded seed
 
 **Fresh random seed**:
-A newly generated seed used to sample behavior beyond the generated and curated seed suites.
+A newly generated seed used to sample behavior beyond the generated deterministic sequence and curated seeds.
 _Avoid_: Static seed
 
 **Referee**:

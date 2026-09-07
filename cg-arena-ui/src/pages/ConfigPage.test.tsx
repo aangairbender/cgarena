@@ -76,15 +76,17 @@ function renderPage(adapter: ConfigurationAdapter) {
 afterEach(() => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
-describe("first-run configuration page", () => {
+describe("configuration page", () => {
   it("edits and atomically applies one complete arena configuration", async () => {
     const adapter = new InMemoryConfigurationAdapter({
       active: null,
       runtime_available: false,
       runtime_error: null,
     });
+    vi.spyOn(Math, "random").mockReturnValueOnce(0.25).mockReturnValueOnce(0.5);
     renderPage(adapter);
 
     expect(
@@ -99,6 +101,49 @@ describe("first-run configuration page", () => {
     ]) {
       expect(screen.getByText(section)).toBeTruthy();
     }
+    expect(
+      screen
+        .getByText("Referee")
+        .compareDocumentPosition(screen.getByText("Game")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Enable matchmaking on startup")).toBeTruthy();
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    const applyButton = screen.getByRole("button", {
+      name: "Apply configuration",
+    }) as HTMLButtonElement;
+    expect(applyButton.disabled).toBe(false);
+    const seedSequenceKey = screen.getByLabelText(
+      "Seed sequence key",
+    ) as HTMLInputElement;
+    expect(seedSequenceKey.value).toBe("1073741824");
+    fireEvent.click(screen.getByRole("button", { name: "Randomize" }));
+    expect(seedSequenceKey.value).toBe("2147483648");
+    expect(
+      Array.from(
+        (screen.getByLabelText("Coverage") as HTMLSelectElement).options,
+        (option) => option.textContent,
+      ),
+    ).toEqual(["Matches per pair", "Total matches"]);
+    const coverage = screen.getByLabelText("Coverage");
+    expect(screen.getByLabelText("Matches per pair")).toBeTruthy();
+    fireEvent.change(coverage, { target: { value: "total" } });
+    expect(screen.getByLabelText("Total matches")).toBeTruthy();
+    fireEvent.change(coverage, { target: { value: "per_benchmark" } });
+    const advancedSettings = screen.getByText("Advanced settings");
+    const advancedSettingsDisclosure =
+      advancedSettings.parentElement as HTMLDetailsElement;
+    expect(advancedSettingsDisclosure.open).toBe(false);
+    fireEvent.click(advancedSettings);
+    expect(advancedSettingsDisclosure.open).toBe(true);
+    const maximumIterationsHelp = screen.getByRole("button", {
+      name: "More information about Maximum iterations",
+    });
+    fireEvent.focus(maximumIterationsHelp);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      "maximum optimization steps",
+    );
+    fireEvent.blur(maximumIterationsHelp);
     expect(
       (screen.getByLabelText("Repository URL") as HTMLInputElement).value,
     ).toBe("https://github.com/CodinGame/SpringChallenge2023.git");
@@ -158,11 +203,70 @@ describe("first-run configuration page", () => {
         },
       ],
     });
+    expect(await screen.findByText("Configuration up to date")).toBeTruthy();
+    expect(applyButton.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Minimum players"), {
+      target: { value: "2" },
+    });
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    expect(applyButton.disabled).toBe(false);
+  });
+
+  it("converts legacy weighted coverage to total matches", async () => {
+    const adapter = new InMemoryConfigurationAdapter({
+      active: {
+        game: { min_players: 2, max_players: 2, symmetric: true },
+        evaluation: {
+          enabled_on_start: true,
+          seed_sequence_key: 42,
+          stages: [
+            {
+              name: "Legacy coverage",
+              seed_source: { type: "generated" },
+              coverage: {
+                type: "weighted_total",
+                target: 17,
+                weights: { "1": 2 },
+              },
+              min_players: null,
+              max_players: null,
+            },
+          ],
+        },
+        ranking: { algorithm: "BradleyTerry", max_iter: null },
+        leaderboards: { uncertainty_coefficient: null },
+        workers: [
+          {
+            type: "embedded",
+            threads: 1,
+            cmd_build: "build {DIR}",
+            cmd_run: "run {DIR}",
+            referee: {
+              type: "command",
+              play_match: "play {SEED} {REPLAY_PATH} {PLAYERS}",
+              watch_replay:
+                "watch {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}",
+            },
+          },
+        ],
+      },
+      runtime_available: true,
+      runtime_error: null,
+    });
+    renderPage(adapter);
+
     expect(
-      await screen.findByText(
-        /Configuration saved as the active configuration/,
-      ),
-    ).toBeTruthy();
+      ((await screen.findByLabelText("Coverage")) as HTMLSelectElement).value,
+    ).toBe("total");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Apply configuration" }),
+    );
+
+    await waitFor(() => expect(adapter.applied).toHaveLength(1));
+    expect(adapter.applied[0].evaluation.stages[0].coverage).toEqual({
+      type: "total",
+      target: 17,
+    });
   });
 
   it("shows server validation errors without replacing the draft", async () => {
@@ -197,8 +301,13 @@ describe("first-run configuration page", () => {
     expect(
       (screen.getByLabelText("Play-match command") as HTMLInputElement).value,
     ).toBe("broken command");
+    expect(screen.getByText("Configuration was not saved")).toBeTruthy();
     expect(
-      screen.queryByText(/Configuration saved as the active configuration/),
-    ).toBeNull();
+      (
+        screen.getByRole("button", {
+          name: "Apply configuration",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 });

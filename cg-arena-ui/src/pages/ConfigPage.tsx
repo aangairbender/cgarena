@@ -10,35 +10,35 @@ import {
   RefereeAction,
 } from "@/models";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, type SetStateAction, useEffect, useState } from "react";
 import {
   Alert,
   Button,
   Card,
   Col,
   Form,
+  InputGroup,
+  OverlayTrigger,
   Row,
   Spinner,
   Stack,
+  Tooltip,
 } from "react-bootstrap";
+import { FaQuestionCircle } from "react-icons/fa";
 
 const httpAdapter: ConfigurationAdapter = {
   fetch: api.fetchConfiguration,
   apply: api.applyConfiguration,
 };
 
-function generatedSeedSuite(): number[] {
-  const seeds = new Set<number>();
-  while (seeds.size < 100) {
-    seeds.add(Math.floor(Math.random() * 0x1_0000_0000) - 0x8000_0000);
-  }
-  return [...seeds];
+function randomSeedSequenceKey(): number {
+  return Math.floor(Math.random() * 0x1_0000_0000);
 }
 
 function defaultEvaluationStage(): EvaluationStageConfiguration {
   return {
-    name: "Generated suite",
-    seed_source: { type: "generated_static" },
+    name: "Generated sequence",
+    seed_source: { type: "generated" },
     coverage: { type: "per_benchmark", target: 100 },
     min_players: null,
     max_players: null,
@@ -54,7 +54,7 @@ function defaultConfiguration(): ArenaConfiguration {
     },
     evaluation: {
       enabled_on_start: true,
-      generated_seeds: generatedSeedSuite(),
+      seed_sequence_key: randomSeedSequenceKey(),
       stages: [defaultEvaluationStage()],
     },
     ranking: { algorithm: "BradleyTerry", max_iter: null },
@@ -78,6 +78,34 @@ function defaultConfiguration(): ArenaConfiguration {
   };
 }
 
+// Weighted coverage is no longer editable; preserve its target in older configurations.
+function configurationForEditing(
+  configuration: ArenaConfiguration,
+): ArenaConfiguration {
+  if (
+    !configuration.evaluation.stages.some(
+      (stage) => stage.coverage.type === "weighted_total",
+    )
+  ) {
+    return configuration;
+  }
+
+  return {
+    ...configuration,
+    evaluation: {
+      ...configuration.evaluation,
+      stages: configuration.evaluation.stages.map((stage) =>
+        stage.coverage.type === "weighted_total"
+          ? {
+              ...stage,
+              coverage: { type: "total", target: stage.coverage.target },
+            }
+          : stage,
+      ),
+    },
+  };
+}
+
 function optionalNumber(value: string): number | null {
   return value === "" ? null : Number(value);
 }
@@ -87,21 +115,6 @@ function parseNumbers(value: string): number[] {
     .split(/[,\s]+/)
     .map(Number)
     .filter(Number.isFinite);
-}
-
-function parseWeights(value: string): Record<string, number> {
-  return Object.fromEntries(
-    value
-      .split(/[,\s]+/)
-      .map((entry) => entry.split(":"))
-      .filter(
-        (entry) =>
-          entry.length === 2 &&
-          entry[0] !== "" &&
-          Number.isFinite(Number(entry[1])),
-      )
-      .map(([id, weight]) => [id, Number(weight)]),
-  );
 }
 
 interface ConfigPageProps {
@@ -135,19 +148,34 @@ function ConfigurationForm({
 }) {
   const queryClient = useQueryClient();
   const [state, setState] = useState(initialState);
-  const [draft, setDraft] = useState<ArenaConfiguration>(
-    initialState.active ?? defaultConfiguration(),
+  const initialConfigurationIsLegacy =
+    initialState.active?.evaluation.stages.some(
+      (stage) => stage.coverage.type === "weighted_total",
+    ) ?? false;
+  const [draft, setDraftState] = useState<ArenaConfiguration>(() =>
+    initialState.active
+      ? configurationForEditing(initialState.active)
+      : defaultConfiguration(),
   );
-  const [saved, setSaved] = useState(false);
+  const [isDirty, setIsDirty] = useState(
+    initialState.active === null || initialConfigurationIsLegacy,
+  );
   const apply = useMutation({
     mutationFn: (candidate: ArenaConfiguration) => adapter.apply(candidate),
     onSuccess: (nextState) => {
       queryClient.setQueryData(configurationQueryKey, nextState);
       setState(nextState);
-      setDraft(nextState.active ?? draft);
-      setSaved(true);
+      setDraftState(
+        nextState.active ? configurationForEditing(nextState.active) : draft,
+      );
+      setIsDirty(false);
     },
   });
+  const setDraft = (update: SetStateAction<ArenaConfiguration>) => {
+    setDraftState(update);
+    setIsDirty(true);
+    apply.reset();
+  };
 
   const firstRun = state.active === null;
   const worker = draft.workers[0];
@@ -164,6 +192,10 @@ function ConfigurationForm({
         const nextState = await adapter.apply(draft);
         queryClient.setQueryData(configurationQueryKey, nextState);
         setState(nextState);
+        setDraftState(
+          nextState.active ? configurationForEditing(nextState.active) : draft,
+        );
+        setIsDirty(false);
       }
       await api.startRefereeAction(action);
     },
@@ -191,7 +223,6 @@ function ConfigurationForm({
       ...current,
       workers: [{ ...current.workers[0], ...next }],
     }));
-    setSaved(false);
   };
 
   const updateStage = (
@@ -209,7 +240,6 @@ function ConfigurationForm({
         ),
       },
     }));
-    setSaved(false);
   };
 
   const moveStage = (index: number, offset: number) => {
@@ -222,7 +252,6 @@ function ConfigurationForm({
         evaluation: { ...current.evaluation, stages },
       };
     });
-    setSaved(false);
   };
 
   const updateCommandReferee = (
@@ -248,7 +277,6 @@ function ConfigurationForm({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    setSaved(false);
     apply.mutate(draft);
   };
 
@@ -271,607 +299,9 @@ function ConfigurationForm({
       {state.runtime_error && (
         <Alert variant="warning">{state.runtime_error}</Alert>
       )}
-      {saved && (
-        <Alert variant="success">
-          Configuration saved as the active configuration.
-          {!state.runtime_available &&
-            " Runtime features are still unavailable in this process."}
-        </Alert>
-      )}
-      {apply.error && <Alert variant="danger">{apply.error.message}</Alert>}
 
       <Form onSubmit={submit}>
         <Stack gap={3}>
-          <Card>
-            <Card.Body>
-              <Card.Title>Game</Card.Title>
-              <Row className="g-3">
-                <Col md={4}>
-                  <Form.Group controlId="min-players">
-                    <Form.Label>Minimum players</Form.Label>
-                    <Form.Control
-                      type="number"
-                      min={1}
-                      max={8}
-                      required
-                      value={draft.game.min_players}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          game: {
-                            ...current.game,
-                            min_players: Number(event.target.value),
-                          },
-                        }))
-                      }
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={4}>
-                  <Form.Group controlId="max-players">
-                    <Form.Label>Maximum players</Form.Label>
-                    <Form.Control
-                      type="number"
-                      min={1}
-                      max={8}
-                      required
-                      value={draft.game.max_players}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          game: {
-                            ...current.game,
-                            max_players: Number(event.target.value),
-                          },
-                        }))
-                      }
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={4} className="d-flex align-items-end">
-                  <Form.Check
-                    id="symmetric-game"
-                    type="switch"
-                    label="Symmetric game"
-                    checked={draft.game.symmetric}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        game: {
-                          ...current.game,
-                          symmetric: event.target.checked,
-                        },
-                      }))
-                    }
-                  />
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
-
-          <Card>
-            <Card.Body>
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <div>
-                  <Card.Title className="mb-1">
-                    Candidate evaluation plan
-                  </Card.Title>
-                  <Card.Text className="text-body-secondary mb-0">
-                    Candidates pin this ordered plan when submitted. Existing
-                    candidates keep their pinned revision after edits.
-                  </Card.Text>
-                </div>
-                <Button
-                  variant="outline-secondary"
-                  onClick={() => {
-                    setDraft((current) => ({
-                      ...current,
-                      evaluation: {
-                        ...current.evaluation,
-                        generated_seeds: generatedSeedSuite(),
-                      },
-                    }));
-                    setSaved(false);
-                  }}
-                >
-                  Regenerate 100-seed suite
-                </Button>
-              </div>
-
-              <Form.Check
-                id="start-evaluation-scheduling"
-                className="mb-3"
-                type="switch"
-                label="Start evaluation scheduling automatically"
-                checked={draft.evaluation.enabled_on_start ?? true}
-                onChange={(event) => {
-                  setDraft((current) => ({
-                    ...current,
-                    evaluation: {
-                      ...current.evaluation,
-                      enabled_on_start: event.target.checked,
-                    },
-                  }));
-                  setSaved(false);
-                }}
-              />
-
-              <Stack gap={3}>
-                {draft.evaluation.stages.map((stage, index) => (
-                  <Card key={index} className="border-secondary">
-                    <Card.Body>
-                      <div className="d-flex justify-content-between align-items-center mb-3">
-                        <strong>Stage {index + 1}</strong>
-                        <Stack direction="horizontal" gap={2}>
-                          <Button
-                            size="sm"
-                            variant="outline-secondary"
-                            disabled={index === 0}
-                            onClick={() => moveStage(index, -1)}
-                          >
-                            Up
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline-secondary"
-                            disabled={
-                              index === draft.evaluation.stages.length - 1
-                            }
-                            onClick={() => moveStage(index, 1)}
-                          >
-                            Down
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline-danger"
-                            disabled={draft.evaluation.stages.length === 1}
-                            onClick={() => {
-                              setDraft((current) => ({
-                                ...current,
-                                evaluation: {
-                                  ...current.evaluation,
-                                  stages: current.evaluation.stages.filter(
-                                    (_, stageIndex) => stageIndex !== index,
-                                  ),
-                                },
-                              }));
-                              setSaved(false);
-                            }}
-                          >
-                            Remove
-                          </Button>
-                        </Stack>
-                      </div>
-                      <Row className="g-3">
-                        <Col md={4}>
-                          <Form.Group controlId={`stage-${index}-name`}>
-                            <Form.Label>Name</Form.Label>
-                            <Form.Control
-                              required
-                              value={stage.name}
-                              onChange={(event) =>
-                                updateStage(index, (current) => ({
-                                  ...current,
-                                  name: event.target.value,
-                                }))
-                              }
-                            />
-                          </Form.Group>
-                        </Col>
-                        <Col md={4}>
-                          <Form.Group controlId={`stage-${index}-seed-source`}>
-                            <Form.Label>Seed source</Form.Label>
-                            <Form.Select
-                              value={stage.seed_source.type}
-                              onChange={(event) =>
-                                updateStage(index, (current) => ({
-                                  ...current,
-                                  seed_source:
-                                    event.target.value === "curated"
-                                      ? { type: "curated", seeds: [1] }
-                                      : event.target.value === "fresh_random"
-                                        ? { type: "fresh_random" }
-                                        : { type: "generated_static" },
-                                }))
-                              }
-                            >
-                              <option value="generated_static">
-                                Generated static suite
-                              </option>
-                              <option value="curated">Curated seeds</option>
-                              <option value="fresh_random">Fresh random</option>
-                            </Form.Select>
-                          </Form.Group>
-                        </Col>
-                        <Col md={4}>
-                          <Form.Group controlId={`stage-${index}-coverage`}>
-                            <Form.Label>Coverage</Form.Label>
-                            <Form.Select
-                              value={stage.coverage.type}
-                              onChange={(event) =>
-                                updateStage(index, (current) => ({
-                                  ...current,
-                                  coverage:
-                                    event.target.value === "total"
-                                      ? { type: "total", target: 100 }
-                                      : event.target.value === "weighted_total"
-                                        ? {
-                                            type: "weighted_total",
-                                            target: 100,
-                                            weights: {},
-                                          }
-                                        : {
-                                            type: "per_benchmark",
-                                            target: 100,
-                                          },
-                                }))
-                              }
-                            >
-                              <option value="per_benchmark">
-                                Per benchmark
-                              </option>
-                              <option value="total">Total matches</option>
-                              <option value="weighted_total">
-                                Weighted total
-                              </option>
-                            </Form.Select>
-                          </Form.Group>
-                        </Col>
-                        <Col md={4}>
-                          <Form.Group controlId={`stage-${index}-target`}>
-                            <Form.Label>Target</Form.Label>
-                            <Form.Control
-                              type="number"
-                              min={1}
-                              required
-                              value={stage.coverage.target}
-                              onChange={(event) =>
-                                updateStage(index, (current) => ({
-                                  ...current,
-                                  coverage: {
-                                    ...current.coverage,
-                                    target: Number(event.target.value),
-                                  },
-                                }))
-                              }
-                            />
-                          </Form.Group>
-                        </Col>
-                        <Col md={4}>
-                          <Form.Group controlId={`stage-${index}-min-players`}>
-                            <Form.Label>Stage minimum players</Form.Label>
-                            <Form.Control
-                              type="number"
-                              min={draft.game.min_players}
-                              max={draft.game.max_players}
-                              placeholder={`${draft.game.min_players} (game default)`}
-                              value={stage.min_players ?? ""}
-                              onChange={(event) =>
-                                updateStage(index, (current) => ({
-                                  ...current,
-                                  min_players: optionalNumber(
-                                    event.target.value,
-                                  ),
-                                }))
-                              }
-                            />
-                          </Form.Group>
-                        </Col>
-                        <Col md={4}>
-                          <Form.Group controlId={`stage-${index}-max-players`}>
-                            <Form.Label>Stage maximum players</Form.Label>
-                            <Form.Control
-                              type="number"
-                              min={draft.game.min_players}
-                              max={draft.game.max_players}
-                              placeholder={`${draft.game.max_players} (game default)`}
-                              value={stage.max_players ?? ""}
-                              onChange={(event) =>
-                                updateStage(index, (current) => ({
-                                  ...current,
-                                  max_players: optionalNumber(
-                                    event.target.value,
-                                  ),
-                                }))
-                              }
-                            />
-                          </Form.Group>
-                        </Col>
-                        {stage.seed_source.type === "curated" && (
-                          <Col xs={12}>
-                            <Form.Group
-                              controlId={`stage-${index}-curated-seeds`}
-                            >
-                              <Form.Label>Curated seeds</Form.Label>
-                              <Form.Control
-                                as="textarea"
-                                value={stage.seed_source.seeds.join(", ")}
-                                onChange={(event) =>
-                                  updateStage(index, (current) => ({
-                                    ...current,
-                                    seed_source: {
-                                      type: "curated",
-                                      seeds: parseNumbers(event.target.value),
-                                    },
-                                  }))
-                                }
-                              />
-                            </Form.Group>
-                          </Col>
-                        )}
-                        {stage.coverage.type === "weighted_total" && (
-                          <Col xs={12}>
-                            <Form.Group controlId={`stage-${index}-weights`}>
-                              <Form.Label>Benchmark weights</Form.Label>
-                              <Form.Control
-                                placeholder="bot-id:weight, for example 3:2, 7:0.5"
-                                value={Object.entries(stage.coverage.weights)
-                                  .map(([id, weight]) => `${id}:${weight}`)
-                                  .join(", ")}
-                                onChange={(event) =>
-                                  updateStage(index, (current) => ({
-                                    ...current,
-                                    coverage: {
-                                      type: "weighted_total",
-                                      target: current.coverage.target,
-                                      weights: parseWeights(event.target.value),
-                                    },
-                                  }))
-                                }
-                              />
-                            </Form.Group>
-                          </Col>
-                        )}
-                      </Row>
-                    </Card.Body>
-                  </Card>
-                ))}
-                <Button
-                  variant="outline-primary"
-                  onClick={() => {
-                    setDraft((current) => ({
-                      ...current,
-                      evaluation: {
-                        ...current.evaluation,
-                        stages: [
-                          ...current.evaluation.stages,
-                          defaultEvaluationStage(),
-                        ],
-                      },
-                    }));
-                    setSaved(false);
-                  }}
-                >
-                  Add stage
-                </Button>
-              </Stack>
-            </Card.Body>
-          </Card>
-
-          <Card>
-            <Card.Body>
-              <Card.Title>Ranking and leaderboard</Card.Title>
-              <Row className="g-3">
-                <Col md={6}>
-                  <Form.Group controlId="ranking-algorithm">
-                    <Form.Label>Ranking algorithm</Form.Label>
-                    <Form.Select
-                      value={draft.ranking.algorithm}
-                      onChange={(event) => {
-                        const algorithms: Record<string, RankingConfiguration> =
-                          {
-                            OpenSkill: {
-                              algorithm: "OpenSkill",
-                              beta: null,
-                              uncertainty_tolerance: null,
-                            },
-                            TrueSkill: {
-                              algorithm: "TrueSkill",
-                              draw_probability: null,
-                              beta: null,
-                              default_dynamics: null,
-                            },
-                            Elo: { algorithm: "Elo", k: null },
-                            BradleyTerry: {
-                              algorithm: "BradleyTerry",
-                              max_iter: null,
-                            },
-                          };
-                        setDraft((current) => ({
-                          ...current,
-                          ranking: algorithms[event.target.value],
-                        }));
-                      }}
-                    >
-                      <option value="OpenSkill">OpenSkill</option>
-                      <option value="TrueSkill">TrueSkill</option>
-                      <option value="Elo">Elo</option>
-                      <option value="BradleyTerry">Bradley–Terry</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group controlId="uncertainty-coefficient">
-                    <Form.Label>Leaderboard uncertainty coefficient</Form.Label>
-                    <Form.Control
-                      type="number"
-                      step="any"
-                      placeholder="Default: 3"
-                      value={draft.leaderboards.uncertainty_coefficient ?? ""}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          leaderboards: {
-                            uncertainty_coefficient: optionalNumber(
-                              event.target.value,
-                            ),
-                          },
-                        }))
-                      }
-                    />
-                  </Form.Group>
-                </Col>
-                {draft.ranking.algorithm === "OpenSkill" && (
-                  <>
-                    <OptionalNumberField
-                      id="openskill-beta"
-                      label="OpenSkill beta"
-                      value={draft.ranking.beta}
-                      onChange={(beta) =>
-                        setDraft((current) => ({
-                          ...current,
-                          ranking: {
-                            ...current.ranking,
-                            beta,
-                          } as RankingConfiguration,
-                        }))
-                      }
-                    />
-                    <OptionalNumberField
-                      id="uncertainty-tolerance"
-                      label="Uncertainty tolerance"
-                      value={draft.ranking.uncertainty_tolerance}
-                      onChange={(uncertainty_tolerance) =>
-                        setDraft((current) => ({
-                          ...current,
-                          ranking: {
-                            ...current.ranking,
-                            uncertainty_tolerance,
-                          } as RankingConfiguration,
-                        }))
-                      }
-                    />
-                  </>
-                )}
-                {draft.ranking.algorithm === "TrueSkill" && (
-                  <>
-                    <OptionalNumberField
-                      id="draw-probability"
-                      label="Draw probability"
-                      value={draft.ranking.draw_probability}
-                      onChange={(draw_probability) =>
-                        setDraft((current) => ({
-                          ...current,
-                          ranking: {
-                            ...current.ranking,
-                            draw_probability,
-                          } as RankingConfiguration,
-                        }))
-                      }
-                    />
-                    <OptionalNumberField
-                      id="trueskill-beta"
-                      label="TrueSkill beta"
-                      value={draft.ranking.beta}
-                      onChange={(beta) =>
-                        setDraft((current) => ({
-                          ...current,
-                          ranking: {
-                            ...current.ranking,
-                            beta,
-                          } as RankingConfiguration,
-                        }))
-                      }
-                    />
-                    <OptionalNumberField
-                      id="default-dynamics"
-                      label="Default dynamics"
-                      value={draft.ranking.default_dynamics}
-                      onChange={(default_dynamics) =>
-                        setDraft((current) => ({
-                          ...current,
-                          ranking: {
-                            ...current.ranking,
-                            default_dynamics,
-                          } as RankingConfiguration,
-                        }))
-                      }
-                    />
-                  </>
-                )}
-                {draft.ranking.algorithm === "Elo" && (
-                  <OptionalNumberField
-                    id="elo-k"
-                    label="Elo K-factor"
-                    value={draft.ranking.k}
-                    onChange={(k) =>
-                      setDraft((current) => ({
-                        ...current,
-                        ranking: {
-                          ...current.ranking,
-                          k,
-                        } as RankingConfiguration,
-                      }))
-                    }
-                  />
-                )}
-                {draft.ranking.algorithm === "BradleyTerry" && (
-                  <OptionalNumberField
-                    id="maximum-iterations"
-                    label="Maximum iterations"
-                    value={draft.ranking.max_iter}
-                    onChange={(max_iter) =>
-                      setDraft((current) => ({
-                        ...current,
-                        ranking: {
-                          ...current.ranking,
-                          max_iter,
-                        } as RankingConfiguration,
-                      }))
-                    }
-                  />
-                )}
-              </Row>
-            </Card.Body>
-          </Card>
-
-          <Card>
-            <Card.Body>
-              <Card.Title>Embedded worker</Card.Title>
-              <Row className="g-3">
-                <Col md={3}>
-                  <Form.Group controlId="worker-threads">
-                    <Form.Label>Worker threads</Form.Label>
-                    <Form.Control
-                      type="number"
-                      min={1}
-                      max={255}
-                      required
-                      value={worker.threads}
-                      onChange={(event) =>
-                        setWorker({ threads: Number(event.target.value) })
-                      }
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={9}>
-                  <Form.Group controlId="build-command">
-                    <Form.Label>Bot build command</Form.Label>
-                    <Form.Control
-                      required
-                      value={worker.cmd_build}
-                      onChange={(event) =>
-                        setWorker({ cmd_build: event.target.value })
-                      }
-                    />
-                  </Form.Group>
-                </Col>
-                <Col xs={12}>
-                  <Form.Group controlId="run-command">
-                    <Form.Label>Bot run command</Form.Label>
-                    <Form.Control
-                      required
-                      value={worker.cmd_run}
-                      onChange={(event) =>
-                        setWorker({ cmd_run: event.target.value })
-                      }
-                    />
-                  </Form.Group>
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
-
           <Card>
             <Card.Body>
               <Card.Title>Referee</Card.Title>
@@ -1106,9 +536,642 @@ function ConfigurationForm({
               </Card.Body>
             </Card>
           )}
+          <Card>
+            <Card.Body>
+              <Card.Title>Game</Card.Title>
+              <Row className="g-3">
+                <Col md={4}>
+                  <Form.Group controlId="min-players">
+                    <Form.Label>Minimum players</Form.Label>
+                    <Form.Control
+                      type="number"
+                      min={1}
+                      max={8}
+                      required
+                      value={draft.game.min_players}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          game: {
+                            ...current.game,
+                            min_players: Number(event.target.value),
+                          },
+                        }))
+                      }
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={4}>
+                  <Form.Group controlId="max-players">
+                    <Form.Label>Maximum players</Form.Label>
+                    <Form.Control
+                      type="number"
+                      min={1}
+                      max={8}
+                      required
+                      value={draft.game.max_players}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          game: {
+                            ...current.game,
+                            max_players: Number(event.target.value),
+                          },
+                        }))
+                      }
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={4} className="d-flex align-items-end">
+                  <Form.Check
+                    id="symmetric-game"
+                    type="switch"
+                    label="Symmetric game"
+                    checked={draft.game.symmetric}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        game: {
+                          ...current.game,
+                          symmetric: event.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
 
-          <div>
-            <Button type="submit" disabled={apply.isPending}>
+          <Card>
+            <Card.Body>
+              <div className="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+                <div className="flex-grow-1">
+                  <Card.Title className="mb-1">
+                    Candidate evaluation plan
+                  </Card.Title>
+                  <Card.Text className="text-body-secondary mb-0">
+                    Candidates pin this ordered plan when submitted. Existing
+                    candidates keep their pinned revision after edits.
+                  </Card.Text>
+                </div>
+                <Form.Group controlId="seed-sequence-key">
+                  <FieldLabel
+                    id="seed-sequence-key"
+                    label="Seed sequence key"
+                    help="Generates a deterministic, non-repeating sequence of referee seeds. Candidates using this plan receive the same sequence."
+                  />
+                  <InputGroup>
+                    <Form.Control
+                      type="number"
+                      min={0}
+                      max={0xffff_ffff}
+                      step={1}
+                      required
+                      value={draft.evaluation.seed_sequence_key}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          evaluation: {
+                            ...current.evaluation,
+                            seed_sequence_key: Number(event.target.value),
+                          },
+                        }))
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="outline-secondary"
+                      onClick={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          evaluation: {
+                            ...current.evaluation,
+                            seed_sequence_key: randomSeedSequenceKey(),
+                          },
+                        }))
+                      }
+                    >
+                      Randomize
+                    </Button>
+                  </InputGroup>
+                </Form.Group>
+              </div>
+
+              <Form.Check
+                id="start-evaluation-scheduling"
+                className="mb-3"
+                type="switch"
+                label="Enable matchmaking on startup"
+                checked={draft.evaluation.enabled_on_start ?? true}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    evaluation: {
+                      ...current.evaluation,
+                      enabled_on_start: event.target.checked,
+                    },
+                  }));
+                }}
+              />
+
+              <Stack gap={3}>
+                {draft.evaluation.stages.map((stage, index) => (
+                  <Card key={index} className="border-secondary">
+                    <Card.Body>
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <strong>Stage {index + 1}</strong>
+                        <Stack direction="horizontal" gap={2}>
+                          <Button
+                            size="sm"
+                            variant="outline-secondary"
+                            disabled={index === 0}
+                            onClick={() => moveStage(index, -1)}
+                          >
+                            Up
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline-secondary"
+                            disabled={
+                              index === draft.evaluation.stages.length - 1
+                            }
+                            onClick={() => moveStage(index, 1)}
+                          >
+                            Down
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline-danger"
+                            disabled={draft.evaluation.stages.length === 1}
+                            onClick={() => {
+                              setDraft((current) => ({
+                                ...current,
+                                evaluation: {
+                                  ...current.evaluation,
+                                  stages: current.evaluation.stages.filter(
+                                    (_, stageIndex) => stageIndex !== index,
+                                  ),
+                                },
+                              }));
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </Stack>
+                      </div>
+                      <Row className="g-3">
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-name`}>
+                            <Form.Label>Name</Form.Label>
+                            <Form.Control
+                              required
+                              value={stage.name}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  name: event.target.value,
+                                }))
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-seed-source`}>
+                            <Form.Label>Seed source</Form.Label>
+                            <Form.Select
+                              value={stage.seed_source.type}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  seed_source:
+                                    event.target.value === "curated"
+                                      ? { type: "curated", seeds: [1] }
+                                      : event.target.value === "fresh_random"
+                                        ? { type: "fresh_random" }
+                                        : { type: "generated" },
+                                }))
+                              }
+                            >
+                              <option value="generated">
+                                Generated deterministic sequence
+                              </option>
+                              <option value="curated">Curated seeds</option>
+                              <option value="fresh_random">Fresh random</option>
+                            </Form.Select>
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-coverage`}>
+                            <Form.Label>Coverage</Form.Label>
+                            <Form.Select
+                              value={stage.coverage.type}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  coverage:
+                                    event.target.value === "total"
+                                      ? { type: "total", target: 100 }
+                                      : {
+                                          type: "per_benchmark",
+                                          target: 100,
+                                        },
+                                }))
+                              }
+                            >
+                              <option value="per_benchmark">
+                                Matches per pair
+                              </option>
+                              <option value="total">Total matches</option>
+                            </Form.Select>
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-target`}>
+                            <Form.Label>
+                              {stage.coverage.type === "per_benchmark"
+                                ? "Matches per pair"
+                                : "Total matches"}
+                            </Form.Label>
+                            <Form.Control
+                              type="number"
+                              min={1}
+                              required
+                              value={stage.coverage.target}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  coverage: {
+                                    ...current.coverage,
+                                    target: Number(event.target.value),
+                                  },
+                                }))
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-min-players`}>
+                            <Form.Label>Stage minimum players</Form.Label>
+                            <Form.Control
+                              type="number"
+                              min={draft.game.min_players}
+                              max={draft.game.max_players}
+                              placeholder={`${draft.game.min_players} (game default)`}
+                              value={stage.min_players ?? ""}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  min_players: optionalNumber(
+                                    event.target.value,
+                                  ),
+                                }))
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-max-players`}>
+                            <Form.Label>Stage maximum players</Form.Label>
+                            <Form.Control
+                              type="number"
+                              min={draft.game.min_players}
+                              max={draft.game.max_players}
+                              placeholder={`${draft.game.max_players} (game default)`}
+                              value={stage.max_players ?? ""}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  max_players: optionalNumber(
+                                    event.target.value,
+                                  ),
+                                }))
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+                        {stage.seed_source.type === "curated" && (
+                          <Col xs={12}>
+                            <Form.Group
+                              controlId={`stage-${index}-curated-seeds`}
+                            >
+                              <Form.Label>Curated seeds</Form.Label>
+                              <Form.Control
+                                as="textarea"
+                                value={stage.seed_source.seeds.join(", ")}
+                                onChange={(event) =>
+                                  updateStage(index, (current) => ({
+                                    ...current,
+                                    seed_source: {
+                                      type: "curated",
+                                      seeds: parseNumbers(event.target.value),
+                                    },
+                                  }))
+                                }
+                              />
+                            </Form.Group>
+                          </Col>
+                        )}
+                      </Row>
+                    </Card.Body>
+                  </Card>
+                ))}
+                <Button
+                  variant="outline-primary"
+                  onClick={() => {
+                    setDraft((current) => ({
+                      ...current,
+                      evaluation: {
+                        ...current.evaluation,
+                        stages: [
+                          ...current.evaluation.stages,
+                          defaultEvaluationStage(),
+                        ],
+                      },
+                    }));
+                  }}
+                >
+                  Add stage
+                </Button>
+              </Stack>
+            </Card.Body>
+          </Card>
+
+          <Card>
+            <Card.Body>
+              <Card.Title>Ranking and leaderboard</Card.Title>
+              <Row className="g-3">
+                <Col md={6}>
+                  <Form.Group controlId="ranking-algorithm">
+                    <FieldLabel
+                      id="ranking-algorithm"
+                      label="Ranking algorithm"
+                      help="Controls how match results are converted into ratings. Bradley–Terry is a strong default for accurate batch ranking."
+                    />
+                    <Form.Select
+                      value={draft.ranking.algorithm}
+                      onChange={(event) => {
+                        const algorithms: Record<string, RankingConfiguration> =
+                          {
+                            OpenSkill: {
+                              algorithm: "OpenSkill",
+                              beta: null,
+                              uncertainty_tolerance: null,
+                            },
+                            TrueSkill: {
+                              algorithm: "TrueSkill",
+                              draw_probability: null,
+                              beta: null,
+                              default_dynamics: null,
+                            },
+                            Elo: { algorithm: "Elo", k: null },
+                            BradleyTerry: {
+                              algorithm: "BradleyTerry",
+                              max_iter: null,
+                            },
+                          };
+                        setDraft((current) => ({
+                          ...current,
+                          ranking: algorithms[event.target.value],
+                        }));
+                      }}
+                    >
+                      <option value="OpenSkill">OpenSkill</option>
+                      <option value="TrueSkill">TrueSkill</option>
+                      <option value="Elo">Elo</option>
+                      <option value="BradleyTerry">Bradley–Terry</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+              </Row>
+              <details className="mt-3">
+                <summary className="fw-semibold">Advanced settings</summary>
+                <Row className="g-3 mt-0">
+                  <Col md={6}>
+                    <Form.Group controlId="uncertainty-coefficient">
+                      <FieldLabel
+                        id="uncertainty-coefficient"
+                        label="Leaderboard uncertainty coefficient"
+                        help="Controls how strongly uncertainty lowers leaderboard scores. Higher values favor ratings supported by more evidence. The default is 3."
+                      />
+                      <Form.Control
+                        type="number"
+                        step="any"
+                        placeholder="Default: 3"
+                        value={draft.leaderboards.uncertainty_coefficient ?? ""}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            leaderboards: {
+                              uncertainty_coefficient: optionalNumber(
+                                event.target.value,
+                              ),
+                            },
+                          }))
+                        }
+                      />
+                    </Form.Group>
+                  </Col>
+                  {draft.ranking.algorithm === "OpenSkill" && (
+                    <>
+                      <OptionalNumberField
+                        id="openskill-beta"
+                        label="OpenSkill beta"
+                        help="The skill gap that produces roughly a 67% win probability. Lower values make outcomes more decisive."
+                        value={draft.ranking.beta}
+                        onChange={(beta) =>
+                          setDraft((current) => ({
+                            ...current,
+                            ranking: {
+                              ...current.ranking,
+                              beta,
+                            } as RankingConfiguration,
+                          }))
+                        }
+                      />
+                      <OptionalNumberField
+                        id="uncertainty-tolerance"
+                        label="Uncertainty tolerance"
+                        help="The lowest uncertainty the model will report. It must be non-negative; leave blank to use the algorithm default."
+                        value={draft.ranking.uncertainty_tolerance}
+                        onChange={(uncertainty_tolerance) =>
+                          setDraft((current) => ({
+                            ...current,
+                            ranking: {
+                              ...current.ranking,
+                              uncertainty_tolerance,
+                            } as RankingConfiguration,
+                          }))
+                        }
+                      />
+                    </>
+                  )}
+                  {draft.ranking.algorithm === "TrueSkill" && (
+                    <>
+                      <OptionalNumberField
+                        id="draw-probability"
+                        label="Draw probability"
+                        help="The expected share of matches that end in a draw, from 0 to 1. Leave blank to use the default of 0.1."
+                        value={draft.ranking.draw_probability}
+                        onChange={(draw_probability) =>
+                          setDraft((current) => ({
+                            ...current,
+                            ranking: {
+                              ...current.ranking,
+                              draw_probability,
+                            } as RankingConfiguration,
+                          }))
+                        }
+                      />
+                      <OptionalNumberField
+                        id="trueskill-beta"
+                        label="TrueSkill beta"
+                        help="The skill gap that produces roughly an 80% win probability. Leave blank to use the algorithm default."
+                        value={draft.ranking.beta}
+                        onChange={(beta) =>
+                          setDraft((current) => ({
+                            ...current,
+                            ranking: {
+                              ...current.ranking,
+                              beta,
+                            } as RankingConfiguration,
+                          }))
+                        }
+                      />
+                      <OptionalNumberField
+                        id="default-dynamics"
+                        label="Default dynamics"
+                        help="Controls how quickly ratings can move over time. Higher values make leaderboard positions more volatile."
+                        value={draft.ranking.default_dynamics}
+                        onChange={(default_dynamics) =>
+                          setDraft((current) => ({
+                            ...current,
+                            ranking: {
+                              ...current.ranking,
+                              default_dynamics,
+                            } as RankingConfiguration,
+                          }))
+                        }
+                      />
+                    </>
+                  )}
+                  {draft.ranking.algorithm === "Elo" && (
+                    <OptionalNumberField
+                      id="elo-k"
+                      label="Elo K-factor"
+                      help="The maximum rating change from one match. Higher values react faster but are more volatile; leave blank to use the default of 32."
+                      value={draft.ranking.k}
+                      onChange={(k) =>
+                        setDraft((current) => ({
+                          ...current,
+                          ranking: {
+                            ...current.ranking,
+                            k,
+                          } as RankingConfiguration,
+                        }))
+                      }
+                    />
+                  )}
+                  {draft.ranking.algorithm === "BradleyTerry" && (
+                    <OptionalNumberField
+                      id="maximum-iterations"
+                      label="Maximum iterations"
+                      help="The maximum optimization steps used to fit Bradley–Terry ratings. Leave blank to use the default of 50; raise it only if fitting needs more iterations."
+                      value={draft.ranking.max_iter}
+                      onChange={(max_iter) =>
+                        setDraft((current) => ({
+                          ...current,
+                          ranking: {
+                            ...current.ranking,
+                            max_iter,
+                          } as RankingConfiguration,
+                        }))
+                      }
+                    />
+                  )}
+                </Row>
+              </details>
+            </Card.Body>
+          </Card>
+
+          <Card>
+            <Card.Body>
+              <Card.Title>Embedded worker</Card.Title>
+              <Row className="g-3">
+                <Col md={3}>
+                  <Form.Group controlId="worker-threads">
+                    <Form.Label>Worker threads</Form.Label>
+                    <Form.Control
+                      type="number"
+                      min={1}
+                      max={255}
+                      required
+                      value={worker.threads}
+                      onChange={(event) =>
+                        setWorker({ threads: Number(event.target.value) })
+                      }
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={9}>
+                  <Form.Group controlId="build-command">
+                    <Form.Label>Bot build command</Form.Label>
+                    <Form.Control
+                      required
+                      value={worker.cmd_build}
+                      onChange={(event) =>
+                        setWorker({ cmd_build: event.target.value })
+                      }
+                    />
+                  </Form.Group>
+                </Col>
+                <Col xs={12}>
+                  <Form.Group controlId="run-command">
+                    <Form.Label>Bot run command</Form.Label>
+                    <Form.Control
+                      required
+                      value={worker.cmd_run}
+                      onChange={(event) =>
+                        setWorker({ cmd_run: event.target.value })
+                      }
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
+
+          <div className="sticky-bottom z-3 d-flex flex-wrap align-items-center justify-content-between gap-3 rounded border bg-body p-3 shadow-sm">
+            <div aria-live="polite">
+              <div
+                className={
+                  apply.error
+                    ? "fw-semibold text-danger"
+                    : isDirty
+                      ? "fw-semibold text-warning-emphasis"
+                      : "fw-semibold text-success"
+                }
+              >
+                {apply.isPending
+                  ? "Saving configuration…"
+                  : apply.error
+                    ? "Configuration was not saved"
+                    : isDirty
+                      ? "Unsaved changes"
+                      : "Configuration up to date"}
+              </div>
+              {apply.error && (
+                <small className="d-block text-danger">
+                  {apply.error.message}
+                </small>
+              )}
+              {!isDirty && !apply.error && !state.runtime_available && (
+                <small className="d-block text-body-secondary">
+                  Runtime features are unavailable in this process.
+                </small>
+              )}
+            </div>
+            <Button type="submit" disabled={apply.isPending || !isDirty}>
               {apply.isPending ? "Applying…" : "Apply configuration"}
             </Button>
           </div>
@@ -1118,9 +1181,39 @@ function ConfigurationForm({
   );
 }
 
+interface FieldLabelProps {
+  id: string;
+  label: string;
+  help: string;
+}
+
+function FieldLabel({ id, label, help }: FieldLabelProps) {
+  return (
+    <div className="d-flex align-items-center gap-1 mb-2">
+      <Form.Label htmlFor={id} className="mb-0">
+        {label}
+      </Form.Label>
+      <OverlayTrigger
+        placement="top"
+        overlay={<Tooltip id={`${id}-help`}>{help}</Tooltip>}
+      >
+        <span
+          className="d-inline-flex text-body-secondary"
+          role="button"
+          tabIndex={0}
+          aria-label={`More information about ${label}`}
+        >
+          <FaQuestionCircle aria-hidden="true" size={14} />
+        </span>
+      </OverlayTrigger>
+    </div>
+  );
+}
+
 interface OptionalNumberFieldProps {
   id: string;
   label: string;
+  help: string;
   value: number | null;
   onChange(value: number | null): void;
 }
@@ -1128,13 +1221,14 @@ interface OptionalNumberFieldProps {
 function OptionalNumberField({
   id,
   label,
+  help,
   value,
   onChange,
 }: OptionalNumberFieldProps) {
   return (
     <Col md={4}>
       <Form.Group controlId={id}>
-        <Form.Label>{label}</Form.Label>
+        <FieldLabel id={id} label={label} help={help} />
         <Form.Control
           type="number"
           step="any"

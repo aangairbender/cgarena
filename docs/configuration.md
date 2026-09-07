@@ -8,8 +8,11 @@ configuration.
 `cgarena_config.toml` is the bootstrap file. It contains only `[server]` and `[log]`, because
 those settings are required before the HTTP application can start. The remaining settings are
 database-backed UI fields.
+Any other top-level section is rejected. A legacy full-arena file is accepted only for the
+automatic one-time migration: CG Arena archives it and replaces it with the bootstrap file.
 
-## `[game]`
+
+## Game
 
 ### `min_players`
 
@@ -30,12 +33,14 @@ Whether the map is symmetric for all the players.
 
 ### `enabled_on_start`
 
-Whether evaluation scheduling starts with the arena. Defaults to `true`.
+Whether matchmaking for Candidate evaluations starts with the arena. Defaults to `true`.
 
-### Generated seed suite
+### `seed_sequence_key`
 
-Each arena owns 100 unique generated seeds by default. The suite remains stable across restarts
-and plan edits until **Regenerate 100-seed suite** is used.
+A 32-bit key that deterministically generates a different referee seed for every match sequence
+position. The sequence does not repeat after 100 matches. It remains stable across restarts and
+plan edits so Candidates receive comparable scenarios. Editing the key or using **Randomize**
+creates a different sequence for future Candidates; active Candidates retain their pinned plan.
 
 ### Ordered stages
 
@@ -45,9 +50,9 @@ revision active when it is submitted. Later edits affect only later Candidates.
 Each stage configures:
 
 - A name.
-- A seed source: the generated static suite, an explicit curated seed list, or fresh random seeds.
-- A coverage policy: a target per active Benchmark, a total match target, or a weighted total
-  target with positive per-Benchmark weight overrides.
+- A seed source: the generated deterministic sequence, an explicit curated seed list, or fresh random seeds.
+- A coverage policy: a target number of matches per Candidate–Benchmark pair or a total match
+  target across the active Benchmark pool.
 - Optional minimum and maximum player counts. Omitted values use the challenge's full configured
   range.
 
@@ -55,7 +60,7 @@ Stages run in order. For asymmetric challenges, every player-position permutatio
 scheduled seed. Completing all stages records that the requested evidence exists; it never
 promotes or rejects a Candidate automatically.
 
-## `[ranking]`
+## Ranking
 
 ### `algorithm`
 
@@ -188,7 +193,7 @@ Config:
 
 - `max_iter` - The maximum number of optimization iterations allowed when fitting the model.
 
-## `[leaderboards]`
+## Leaderboards
 
 ### `uncertainty_coefficient`
 
@@ -200,7 +205,7 @@ bot.rating = bot.mu + bot.sigma * uncertainty_coefficient
 
 Default value is **3**.
 
-## `[server]`
+## Server (`[server]` in `cgarena_config.toml`)
 
 ### `port`
 
@@ -210,7 +215,7 @@ Controls the web server port. If `port` is omitted then OS assigns some availabl
 
 Controls whether to expose web server to the local network.
 
-## `[log]`
+## Logging (`[log]` in `cgarena_config.toml`)
 
 ### `level`
 
@@ -220,9 +225,9 @@ CG Arena log level.
 
 CG Arena log file
 
-## `[[workers]]`
+## Embedded worker
 
-This is where you can specify a list of configurations for workers that would run your matches. Currently CG Arena support only the list of 1 embedded worker.
+The database-backed configuration currently requires exactly one embedded worker.
 
 ### `type`
 
@@ -244,14 +249,11 @@ configured `branch`), add CG Arena's maintained command-line/Maven adaptation on
 local `cgarena` branch, build and probe a candidate, and activate it. The Maven Wrapper is used
 when present; otherwise `mvn` is used. Every match uses league 19.
 
-```toml
-[workers.referee]
-type = "managed_codingame"
-repository_url = "https://github.com/CodinGame/SpringChallenge2023.git"
-# branch = "main"
-# java = "java"
-# maven = "mvn"
-```
+Configure the managed adapter on the **Config** page with:
+
+- `type`: `managed_codingame`
+- `repository_url`: for example, `https://github.com/CodinGame/SpringChallenge2023.git`
+- Optional `branch`, `java`, and `maven` values.
 
 The visible checkout is `<arena>/referee`; the active JAR is an internal stable artifact. Install,
 Check for updates, Rebuild, Update, and Replace are explicit asynchronous UI actions. Startup,
@@ -262,17 +264,17 @@ are preserved by rebuilds and updates; a dirty checkout blocks replacement.
 
 Use this adapter for custom or non-Java referees. `play_match` must produce CG Arena's established JSON match result and write the owned `{REPLAY_PATH}` artifact. `watch_replay` must create `{REPLAY_DIR}/test.html`.
 
-```toml
-[workers.referee]
-type = "command"
-play_match = "my-referee {SEED} {REPLAY_PATH} {PLAYERS}"
-watch_replay = "my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}"
-```
+Configure the command adapter on the **Config** page with:
 
-Legacy configurations with both `cmd_play_match` and `cmd_watch_replay` directly under
-`[[workers]]` continue to load as a `command` referee with their previous validation rules.
-New configuration must use the tagged table above and include every shown placeholder. Do not
-configure both forms; CG Arena rejects the ambiguous configuration.
+- `type`: `command`
+- `play_match`: for example, `my-referee {SEED} {REPLAY_PATH} {PLAYERS}`
+- `watch_replay`: for example,
+  `my-renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}`
+
+Legacy full-arena files with both `cmd_play_match` and `cmd_watch_replay` directly under the
+worker continue to migrate as a `command` referee with their previous validation rules. New
+database-backed configuration must select an adapter and include every shown placeholder. CG
+Arena rejects ambiguous configuration containing both forms.
 
 `cmd_run` is expanded once per participant. The managed adapter passes each resulting command as one player argument; it is never shell-split.
 

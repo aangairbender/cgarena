@@ -3,7 +3,8 @@ use crate::domain::{
     Bot, BotId, Build, BuildResult, BuildStatus, Leaderboard, LeaderboardId, Match, MatchId,
 };
 use crate::evaluation::{
-    EvaluationConfig, EvaluationPlanRevision, EvaluationStageConfig, EvaluationStageRevision,
+    EvaluationConfig, EvaluationPlanRevision, EvaluationSeedSequence, EvaluationStageConfig,
+    EvaluationStageRevision,
 };
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
@@ -164,7 +165,10 @@ pub async fn ensure_evaluation_plan(
     pool: &SqlitePool,
     evaluation: &EvaluationConfig,
 ) -> anyhow::Result<EvaluationPlanRevision> {
-    let plan_json = serde_json::to_string(&(&evaluation.generated_seeds, &evaluation.stages))
+    let seed_sequence = EvaluationSeedSequence::Deterministic {
+        key: evaluation.seed_sequence_key,
+    };
+    let plan_json = serde_json::to_string(&(&seed_sequence, &evaluation.stages))
         .context("Cannot serialize evaluation plan")?;
     let mut transaction = pool.begin().await?;
     let plan_id: i64 = if let Some(id) =
@@ -209,7 +213,7 @@ pub async fn fetch_evaluation_plan(
             .fetch_optional(pool)
             .await?
             .with_context(|| format!("evaluation plan revision {plan_id} does not exist"))?;
-    let (generated_seeds, _): (Vec<i64>, Vec<EvaluationStageConfig>) =
+    let (seed_sequence, _): (EvaluationSeedSequence, Vec<EvaluationStageConfig>) =
         serde_json::from_str(&plan_json).context("Stored evaluation plan is not valid JSON")?;
     let rows: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, config_json FROM evaluation_stage_revisions \
@@ -231,7 +235,7 @@ pub async fn fetch_evaluation_plan(
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(EvaluationPlanRevision {
         id: plan_id,
-        generated_seeds,
+        seed_sequence,
         stages,
     })
 }
@@ -580,6 +584,7 @@ pub async fn fetch_leaderboards(pool: &SqlitePool) -> anyhow::Result<Vec<Leaderb
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::evaluation::SeedSourceConfig;
     use std::borrow::Cow;
 
     #[tokio::test]
@@ -634,6 +639,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn seed_sequence_migration_replaces_the_stored_suite_with_a_key() {
+        let pool = in_memory().await.unwrap();
+        let current = sqlx::migrate!();
+        let historical = sqlx::migrate::Migrator {
+            migrations: Cow::Owned(
+                current
+                    .iter()
+                    .filter(|migration| migration.version < 20260907130000)
+                    .cloned()
+                    .collect(),
+            ),
+            ignore_missing: false,
+            locking: true,
+            no_tx: false,
+        };
+        historical.run(&pool).await.unwrap();
+        let config = serde_json::json!({
+            "evaluation": {
+                "enabled_on_start": true,
+                "generated_seeds": [11, 22],
+                "stages": []
+            }
+        });
+        sqlx::query("INSERT INTO arena_configuration (id, config_json) VALUES (1, $1)")
+            .bind(config.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        current.run(&pool).await.unwrap();
+
+        let stored: String =
+            sqlx::query_scalar("SELECT config_json FROM arena_configuration WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        assert!(stored["evaluation"]["seed_sequence_key"].as_u64().is_some());
+        assert!(stored["evaluation"].get("generated_seeds").is_none());
+    }
+
+    #[tokio::test]
     async fn evaluation_plan_edits_create_immutable_revisions() {
         let pool = in_memory().await.unwrap();
         migrate(&pool).await.unwrap();
@@ -650,7 +697,45 @@ mod tests {
         let original = fetch_evaluation_plan(&pool, first_revision.id)
             .await
             .unwrap();
-        assert_eq!(original.stages[0].config.name, "Generated suite");
+        assert_eq!(original.stages[0].config.name, "Generated sequence");
+    }
+
+    #[tokio::test]
+    async fn legacy_seed_suite_plan_revisions_remain_readable() {
+        let pool = in_memory().await.unwrap();
+        migrate(&pool).await.unwrap();
+        let evaluation = EvaluationConfig::default();
+        let plan_json = serde_json::to_string(&(vec![11_i64, 22], &evaluation.stages)).unwrap();
+        let plan_id =
+            sqlx::query("INSERT INTO evaluation_plan_revisions (config_json) VALUES ($1)")
+                .bind(plan_json)
+                .execute(&pool)
+                .await
+                .unwrap()
+                .last_insert_rowid();
+        let stage_json = serde_json::to_string(&evaluation.stages[0])
+            .unwrap()
+            .replace("\"generated\"", "\"generated_static\"");
+        sqlx::query(
+            "INSERT INTO evaluation_stage_revisions \
+             (plan_revision_id, stage_index, config_json) VALUES ($1, 0, $2)",
+        )
+        .bind(plan_id)
+        .bind(stage_json)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let plan = fetch_evaluation_plan(&pool, plan_id).await.unwrap();
+
+        assert_eq!(
+            plan.seed_sequence,
+            EvaluationSeedSequence::LegacySuite(vec![11, 22])
+        );
+        assert_eq!(
+            plan.stages[0].config.seed_source,
+            SeedSourceConfig::Generated
+        );
     }
 
     #[tokio::test]

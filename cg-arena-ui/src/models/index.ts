@@ -20,7 +20,7 @@ export interface GameConfiguration {
 
 export interface EvaluationConfiguration {
   enabled_on_start: boolean | null;
-  generated_seeds: number[];
+  seed_sequence_key: number;
   stages: EvaluationStageConfiguration[];
 }
 
@@ -33,7 +33,7 @@ export interface EvaluationStageConfiguration {
 }
 
 export type EvaluationSeedSource =
-  | { type: "generated_static" }
+  | { type: "generated" }
   | { type: "curated"; seeds: number[] }
   | { type: "fresh_random" };
 

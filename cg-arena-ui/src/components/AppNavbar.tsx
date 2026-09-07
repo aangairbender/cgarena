@@ -88,7 +88,7 @@ function AppNavbar({ runtimeAvailable }: { runtimeAvailable: boolean }) {
                 onChange={(event) =>
                   setEvaluationScheduling(event.target.checked)
                 }
-                label="Evaluation scheduling"
+                label="Matchmaking"
               />
               <Button variant="primary" onClick={openSubmitDialog}>
                 Submit a new bot

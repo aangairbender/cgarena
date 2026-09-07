@@ -2,7 +2,7 @@ use std::{fs, ops::Deref, time::Duration};
 
 use crate::{
     arena_handle::ArenaHandle,
-    config::{Config, WorkerConfig},
+    config::{ArenaConfig, WorkerConfig},
     db,
     domain::*,
     worker::{self, StartedWorker, WorkerSupervisor},
@@ -25,7 +25,7 @@ struct TestArena {
     _arena_task: JoinHandle<anyhow::Result<()>>,
 }
 
-async fn create_test_arena(mut config: Config, play_output: Option<&str>) -> TestArena {
+async fn create_test_arena(mut config: ArenaConfig, play_output: Option<&str>) -> TestArena {
     let arena_path = tempfile::tempdir().unwrap();
     let play_script = arena_path.path().join("play-match.sh");
     let script = if let Some(output) = play_output {
@@ -83,7 +83,7 @@ async fn create_test_arena(mut config: Config, play_output: Option<&str>) -> Tes
 
 #[tokio::test]
 async fn cmd_create_bot_should_create_record_in_db() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
@@ -141,7 +141,7 @@ async fn cmd_create_bot_should_create_record_in_db() {
 
 #[tokio::test]
 async fn cmd_create_bot_should_fail_on_duplicate_name() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
@@ -177,7 +177,7 @@ async fn cmd_create_bot_should_fail_on_duplicate_name() {
 
 #[tokio::test]
 async fn cmd_rename_bot_works() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
@@ -216,7 +216,7 @@ async fn cmd_rename_bot_works() {
 
 #[tokio::test]
 async fn cmd_fetch_bot_source_code_works() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
@@ -248,7 +248,7 @@ async fn cmd_fetch_bot_source_code_works() {
 
 #[tokio::test]
 async fn cmd_rename_bot_fails_on_duplicate_name() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
@@ -291,7 +291,7 @@ async fn cmd_rename_bot_fails_on_duplicate_name() {
 
 #[tokio::test]
 async fn cmd_rename_bot_fails_if_no_bot_with_id() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_id: BotId = 1i64.into();
@@ -306,7 +306,7 @@ async fn cmd_rename_bot_fails_if_no_bot_with_id() {
 
 #[tokio::test]
 async fn cmd_delete_bot_works() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
@@ -339,7 +339,7 @@ async fn cmd_delete_bot_works() {
 
 #[tokio::test]
 async fn candidate_can_be_promoted_and_benchmark_can_be_archived() {
-    let arena = create_test_arena(Config::default(), None).await;
+    let arena = create_test_arena(ArenaConfig::default(), None).await;
     let CreateBotResult::Created(bot) = arena
         .handle
         .create_bot(
@@ -394,7 +394,7 @@ async fn candidate_can_be_promoted_and_benchmark_can_be_archived() {
 
 #[tokio::test]
 async fn cmd_fetch_leaderboard_works() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let arena = create_test_arena(config, None).await;
 
     let bot_name_1: BotName = String::from("Bot1").try_into().unwrap();
@@ -491,7 +491,7 @@ async fn cmd_fetch_leaderboard_works() {
 
 #[tokio::test]
 async fn cmd_fetch_leaderboard_e2e() {
-    let config = Config::default();
+    let config = ArenaConfig::default();
     let match_output = r#"{"ranks":[0,1],"errors":[0,0]}"#;
     let arena = create_test_arena(config, Some(match_output)).await;
 

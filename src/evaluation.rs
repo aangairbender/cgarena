@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{bail, Context};
 use rand::random;
@@ -10,8 +10,8 @@ use crate::config::GameConfig;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EvaluationConfig {
     pub enabled_on_start: Option<bool>,
-    #[serde(default = "generate_seed_suite")]
-    pub generated_seeds: Vec<i64>,
+    #[serde(default = "generate_seed_sequence_key")]
+    pub seed_sequence_key: u32,
     pub stages: Vec<EvaluationStageConfig>,
 }
 
@@ -19,10 +19,10 @@ impl Default for EvaluationConfig {
     fn default() -> Self {
         Self {
             enabled_on_start: Some(true),
-            generated_seeds: generate_seed_suite(),
+            seed_sequence_key: generate_seed_sequence_key(),
             stages: vec![EvaluationStageConfig {
-                name: "Generated suite".to_string(),
-                seed_source: SeedSourceConfig::GeneratedStatic,
+                name: "Generated sequence".to_string(),
+                seed_source: SeedSourceConfig::Generated,
                 coverage: CoveragePolicyConfig::PerBenchmark { target: 100 },
                 min_players: None,
                 max_players: None,
@@ -36,18 +36,9 @@ impl EvaluationConfig {
         if self.stages.is_empty() {
             bail!("evaluation.stages must contain at least one stage");
         }
-        let unique_seed_count = self
-            .generated_seeds
-            .iter()
-            .copied()
-            .collect::<HashSet<_>>()
-            .len();
-        if unique_seed_count != self.generated_seeds.len() {
-            bail!("evaluation.generated_seeds must be unique");
-        }
         for (index, stage) in self.stages.iter().enumerate() {
             stage
-                .validate(game, &self.generated_seeds)
+                .validate(game)
                 .with_context(|| format!("evaluation stage {} is invalid", index + 1))?;
         }
         Ok(())
@@ -64,7 +55,7 @@ pub struct EvaluationStageConfig {
 }
 
 impl EvaluationStageConfig {
-    fn validate(&self, game: &GameConfig, generated_seeds: &[i64]) -> anyhow::Result<()> {
+    fn validate(&self, game: &GameConfig) -> anyhow::Result<()> {
         if self.name.trim().is_empty() {
             bail!("name must not be blank");
         }
@@ -76,13 +67,8 @@ impl EvaluationStageConfig {
         if min_players > max_players {
             bail!("max_players must not be less than min_players");
         }
-        let seeds = match &self.seed_source {
-            SeedSourceConfig::GeneratedStatic => Some(generated_seeds),
-            SeedSourceConfig::Curated { seeds } => Some(seeds.as_slice()),
-            SeedSourceConfig::FreshRandom => None,
-        };
-        if seeds.is_some_and(<[_]>::is_empty) {
-            bail!("static seed source must contain at least one seed");
+        if matches!(&self.seed_source, SeedSourceConfig::Curated { seeds } if seeds.is_empty()) {
+            bail!("curated seed source must contain at least one seed");
         }
         let target = self.coverage.target();
         if target == 0 {
@@ -103,8 +89,11 @@ impl EvaluationStageConfig {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SeedSourceConfig {
-    GeneratedStatic,
-    Curated { seeds: Vec<i64> },
+    #[serde(alias = "generated_static")]
+    Generated,
+    Curated {
+        seeds: Vec<i64>,
+    },
     FreshRandom,
 }
 
@@ -134,10 +123,38 @@ impl CoveragePolicyConfig {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EvaluationSeedSequence {
+    LegacySuite(Vec<i64>),
+    Deterministic { key: u32 },
+}
+
+impl EvaluationSeedSequence {
+    fn seed_at(&self, sequence: u64) -> i64 {
+        match self {
+            Self::LegacySuite(seeds) => seeds[(sequence % seeds.len() as u64) as usize],
+            Self::Deterministic { key } => deterministic_match_seed(*key, sequence),
+        }
+    }
+}
+
+pub fn generate_seed_sequence_key() -> u32 {
+    random()
+}
+
+fn deterministic_match_seed(key: u32, sequence: u64) -> i64 {
+    let mut value =
+        u64::from(key).wrapping_add(sequence.wrapping_add(1).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    (value ^ (value >> 31)) as i64
+}
+
 #[derive(Clone, Debug)]
 pub struct EvaluationPlanRevision {
     pub id: i64,
-    pub generated_seeds: Vec<i64>,
+    pub seed_sequence: EvaluationSeedSequence,
     pub stages: Vec<EvaluationStageRevision>,
 }
 
@@ -145,14 +162,6 @@ pub struct EvaluationPlanRevision {
 pub struct EvaluationStageRevision {
     pub id: i64,
     pub config: EvaluationStageConfig,
-}
-
-pub fn generate_seed_suite() -> Vec<i64> {
-    let mut seeds = HashSet::with_capacity(100);
-    while seeds.len() < 100 {
-        seeds.insert(random());
-    }
-    seeds.into_iter().collect()
 }
 
 #[derive(Default)]
@@ -250,9 +259,7 @@ pub fn schedule_candidate(
 
         let sequence = progress.matches + queued_matches;
         let seed = match &stage.config.seed_source {
-            SeedSourceConfig::GeneratedStatic => {
-                plan.generated_seeds[sequence as usize % plan.generated_seeds.len()]
-            }
+            SeedSourceConfig::Generated => plan.seed_sequence.seed_at(sequence),
             SeedSourceConfig::Curated { seeds } => seeds[sequence as usize % seeds.len()],
             SeedSourceConfig::FreshRandom => random(),
         };
@@ -292,7 +299,7 @@ mod tests {
             id,
             config: EvaluationStageConfig {
                 name: format!("Stage {id}"),
-                seed_source: SeedSourceConfig::GeneratedStatic,
+                seed_source: SeedSourceConfig::Generated,
                 coverage,
                 min_players: None,
                 max_players: None,
@@ -314,7 +321,7 @@ mod tests {
         let benchmarks = [BotId::from(2), BotId::from(3)];
         let plan = EvaluationPlanRevision {
             id: 1,
-            generated_seeds: vec![11, 22],
+            seed_sequence: EvaluationSeedSequence::LegacySuite(vec![11, 22]),
             stages: vec![stage(10, CoveragePolicyConfig::PerBenchmark { target: 2 })],
         };
         let progress = HashMap::from([(
@@ -345,7 +352,7 @@ mod tests {
         let benchmarks = [BotId::from(2), BotId::from(3)];
         let plan = EvaluationPlanRevision {
             id: 1,
-            generated_seeds: vec![11, 22, 33],
+            seed_sequence: EvaluationSeedSequence::LegacySuite(vec![11, 22, 33]),
             stages: vec![
                 stage(10, CoveragePolicyConfig::Total { target: 1 }),
                 stage(20, CoveragePolicyConfig::Total { target: 10 }),
@@ -395,7 +402,7 @@ mod tests {
         let benchmarks = [BotId::from(2), BotId::from(3)];
         let plan = EvaluationPlanRevision {
             id: 1,
-            generated_seeds: vec![11],
+            seed_sequence: EvaluationSeedSequence::LegacySuite(vec![11]),
             stages: vec![stage(10, CoveragePolicyConfig::Total { target: 1 })],
         };
 
@@ -417,5 +424,29 @@ mod tests {
                 .count()
                 == 1
         }));
+    }
+
+    #[test]
+    fn deterministic_seed_sequence_is_stable_beyond_one_hundred_matches() {
+        let sequence = EvaluationSeedSequence::Deterministic { key: 123_456 };
+        let same_sequence = EvaluationSeedSequence::Deterministic { key: 123_456 };
+        let seeds = (0..=100)
+            .map(|index| sequence.seed_at(index))
+            .collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(seeds.len(), 101);
+        assert_eq!(sequence.seed_at(0), 4_172_122_716_518_060_777);
+        assert_eq!(sequence.seed_at(42), 4_497_731_464_451_674_930);
+        assert_eq!(sequence.seed_at(42), same_sequence.seed_at(42));
+        assert_ne!(sequence.seed_at(0), sequence.seed_at(100));
+    }
+
+    #[test]
+    fn legacy_seed_suites_keep_their_cyclic_sequence() {
+        let sequence = EvaluationSeedSequence::LegacySuite(vec![11, 22]);
+
+        assert_eq!(sequence.seed_at(0), 11);
+        assert_eq!(sequence.seed_at(1), 22);
+        assert_eq!(sequence.seed_at(2), 11);
     }
 }

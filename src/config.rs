@@ -7,21 +7,21 @@ use crate::{
     ranking::algorithms::{bradley_terry, elo, openskill, trueskill},
 };
 
-#[derive(Serialize, Deserialize)]
-pub struct Config {
-    pub game: GameConfig,
+#[derive(Deserialize)]
+pub(crate) struct LegacyConfig {
+    game: GameConfig,
     #[serde(default)]
-    pub evaluation: EvaluationConfig,
-    #[serde(default, rename = "matchmaking", skip_serializing)]
+    evaluation: EvaluationConfig,
+    #[serde(default, rename = "matchmaking")]
     legacy_matchmaking: Option<LegacyMatchmakingConfig>,
-    pub ranking: RankingConfig,
+    ranking: RankingConfig,
     #[serde(default)]
-    pub server: ServerConfig,
+    server: ServerConfig,
     #[serde(default)]
-    pub log: LogConfig,
+    log: LogConfig,
     #[serde(default)]
-    pub leaderboards: LeaderboardsConfig,
-    pub workers: Vec<WorkerConfig>,
+    leaderboards: LeaderboardsConfig,
+    workers: Vec<WorkerConfig>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -38,6 +38,7 @@ pub struct ArenaConfig {
 }
 
 #[derive(Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct BootstrapConfig {
     #[serde(default)]
     pub server: ServerConfig,
@@ -102,7 +103,7 @@ impl EvaluationConfig {
         );
         Self {
             enabled_on_start: config.enabled_on_start,
-            generated_seeds: crate::evaluation::generate_seed_suite(),
+            seed_sequence_key: crate::evaluation::generate_seed_sequence_key(),
             stages: vec![EvaluationStageConfig {
                 name: "Migrated matchmaking coverage".to_string(),
                 seed_source: SeedSourceConfig::FreshRandom,
@@ -222,37 +223,36 @@ pub struct LeaderboardsConfig {
     pub uncertainty_coefficient: Option<f64>,
 }
 
-impl Default for Config {
+impl Default for ArenaConfig {
     fn default() -> Self {
-        toml::from_str(DEFAULT_CONFIG_CONTENT).unwrap()
-    }
-}
-impl From<Config> for ArenaConfig {
-    fn from(config: Config) -> Self {
-        let evaluation = config
-            .legacy_matchmaking
-            .as_ref()
-            .map(EvaluationConfig::from_legacy_matchmaking)
-            .unwrap_or(config.evaluation);
         Self {
-            game: config.game,
-            evaluation,
+            game: GameConfig {
+                min_players: 2,
+                max_players: 2,
+                symmetric: true,
+            },
+            evaluation: EvaluationConfig::default(),
             legacy_matchmaking: None,
-            ranking: config.ranking,
-            leaderboards: config.leaderboards,
-            workers: config.workers,
+            ranking: RankingConfig::BradleyTerry(bradley_terry::Config::default()),
+            leaderboards: LeaderboardsConfig::default(),
+            workers: vec![WorkerConfig::Embedded(EmbeddedWorkerConfig {
+                threads: 1,
+                referee: RefereeConfig::ManagedCodingame(ManagedCodingameRefereeConfig {
+                    repository_url: "https://github.com/CodinGame/SpringChallenge2023.git"
+                        .to_string(),
+                    branch: None,
+                    java: None,
+                    maven: None,
+                }),
+                cmd_build: "g++ -std=c++20 -x c++ {DIR}/source.txt -o {DIR}/a".to_string(),
+                cmd_run: "./{DIR}/a".to_string(),
+            })],
         }
     }
 }
 
-impl Default for ArenaConfig {
-    fn default() -> Self {
-        Config::default().into()
-    }
-}
-
-impl Config {
-    pub fn load_legacy(arena_path: &Path) -> Result<Option<Config>, anyhow::Error> {
+impl LegacyConfig {
+    pub(crate) fn load(arena_path: &Path) -> Result<Option<Self>, anyhow::Error> {
         let config_content = read_config_file(arena_path)?;
         let value: toml::Value =
             toml::from_str(&config_content).context("Config file format should be a valid TOML")?;
@@ -262,10 +262,10 @@ impl Config {
         value
             .try_into()
             .map(Some)
-            .context("Config file format should be a valid arena configuration")
+            .context("Config file format should be a valid legacy arena configuration")
     }
 
-    pub fn validate(&self) -> Result<(), anyhow::Error> {
+    pub(crate) fn validate(&self) -> Result<(), anyhow::Error> {
         let evaluation = self
             .legacy_matchmaking
             .as_ref()
@@ -280,8 +280,8 @@ impl Config {
         )
     }
 
-    pub fn split(self) -> (ArenaConfig, BootstrapConfig) {
-        let Config {
+    pub(crate) fn split(self) -> (ArenaConfig, BootstrapConfig) {
+        let Self {
             game,
             evaluation,
             legacy_matchmaking,
@@ -336,8 +336,20 @@ impl ArenaConfig {
 impl BootstrapConfig {
     pub fn load(arena_path: &Path) -> Result<Self, anyhow::Error> {
         let config_content = read_config_file(arena_path)?;
-        toml::from_str(&config_content)
-            .context("Config file format should contain valid server and logging settings")
+        let value: toml::Value =
+            toml::from_str(&config_content).context("Config file format should be valid TOML")?;
+        if value.get("game").is_some() {
+            let legacy: LegacyConfig = value
+                .try_into()
+                .context("Config file format should be a valid legacy arena configuration")?;
+            return Ok(Self {
+                server: legacy.server,
+                log: legacy.log,
+            });
+        }
+        value
+            .try_into()
+            .context("Config file may contain only server and logging settings")
     }
 }
 
@@ -443,19 +455,36 @@ fn require_placeholder(template: &[String], placeholder: &str, field: &str) -> a
 
 const CONFIG_FILE_NAME: &str = "cgarena_config.toml";
 
-static DEFAULT_CONFIG_CONTENT: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/assets/default_config.toml"
-));
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
-    fn default_config_is_valid() {
-        let config: Config = toml::from_str(DEFAULT_CONFIG_CONTENT).expect("to be a valid config");
-        config.validate().expect("default config should validate");
+    fn default_arena_config_is_valid() {
+        ArenaConfig::default()
+            .validate()
+            .expect("default arena config should validate");
+    }
+
+    #[test]
+    fn bootstrap_config_rejects_runtime_settings() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join(CONFIG_FILE_NAME),
+            r#"[server]
+port = 1234
+
+[evaluation]
+enabled_on_start = true"#,
+        )
+        .unwrap();
+
+        let Err(error) = BootstrapConfig::load(directory.path()) else {
+            panic!("runtime settings must not be accepted from the bootstrap file");
+        };
+        assert!(error
+            .to_string()
+            .contains("may contain only server and logging settings"));
     }
 
     #[test]
@@ -497,7 +526,7 @@ watch_replay = "new""#,
 
     #[test]
     fn tagged_command_referee_requires_complete_templates() {
-        let mut config = Config::default();
+        let mut config = ArenaConfig::default();
         let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
             panic!("default config must contain one embedded worker");
         };
@@ -522,7 +551,7 @@ cmd_build = "build"
 cmd_run = "run""#,
         )
         .unwrap();
-        let mut config = Config::default();
+        let mut config = ArenaConfig::default();
         let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
             panic!("default config must contain one embedded worker");
         };
@@ -611,7 +640,7 @@ cmd_run = "run""#,
     }
     #[test]
     fn zero_worker_threads_are_rejected() {
-        let mut config = Config::default();
+        let mut config = ArenaConfig::default();
         let [WorkerConfig::Embedded(worker)] = config.workers.as_mut_slice() else {
             panic!("default config must contain one embedded worker");
         };
