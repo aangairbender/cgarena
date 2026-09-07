@@ -179,11 +179,7 @@ export default function HomePage() {
                                 </span>
                               )}
                             </span>
-                            <span
-                              className={`text-nowrap ${
-                                stage.candidate_errors > 0 ? "text-danger" : ""
-                              }`}
-                            >
+                            <span className="text-body-secondary text-nowrap">
                               {percent}% · {stage.matches} matches ·{" "}
                               {stage.candidate_errors} errors
                             </span>
