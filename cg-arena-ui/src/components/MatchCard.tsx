@@ -8,6 +8,7 @@ import { useDialogs } from "@/hooks/useDialogs";
 
 interface MatchCardProps {
   match: MatchOverview;
+  onReplayWatched: () => void;
 }
 
 const excludedAttrs = ["score", "index", "rank", "error"];
@@ -23,7 +24,7 @@ function trophyColorByRank(rank: number): string {
   }
 }
 
-export function MatchCard({ match }: MatchCardProps) {
+export function MatchCard({ match, onReplayWatched }: MatchCardProps) {
   const { replayDialog } = useDialogs();
 
   const hasErrors = match.participants.some((p) => p.error);
@@ -63,7 +64,10 @@ export function MatchCard({ match }: MatchCardProps) {
 
   return (
     <Card
-      className={cn("overflow-hidden", hasErrors && "border-destructive/30")}
+      className={cn(
+        "overflow-hidden",
+        hasErrors && "border-destructive/30",
+      )}
     >
       {/* Header with Match ID, Seed, and Match-level attributes */}
       <Card.Header>
@@ -75,6 +79,11 @@ export function MatchCard({ match }: MatchCardProps) {
                 {match.id}
               </span>
             </div>
+            {!match.replay_watched && (
+              <Badge bg="warning" text="dark">
+                New
+              </Badge>
+            )}
             {match.evaluation_stage_revision_id !== null && (
               <Badge bg="primary">
                 Candidate {match.candidate_bot_id} · stage revision{" "}
@@ -98,7 +107,12 @@ export function MatchCard({ match }: MatchCardProps) {
             <Button
               variant="outline-warning"
               size="sm"
-              onClick={() => replayDialog.show({ match_id: match.id })}
+              onClick={() =>
+                replayDialog.show({
+                  match_id: match.id,
+                  onStarted: onReplayWatched,
+                })
+              }
             >
               Watch replay
             </Button>

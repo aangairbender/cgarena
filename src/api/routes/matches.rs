@@ -89,6 +89,7 @@ pub struct FetchMatchesResponse {
 #[derive(Serialize)]
 pub struct MatchOverviewResponse {
     pub id: i64,
+    pub replay_watched: bool,
     pub participants: Vec<ParticipantOverviewResponse>,
     pub seed: String,
     pub candidate_bot_id: Option<i64>,
@@ -126,6 +127,7 @@ impl From<MatchOverview> for MatchOverviewResponse {
     fn from(value: MatchOverview) -> Self {
         Self {
             id: value.id.into(),
+            replay_watched: value.replay_watched,
             participants: value.participants.into_iter().map(Into::into).collect(),
             seed: value.seed.to_string(),
             candidate_bot_id: value.candidate_bot_id.map(Into::into),
@@ -216,6 +218,7 @@ mod tests {
     fn serializes_i64_seed_without_precision_loss() {
         let response = MatchOverviewResponse {
             id: 1,
+            replay_watched: false,
             participants: vec![],
             seed: i64::MAX.to_string(),
             candidate_bot_id: None,

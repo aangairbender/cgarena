@@ -724,6 +724,13 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null],"1":[null]},"agents"
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let replay_watched_at: Option<i64> =
+            sqlx::query_scalar("SELECT replay_watched_at FROM matches WHERE id = ?")
+                .bind(match_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(replay_watched_at.is_some());
         let replay = response_json(response).await;
         let response = app
             .clone()

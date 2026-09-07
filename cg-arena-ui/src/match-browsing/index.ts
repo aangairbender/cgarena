@@ -6,7 +6,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 
-import { BotId } from "@/models";
+import { BotId, MatchId } from "@/models";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 10;
@@ -28,6 +28,7 @@ const matchResultsSchema = z.object({
   matches: z.array(
     z.object({
       id: z.int(),
+      replay_watched: z.boolean(),
       participants: z.array(
         z.object({
           rank: z.int(),
@@ -94,6 +95,7 @@ export interface MatchBrowsingView {
   canGoNext: boolean;
   submit(draft: MatchSearchDraft): void;
   goToPage(page: number): void;
+  markReplayWatched(matchId: MatchId): void;
 }
 
 export type NavigateMatches = (search: MatchBrowseSearch) => void;
@@ -259,6 +261,19 @@ function useMatchBrowsing(
     ],
   );
 
+  const markReplayWatched = useCallback(
+    (matchId: MatchId) => {
+      const update = (results: MatchResults | undefined) =>
+        withReplayWatched(results, matchId);
+      queryClient.setQueriesData<MatchResults>(
+        { queryKey: MATCH_QUERY_KEY },
+        update,
+      );
+      setLastSuccessfulResults(update);
+    },
+    [queryClient],
+  );
+
   const errorMessage = query.isError
     ? query.error instanceof Error
       ? query.error.message
@@ -276,6 +291,28 @@ function useMatchBrowsing(
     canGoNext,
     submit,
     goToPage,
+    markReplayWatched,
+  };
+}
+
+function withReplayWatched(
+  results: MatchResults | undefined,
+  matchId: MatchId,
+): MatchResults | undefined {
+  if (
+    results === undefined ||
+    !results.matches.some(
+      (match) => match.id === matchId && !match.replay_watched,
+    )
+  ) {
+    return results;
+  }
+
+  return {
+    ...results,
+    matches: results.matches.map((match) =>
+      match.id === matchId ? { ...match, replay_watched: true } : match,
+    ),
   };
 }
 

@@ -508,6 +508,15 @@ pub async fn create_match(pool: &SqlitePool, m: &Match) -> anyhow::Result<MatchI
     Ok(match_id)
 }
 
+pub async fn mark_replay_watched(pool: &SqlitePool, id: MatchId) -> anyhow::Result<()> {
+    let result = sqlx::query("UPDATE matches SET replay_watched_at = unixepoch() WHERE id = $1")
+        .bind::<i64>(id.into())
+        .execute(pool)
+        .await?;
+    assert_eq!(result.rows_affected(), 1);
+    Ok(())
+}
+
 pub async fn persist_leaderboard(
     pool: &SqlitePool,
     leaderboard: &mut Leaderboard,
@@ -624,16 +633,40 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
+        let replay_watched_columns: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('matches') \
+             WHERE name = 'replay_watched_at'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         let old_matches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM matches WHERE seed = 7")
             .fetch_one(&pool)
             .await
             .unwrap();
+        let old_replay_watched_at: Option<i64> =
+            sqlx::query_scalar("SELECT replay_watched_at FROM matches WHERE seed = 7")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        sqlx::query("INSERT INTO matches (seed, participant_cnt) VALUES (8, 2)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let new_replay_watched_at: Option<i64> =
+            sqlx::query_scalar("SELECT replay_watched_at FROM matches WHERE seed = 8")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         let migrated_role: String =
             sqlx::query_scalar("SELECT role FROM bots WHERE name = 'legacy'")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
         assert_eq!(replay_columns, 1);
+        assert_eq!(replay_watched_columns, 1);
+        assert!(old_replay_watched_at.is_some());
+        assert!(new_replay_watched_at.is_none());
         assert_eq!(old_matches, 1);
         assert_eq!(migrated_role, "benchmark");
     }

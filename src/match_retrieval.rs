@@ -46,6 +46,7 @@ pub(crate) struct MatchPage {
 
 pub(crate) struct MatchOverview {
     pub id: MatchId,
+    pub replay_watched: bool,
     pub participants: Vec<ParticipantOverview>,
     pub seed: i64,
     pub candidate_bot_id: Option<BotId>,
@@ -88,10 +89,14 @@ impl MatchRetrieval {
         let has_more = matches.len() > limit;
         matches.truncate(limit);
         self.hydrate_non_turn_attributes(&mut matches).await?;
+        let watched_match_ids = self.fetch_watched_match_ids(&matches).await?;
         let bot_names = self.fetch_bot_names(&matches).await?;
         let matches = matches
             .into_iter()
-            .map(|item| match_overview(item, &bot_names))
+            .map(|item| {
+                let replay_watched = watched_match_ids.contains(&i64::from(item.id));
+                match_overview(item, &bot_names, replay_watched)
+            })
             .try_collect()?;
 
         Ok(MatchPage { matches, has_more })
@@ -427,6 +432,28 @@ impl MatchRetrieval {
         Ok(())
     }
 
+    async fn fetch_watched_match_ids(&self, matches: &[Match]) -> anyhow::Result<HashSet<i64>> {
+        if matches.is_empty() {
+            return Ok(HashSet::new());
+        }
+
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT id FROM matches WHERE replay_watched_at IS NOT NULL AND id IN (",
+        );
+        let mut separated = query.separated(", ");
+        for item in matches {
+            separated.push_bind(i64::from(item.id));
+        }
+        separated.push_unseparated(")");
+
+        Ok(query
+            .build_query_scalar::<i64>()
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .collect())
+    }
+
     async fn fetch_bot_names(&self, matches: &[Match]) -> anyhow::Result<HashMap<BotId, BotName>> {
         let bot_ids = matches
             .iter()
@@ -508,6 +535,7 @@ fn included_bot_ids(bot_ids: Vec<BotId>) -> HashSet<i64> {
 fn match_overview(
     item: Match,
     bot_names: &HashMap<BotId, BotName>,
+    replay_watched: bool,
 ) -> anyhow::Result<MatchOverview> {
     let participants = item
         .participants
@@ -531,6 +559,7 @@ fn match_overview(
 
     Ok(MatchOverview {
         id: item.id,
+        replay_watched,
         participants,
         seed: item.seed,
         candidate_bot_id: item.candidate_bot_id,
@@ -779,6 +808,26 @@ mod tests {
             .unwrap();
         assert!(past_end.matches.is_empty());
         assert!(!past_end.has_more);
+    }
+
+    #[tokio::test]
+    async fn page_reports_persisted_replay_watch_state() {
+        let retrieval = retrieval().await;
+        let bot = insert_test_bot(&retrieval, "bot").await;
+        let match_id = insert_test_match(&retrieval, 1, &[bot], vec![]).await;
+        let filter = MatchFilter::accept_all();
+
+        let unwatched = retrieval
+            .page(request(filter.clone(), vec![], 0, 1))
+            .await
+            .unwrap();
+        assert!(!unwatched.matches[0].replay_watched);
+
+        db::mark_replay_watched(&retrieval.pool, match_id)
+            .await
+            .unwrap();
+        let watched = retrieval.page(request(filter, vec![], 0, 1)).await.unwrap();
+        assert!(watched.matches[0].replay_watched);
     }
 
     #[tokio::test]

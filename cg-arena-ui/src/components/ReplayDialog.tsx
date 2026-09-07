@@ -6,6 +6,7 @@ import * as api from "@/api";
 
 export interface ReplayDialogData {
   match_id: MatchId;
+  onStarted: () => void;
 }
 interface ReplayState {
   matchId: MatchId;
@@ -13,22 +14,23 @@ interface ReplayState {
   error: string;
 }
 
-
 const ReplayDialog = (dialog: DialogProps<ReplayDialogData>) => {
   const data = dialog.data;
+  const matchId = data?.match_id;
+  const onStarted = data?.onStarted;
   const [replayState, setReplayState] = useState<ReplayState | null>(null);
   const sessionId = useRef<string | null>(null);
   const startup = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (data?.match_id === undefined) return;
+    if (matchId === undefined || onStarted === undefined) return;
 
     const controller = new AbortController();
     startup.current = controller;
     sessionId.current = null;
 
     api
-      .watchReplay(data.match_id, controller.signal)
+      .watchReplay(matchId, controller.signal)
       .then(async (replay) => {
         if (controller.signal.aborted) {
           await api.closeReplay(replay.session_id);
@@ -36,15 +38,16 @@ const ReplayDialog = (dialog: DialogProps<ReplayDialogData>) => {
         }
         sessionId.current = replay.session_id;
         setReplayState({
-          matchId: data.match_id,
+          matchId,
           url: replay.viewer_url,
           error: "",
         });
+        onStarted();
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
           setReplayState({
-            matchId: data.match_id,
+            matchId,
             url: "",
             error: String(cause),
           });
@@ -60,7 +63,7 @@ const ReplayDialog = (dialog: DialogProps<ReplayDialogData>) => {
         void api.closeReplay(currentSession).catch(console.error);
       }
     };
-  }, [data?.match_id]);
+  }, [matchId, onStarted]);
 
   const onHide = async () => {
     startup.current?.abort();

@@ -35,6 +35,7 @@ function results(id: number, hasMore: boolean): MatchResults {
     matches: [
       {
         id,
+        replay_watched: false,
         participants: [],
         seed: String(id),
         candidate_bot_id: null,
@@ -168,6 +169,23 @@ describe("match-browsing interface", () => {
     expect(transitions).toHaveLength(1);
     act(() => result.current.goToPage(1));
     expect(transitions[1]).toEqual(initialSearch);
+  });
+
+  it("marks a successfully started replay watched in cached results", async () => {
+    const adapter = new InMemoryMatchAdapter([results(103, false)]);
+    const initialSearch = {
+      filter: "",
+      withBots: [],
+      page: 1,
+      pageSize: 10,
+    };
+    const { result } = renderBrowsing(adapter, initialSearch);
+
+    await waitFor(() =>
+      expect(result.current.results?.matches[0].replay_watched).toBe(false),
+    );
+    act(() => result.current.markReplayWatched(103));
+    expect(result.current.results?.matches[0].replay_watched).toBe(true);
   });
 
   it("refreshes an unchanged search and resets changed criteria to page one", async () => {

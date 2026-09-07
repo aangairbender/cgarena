@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::{
     api::{errors::ApiError, AppState},
+    db,
     domain::MatchId,
 };
 
@@ -15,11 +16,9 @@ pub async fn watch_replay(
     State(app_state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<WatchReplayResponse>, ApiError> {
-    let replay = app_state
-        .replay_viewer()
-        .await?
-        .watch(MatchId::from(id))
-        .await?;
+    let match_id = MatchId::from(id);
+    let replay = app_state.replay_viewer().await?.watch(match_id).await?;
+    db::mark_replay_watched(&app_state.pool, match_id).await?;
     Ok(Json(WatchReplayResponse {
         session_id: replay.session_id,
         viewer_url: replay.viewer_url,

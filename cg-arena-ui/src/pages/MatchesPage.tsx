@@ -5,7 +5,7 @@ import {
   MatchBrowseSearch,
   MatchOverview,
 } from "@/match-browsing";
-import { BotId, BotOverviewResponse } from "@/models";
+import { BotId, BotOverviewResponse, MatchId } from "@/models";
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useCallback, useState } from "react";
 import {
@@ -87,7 +87,10 @@ export default function MatchesPage() {
       </Card>
 
       {browsing.results !== undefined && (
-        <MatchList matches={browsing.results.matches} />
+        <MatchList
+          matches={browsing.results.matches}
+          onReplayWatched={browsing.markReplayWatched}
+        />
       )}
 
       <div className="d-flex justify-content-center">
@@ -188,9 +191,6 @@ function MatchesFilters({
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           />
-          <Form.Text className="text-muted">
-            e.g. match.player_count == 2
-          </Form.Text>
         </Form.Group>
 
         <Form.Group controlId="matchesPageSize">
@@ -215,15 +215,17 @@ function MatchesFilters({
           Search
         </Button>
       </div>
+      <Form.Text className="text-muted">e.g. match.player_count == 2</Form.Text>
     </Form>
   );
 }
 
 interface MatchListProps {
   matches: MatchOverview[];
+  onReplayWatched: (matchId: MatchId) => void;
 }
 
-export function MatchList({ matches }: MatchListProps) {
+export function MatchList({ matches, onReplayWatched }: MatchListProps) {
   if (matches.length === 0) {
     return (
       <div className="border rounded p-5 text-center">
@@ -238,7 +240,11 @@ export function MatchList({ matches }: MatchListProps) {
   return (
     <div className="flex flex-col gap-3">
       {matches.map((match) => (
-        <MatchCard key={match.id} match={match} />
+        <MatchCard
+          key={match.id}
+          match={match}
+          onReplayWatched={() => onReplayWatched(match.id)}
+        />
       ))}
     </div>
   );
