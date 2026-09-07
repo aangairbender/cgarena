@@ -9,6 +9,7 @@ import {
   PatchLeaderboardRequest,
 } from "@/models";
 import {
+  Badge,
   Button,
   Card,
   OverlayTrigger,
@@ -248,17 +249,21 @@ const Row = ({ lb, item, stats, bot, selectedBotId }: RowProps) => {
     <tr className={selected ? "highlighted-row" : ""}>
       <td>{item.rank + 1}</td>
       <td>
-        <Stack direction="horizontal">
+        <Stack direction="horizontal" gap={2}>
           <Identicon input={item.id + ""} size={24} />
           <OverlayTrigger overlay={renderTooltip} placement="right">
             <Link
               to="/"
-              style={{ marginLeft: "8px" }}
               search={(prev) => ({ ...prev, selectedBotId: bot.id })}
             >
               {bot.name}
             </Link>
           </OverlayTrigger>
+          {bot.role === "candidate" && (
+            <Badge pill bg="primary">
+              Candidate
+            </Badge>
+          )}
         </Stack>
       </td>
       <RatingCell item={item} />

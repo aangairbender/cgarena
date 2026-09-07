@@ -90,29 +90,43 @@ export default function HomePage() {
             {candidates.length} active
           </Badge>
         </Card.Header>
-        <Card.Body>
+        <Card.Body className={candidates.length === 0 ? "py-3" : "py-2"}>
           {candidates.length === 0 ? (
             <p className="text-body-secondary mb-0">
               Submit a Candidate to start an evaluation.
             </p>
           ) : (
-            <Stack gap={4}>
-              {candidates.map((candidate) => (
-                <div key={candidate.id}>
-                  <div className="d-flex justify-content-between align-items-start mb-2">
-                    <div>
-                      <h5 className="mb-1">{candidate.name}</h5>
-                      <span className="text-body-secondary">
-                        Plan revision {candidate.evaluation_plan_revision_id}
-                      </span>
+            <Stack gap={2}>
+              {candidates.map((candidate, index) => (
+                <div
+                  key={candidate.id}
+                  className={
+                    index < candidates.length - 1 ? "border-bottom pb-2" : ""
+                  }
+                >
+                  <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <div className="d-flex flex-wrap align-items-center gap-2">
+                      <strong>{candidate.name}</strong>
+                      <Badge
+                        bg={
+                          candidate.evaluation?.complete ? "success" : "primary"
+                        }
+                      >
+                        {candidate.evaluation?.complete
+                          ? "Complete"
+                          : "Evaluating"}
+                      </Badge>
+                      <small className="text-body-secondary">
+                        Plan {candidate.evaluation_plan_revision_id}
+                      </small>
                     </div>
-                    <Stack direction="horizontal" gap={2}>
+                    <div className="d-flex flex-wrap gap-1">
                       <Link
                         to="/matches"
                         search={{ withBots: [candidate.id] }}
                         className="btn btn-outline-secondary btn-sm"
                       >
-                        Matches and replays
+                        Matches
                       </Link>
                       <Button
                         size="sm"
@@ -133,47 +147,56 @@ export default function HomePage() {
                       >
                         Reject
                       </Button>
-                    </Stack>
+                    </div>
                   </div>
-                  {candidate.evaluation?.stages.map((stage) => {
-                    const percent = stageProgressPercent(
-                      stage.target,
-                      stage.matches,
-                      stage.coverage,
-                      stage.benchmark_encounters,
-                    );
-                    return (
-                      <div key={stage.id} className="mb-3">
-                        <div className="d-flex justify-content-between">
-                          <span>
-                            {stage.name}{" "}
-                            {stage.complete && (
-                              <Badge bg="success">Complete</Badge>
-                            )}
-                          </span>
-                          <span>
-                            {stage.matches} matches · {stage.candidate_errors}{" "}
-                            errors
-                          </span>
+                  <Stack gap={2}>
+                    {candidate.evaluation?.stages.map((stage) => {
+                      const percent = stageProgressPercent(
+                        stage.target,
+                        stage.matches,
+                        stage.coverage,
+                        stage.benchmark_encounters,
+                      );
+                      const encounters = Object.entries(
+                        stage.benchmark_encounters,
+                      )
+                        .map(([id, count]) => {
+                          const benchmark = bots.find(
+                            (bot) => bot.id === Number(id),
+                          );
+                          return `${benchmark?.name ?? `Bot ${id}`}: ${count}`;
+                        })
+                        .join(" · ");
+                      return (
+                        <div key={stage.id}>
+                          <div className="d-flex justify-content-between align-items-center gap-3 small">
+                            <span className="text-truncate">
+                              <span className="fw-medium">{stage.name}</span>
+                              {encounters && (
+                                <span className="text-body-secondary">
+                                  {" "}
+                                  · {encounters}
+                                </span>
+                              )}
+                            </span>
+                            <span
+                              className={`text-nowrap ${
+                                stage.candidate_errors > 0 ? "text-danger" : ""
+                              }`}
+                            >
+                              {percent}% · {stage.matches} matches ·{" "}
+                              {stage.candidate_errors} errors
+                            </span>
+                          </div>
+                          <ProgressBar
+                            now={percent}
+                            style={{ height: "0.35rem" }}
+                            aria-label={`${stage.name} ${percent}% complete`}
+                          />
                         </div>
-                        <ProgressBar
-                          now={percent}
-                          label={`${percent}%`}
-                          className="my-2"
-                        />
-                        <small className="text-body-secondary">
-                          {Object.entries(stage.benchmark_encounters)
-                            .map(([id, count]) => {
-                              const benchmark = bots.find(
-                                (bot) => bot.id === Number(id),
-                              );
-                              return `${benchmark?.name ?? `Bot ${id}`}: ${count}`;
-                            })
-                            .join(" · ")}
-                        </small>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </Stack>
                 </div>
               ))}
             </Stack>
