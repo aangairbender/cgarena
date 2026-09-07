@@ -18,7 +18,7 @@ type AppState = {
   loading: boolean;
   fetchingStatus: boolean;
   status: Status;
-  matchmakingEnabled: boolean;
+  evaluationSchedulingEnabled: boolean;
   initialFetchCompleted: boolean;
 
   bots: BotOverviewResponse[];
@@ -31,7 +31,9 @@ type AppState = {
 
   submitNewBot: (req: CreateBotRequest) => Promise<void>;
   renameBot: (id: BotId, req: RenameBotRequest) => Promise<void>;
-  deleteBot: (id: BotId) => Promise<void>;
+  rejectCandidate: (id: BotId) => Promise<void>;
+  promoteCandidate: (id: BotId) => Promise<void>;
+  archiveBenchmark: (id: BotId) => Promise<void>;
 
   createLeaderboard: (req: CreateLeaderboardRequest) => Promise<void>;
   patchLeaderboard: (
@@ -40,7 +42,7 @@ type AppState = {
   ) => Promise<void>;
   deleteLeaderboard: (id: LeaderboardId) => Promise<void>;
 
-  enableMatchmaking: (enabled: boolean) => Promise<void>;
+  setEvaluationScheduling: (enabled: boolean) => Promise<void>;
 };
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -48,7 +50,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loading: false,
   fetchingStatus: false,
   status: "connected",
-  matchmakingEnabled: true,
+  evaluationSchedulingEnabled: true,
   initialFetchCompleted: false,
 
   bots: [],
@@ -66,7 +68,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         bots: res.bots,
         leaderboards: res.leaderboards,
-        matchmakingEnabled: res.matchmaking_enabled,
+        evaluationSchedulingEnabled: res.evaluation_scheduling_enabled,
         status: "connected",
         initialFetchCompleted: true,
       });
@@ -110,21 +112,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  deleteBot: async (id) => {
+  rejectCandidate: async (id) => {
     set({ loading: true });
-
-    await api.deleteBot(id);
-
+    await api.rejectCandidate(id);
     set((state) => ({
-      bots: state.bots.filter((b) => b.id !== id),
-      leaderboards: state.leaderboards.map((lb) => ({
-        ...lb,
+      bots: state.bots.filter((bot) => bot.id !== id),
+      leaderboards: state.leaderboards.map((leaderboard) => ({
+        ...leaderboard,
         status: "computing",
       })),
       loading: false,
     }));
+    void get().fetchStatus();
+  },
 
-    get().fetchStatus();
+  promoteCandidate: async (id) => {
+    set({ loading: true });
+    await api.promoteCandidate(id);
+    set({ loading: false });
+    await get().fetchStatus();
+  },
+
+  archiveBenchmark: async (id) => {
+    set({ loading: true });
+    await api.archiveBenchmark(id);
+    set({ loading: false });
+    await get().fetchStatus();
   },
 
   // ---------------- leaderboards ----------------
@@ -172,8 +185,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // ---------------- misc ----------------
-  enableMatchmaking: async (enabled) => {
-    set({ matchmakingEnabled: enabled });
-    await api.enableMatchmaking(enabled);
+  setEvaluationScheduling: async (enabled) => {
+    set({ evaluationSchedulingEnabled: enabled });
+    await api.setEvaluationScheduling(enabled);
   },
 }));

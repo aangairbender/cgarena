@@ -91,6 +91,8 @@ pub struct MatchOverviewResponse {
     pub id: i64,
     pub participants: Vec<ParticipantOverviewResponse>,
     pub seed: String,
+    pub candidate_bot_id: Option<i64>,
+    pub evaluation_stage_revision_id: Option<i64>,
     pub attributes: Vec<MatchAttributeResponse>,
 }
 
@@ -126,6 +128,8 @@ impl From<MatchOverview> for MatchOverviewResponse {
             id: value.id.into(),
             participants: value.participants.into_iter().map(Into::into).collect(),
             seed: value.seed.to_string(),
+            candidate_bot_id: value.candidate_bot_id.map(Into::into),
+            evaluation_stage_revision_id: value.evaluation_stage_revision_id,
             attributes: value.attributes.into_iter().map(Into::into).collect(),
         }
     }
@@ -214,6 +218,8 @@ mod tests {
             id: 1,
             participants: vec![],
             seed: i64::MAX.to_string(),
+            candidate_bot_id: None,
+            evaluation_stage_revision_id: None,
             attributes: vec![],
         };
 

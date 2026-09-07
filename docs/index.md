@@ -8,7 +8,7 @@
 - [Bots](#bots)
     - [Submitting a new bot](#submitting-a-new-bot)
     - [Renaming the bot](#renaming-the-bot)
-    - [Deleting the bot](#deleting-the-bot)
+    - [Changing a bot's lifecycle state](#changing-a-bots-lifecycle-state)
     - [Checking the bot source code](#checking-the-bot-source-code)
 - [Leaderboards](#leaderboards)
     - [Global leaderboard](#global-leaderboard)
@@ -44,9 +44,9 @@ The `cgarena init` command creates:
 - `cgarena.db`, containing arena behavior configuration and arena data.
 
 Run the arena, open its **Local** URL, and complete the first-run form. The form validates and
-saves one complete game, matchmaking, ranking, leaderboard, embedded-worker, and referee
-configuration. Until a usable runtime is active, match, bot, matchmaking, and replay APIs report
-that the arena is unavailable while the setup page remains accessible.
+saves one complete game, evaluation-plan, ranking, leaderboard, embedded-worker, and referee
+configuration. Until a usable runtime is active, match, bot, evaluation-scheduling, and replay
+APIs report that the arena is unavailable while the setup page remains accessible.
 
 Read the [configuration reference](configuration.md) for every setting. Server bind and logging
 changes still require a restart because they are needed before the configuration UI starts.
@@ -73,7 +73,7 @@ Network: use 'server.expose' config param to expose
 ```
 
 Open the **Local** URL in your browser. A new arena opens its first-run configuration form before
-bot submission, matchmaking, matches, or replays become available.
+bot submission, evaluation scheduling, matches, or replays become available.
 
 The UI theme (light or dark) is selected based on your operating system settings.
 
@@ -81,7 +81,8 @@ The UI theme (light or dark) is selected based on your operating system settings
 
 ### Submitting a new bot
 
-To submit a new bot, click "Submit a new bot" button in the top right corner:
+Click **Submit a new bot** in the top right corner. A submission defaults to Candidate; select
+Benchmark only when the bot should join the live comparison pool immediately.
 
 ![submit-new-bot-button](img/submit-new-bot-button.png)
 
@@ -114,13 +115,14 @@ Click the pencil icon in the "Actions" column to rename a bot:
 
 Renaming has no effect on functionality—bots are referenced internally by ID.
 
-### Deleting the bot
+### Changing a bot's lifecycle state
 
-Click the trash icon in the "Actions" column:
+Candidate evaluations expose explicit **Promote** and **Reject** actions. Promotion keeps the bot
+and all evidence, moving it into the active Benchmark pool. Rejection permanently deletes the
+Candidate and its match evidence.
 
-![bot-actions-delete](img/bot_actions_delete.png)
-
-Deleting the bot will trigger recalculation of all the leaderboards.
+An active Benchmark can be archived. Archived Benchmarks are hidden from active scheduling and
+leaderboards, while their historical matches continue to contribute to ratings for active bots.
 
 ### Checking the bot source code
 
@@ -132,7 +134,9 @@ You can check your bot's source code by clicking on the "code" icon in the "Acti
 
 ### Global leaderboard
 
-Once enough bots are submitted (at least `game.min_players`), matchmaking begins and the global leaderboard will show rankings based on **all** finished matches.
+Once a Candidate and enough active Benchmarks are available for the configured player count,
+evaluation scheduling begins. The global leaderboard ranks active bots using all retained finished
+matches.
 
 Here is an example of a global leaderboard in the middle of the contest:
 

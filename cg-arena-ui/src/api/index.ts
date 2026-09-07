@@ -11,7 +11,7 @@ import {
   ChartRequest,
   ChartOverviewResponse,
   BotSourceCode,
-  EnableMatchmakingRequest,
+  EvaluationSchedulingRequest,
   MatchId,
   WatchReplayResponse,
   ArenaConfiguration,
@@ -90,11 +90,24 @@ export const renameBot = async (id: BotId, payload: RenameBotRequest) => {
   await checkForErrors(response);
 };
 
-export const deleteBot = async (id: BotId) => {
-  const req = new Request(`${host}/api/bots/${id}`, {
-    method: "DELETE",
-  });
-  const response = await fetch(req);
+export const rejectCandidate = async (id: BotId) => {
+  const response = await fetch(
+    new Request(`${host}/api/bots/${id}`, { method: "DELETE" }),
+  );
+  await checkForErrors(response);
+};
+
+export const promoteCandidate = async (id: BotId) => {
+  const response = await fetch(
+    new Request(`${host}/api/bots/${id}/promote`, { method: "POST" }),
+  );
+  await checkForErrors(response);
+};
+
+export const archiveBenchmark = async (id: BotId) => {
+  const response = await fetch(
+    new Request(`${host}/api/bots/${id}/archive`, { method: "POST" }),
+  );
   await checkForErrors(response);
 };
 
@@ -157,17 +170,15 @@ export const fetchBotSourceCode = async (id: BotId): Promise<BotSourceCode> => {
   return await parseResponse<BotSourceCode>(response);
 };
 
-export const enableMatchmaking = async (enabled: boolean): Promise<void> => {
-  const payload: EnableMatchmakingRequest = { enabled };
-
-  const req = new Request(`${host}/api/matchmaking`, {
+export const setEvaluationScheduling = async (
+  enabled: boolean,
+): Promise<void> => {
+  const payload: EvaluationSchedulingRequest = { enabled };
+  const req = new Request(`${host}/api/evaluation-scheduling`, {
     method: "PUT",
     body: JSON.stringify(payload),
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
   });
-
   const response = await fetch(req);
   await checkForErrors(response);
 };

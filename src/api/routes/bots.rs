@@ -13,8 +13,10 @@ use crate::{
         models::{BotOverviewResponse, CreateBotRequest, RenameBotRequest},
         AppState,
     },
-    arena_commands::{BotSourceCode, CreateBotResult, RenameBotResult},
-    domain::{BotId, BotName, Language, SourceCode},
+    arena_commands::{
+        BotRoleTransition, BotRoleTransitionResult, BotSourceCode, CreateBotResult, RenameBotResult,
+    },
+    domain::{BotId, BotName, BotRole, Language, SourceCode},
 };
 
 pub async fn create_bot(
@@ -37,7 +39,7 @@ pub async fn create_bot(
     let res = app_state
         .arena_handle()
         .await?
-        .create_bot(name, source_code, language)
+        .create_bot_with_role(name, source_code, language, payload.role)
         .await?;
 
     match res {
@@ -48,15 +50,66 @@ pub async fn create_bot(
     }
 }
 
-pub async fn delete_bot(
+pub async fn reject_candidate(
     State(app_state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let bot_id: BotId = id.into();
+    let result = app_state
+        .arena_handle()
+        .await?
+        .reject_candidate(id.into())
+        .await?;
+    lifecycle_response(result)
+}
 
-    app_state.arena_handle().await?.delete_bot(bot_id).await?;
+pub async fn promote_candidate(
+    State(app_state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = app_state
+        .arena_handle()
+        .await?
+        .change_bot_role(id.into(), BotRoleTransition::Promote)
+        .await?;
+    lifecycle_response(result)
+}
 
-    Ok(StatusCode::OK)
+pub async fn archive_benchmark(
+    State(app_state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = app_state
+        .arena_handle()
+        .await?
+        .change_bot_role(id.into(), BotRoleTransition::Archive)
+        .await?;
+    lifecycle_response(result)
+}
+
+fn lifecycle_response(result: BotRoleTransitionResult) -> Result<StatusCode, ApiError> {
+    match result {
+        BotRoleTransitionResult::Changed => Ok(StatusCode::OK),
+        BotRoleTransitionResult::NotFound => Err(ApiError::NotFound),
+        BotRoleTransitionResult::InvalidState => Err(ApiError::Conflict(anyhow!(
+            "Bot lifecycle transition is not valid from the current role"
+        ))),
+    }
+}
+
+pub async fn fetch_archived_bots(
+    State(app_state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    let bots = app_state
+        .arena_handle()
+        .await?
+        .fetch_status()
+        .await?
+        .bots
+        .into_iter()
+        .filter(|bot| bot.role == BotRole::ArchivedBenchmark)
+        .map(BotOverviewResponse::from)
+        .collect::<Vec<_>>();
+    Ok(Json(bots))
 }
 
 pub async fn rename_bot(

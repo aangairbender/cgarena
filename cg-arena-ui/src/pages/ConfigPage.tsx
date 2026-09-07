@@ -4,7 +4,7 @@ import {
   ArenaConfiguration,
   ConfigurationState,
   EmbeddedWorkerConfiguration,
-  MatchmakingConfiguration,
+  EvaluationStageConfiguration,
   RankingConfiguration,
   RefereeConfiguration,
   RefereeAction,
@@ -27,6 +27,24 @@ const httpAdapter: ConfigurationAdapter = {
   apply: api.applyConfiguration,
 };
 
+function generatedSeedSuite(): number[] {
+  const seeds = new Set<number>();
+  while (seeds.size < 100) {
+    seeds.add(Math.floor(Math.random() * 0x1_0000_0000) - 0x8000_0000);
+  }
+  return [...seeds];
+}
+
+function defaultEvaluationStage(): EvaluationStageConfiguration {
+  return {
+    name: "Generated suite",
+    seed_source: { type: "generated_static" },
+    coverage: { type: "per_benchmark", target: 100 },
+    min_players: null,
+    max_players: null,
+  };
+}
+
 function defaultConfiguration(): ArenaConfiguration {
   return {
     game: {
@@ -34,12 +52,10 @@ function defaultConfiguration(): ArenaConfiguration {
       max_players: 2,
       symmetric: true,
     },
-    matchmaking: {
-      algorithm: "v2",
-      min_matches_against_best: null,
-      min_matches_per_pair: 100,
-      max_matches: 1000,
+    evaluation: {
       enabled_on_start: true,
+      generated_seeds: generatedSeedSuite(),
+      stages: [defaultEvaluationStage()],
     },
     ranking: { algorithm: "BradleyTerry", max_iter: null },
     leaderboards: { uncertainty_coefficient: null },
@@ -64,6 +80,28 @@ function defaultConfiguration(): ArenaConfiguration {
 
 function optionalNumber(value: string): number | null {
   return value === "" ? null : Number(value);
+}
+
+function parseNumbers(value: string): number[] {
+  return value
+    .split(/[,\s]+/)
+    .map(Number)
+    .filter(Number.isFinite);
+}
+
+function parseWeights(value: string): Record<string, number> {
+  return Object.fromEntries(
+    value
+      .split(/[,\s]+/)
+      .map((entry) => entry.split(":"))
+      .filter(
+        (entry) =>
+          entry.length === 2 &&
+          entry[0] !== "" &&
+          Number.isFinite(Number(entry[1])),
+      )
+      .map(([id, weight]) => [id, Number(weight)]),
+  );
 }
 
 interface ConfigPageProps {
@@ -153,6 +191,37 @@ function ConfigurationForm({
       ...current,
       workers: [{ ...current.workers[0], ...next }],
     }));
+    setSaved(false);
+  };
+
+  const updateStage = (
+    index: number,
+    update: (
+      stage: EvaluationStageConfiguration,
+    ) => EvaluationStageConfiguration,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      evaluation: {
+        ...current.evaluation,
+        stages: current.evaluation.stages.map((stage, stageIndex) =>
+          stageIndex === index ? update(stage) : stage,
+        ),
+      },
+    }));
+    setSaved(false);
+  };
+
+  const moveStage = (index: number, offset: number) => {
+    setDraft((current) => {
+      const stages = [...current.evaluation.stages];
+      const [stage] = stages.splice(index, 1);
+      stages.splice(index + offset, 0, stage);
+      return {
+        ...current,
+        evaluation: { ...current.evaluation, stages },
+      };
+    });
     setSaved(false);
   };
 
@@ -282,175 +351,300 @@ function ConfigurationForm({
 
           <Card>
             <Card.Body>
-              <Card.Title>Matchmaking</Card.Title>
-              <Row className="g-3">
-                <Col md={4}>
-                  <Form.Group controlId="matchmaking-algorithm">
-                    <Form.Label>Algorithm</Form.Label>
-                    <Form.Select
-                      value={draft.matchmaking.algorithm}
-                      onChange={(event) => {
-                        const next: MatchmakingConfiguration =
-                          event.target.value === "v1"
-                            ? {
-                                algorithm: "v1",
-                                min_matches: 100,
-                                min_matches_preference: 1,
-                                enabled_on_start:
-                                  draft.matchmaking.enabled_on_start,
+              <div className="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                  <Card.Title className="mb-1">
+                    Candidate evaluation plan
+                  </Card.Title>
+                  <Card.Text className="text-body-secondary mb-0">
+                    Candidates pin this ordered plan when submitted. Existing
+                    candidates keep their pinned revision after edits.
+                  </Card.Text>
+                </div>
+                <Button
+                  variant="outline-secondary"
+                  onClick={() => {
+                    setDraft((current) => ({
+                      ...current,
+                      evaluation: {
+                        ...current.evaluation,
+                        generated_seeds: generatedSeedSuite(),
+                      },
+                    }));
+                    setSaved(false);
+                  }}
+                >
+                  Regenerate 100-seed suite
+                </Button>
+              </div>
+
+              <Form.Check
+                id="start-evaluation-scheduling"
+                className="mb-3"
+                type="switch"
+                label="Start evaluation scheduling automatically"
+                checked={draft.evaluation.enabled_on_start ?? true}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    evaluation: {
+                      ...current.evaluation,
+                      enabled_on_start: event.target.checked,
+                    },
+                  }));
+                  setSaved(false);
+                }}
+              />
+
+              <Stack gap={3}>
+                {draft.evaluation.stages.map((stage, index) => (
+                  <Card key={index} className="border-secondary">
+                    <Card.Body>
+                      <div className="d-flex justify-content-between align-items-center mb-3">
+                        <strong>Stage {index + 1}</strong>
+                        <Stack direction="horizontal" gap={2}>
+                          <Button
+                            size="sm"
+                            variant="outline-secondary"
+                            disabled={index === 0}
+                            onClick={() => moveStage(index, -1)}
+                          >
+                            Up
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline-secondary"
+                            disabled={
+                              index === draft.evaluation.stages.length - 1
+                            }
+                            onClick={() => moveStage(index, 1)}
+                          >
+                            Down
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline-danger"
+                            disabled={draft.evaluation.stages.length === 1}
+                            onClick={() => {
+                              setDraft((current) => ({
+                                ...current,
+                                evaluation: {
+                                  ...current.evaluation,
+                                  stages: current.evaluation.stages.filter(
+                                    (_, stageIndex) => stageIndex !== index,
+                                  ),
+                                },
+                              }));
+                              setSaved(false);
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </Stack>
+                      </div>
+                      <Row className="g-3">
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-name`}>
+                            <Form.Label>Name</Form.Label>
+                            <Form.Control
+                              required
+                              value={stage.name}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  name: event.target.value,
+                                }))
                               }
-                            : {
-                                algorithm: "v2",
-                                min_matches_against_best: null,
-                                min_matches_per_pair: 100,
-                                max_matches: 1000,
-                                enabled_on_start:
-                                  draft.matchmaking.enabled_on_start,
-                              };
-                        setDraft((current) => ({
-                          ...current,
-                          matchmaking: next,
-                        }));
-                      }}
-                    >
-                      <option value="v1">V1</option>
-                      <option value="v2">V2</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-                {draft.matchmaking.algorithm === "v1" ? (
-                  <>
-                    <Col md={4}>
-                      <Form.Group controlId="minimum-matches">
-                        <Form.Label>Minimum matches</Form.Label>
-                        <Form.Control
-                          type="number"
-                          min={0}
-                          required
-                          value={draft.matchmaking.min_matches}
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              matchmaking: {
-                                ...current.matchmaking,
-                                min_matches: Number(event.target.value),
-                              } as MatchmakingConfiguration,
-                            }))
-                          }
-                        />
-                      </Form.Group>
-                    </Col>
-                    <Col md={4}>
-                      <Form.Group controlId="minimum-matches-preference">
-                        <Form.Label>Minimum matches preference</Form.Label>
-                        <Form.Control
-                          type="number"
-                          min={0}
-                          max={1}
-                          step="any"
-                          required
-                          value={draft.matchmaking.min_matches_preference}
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              matchmaking: {
-                                ...current.matchmaking,
-                                min_matches_preference: Number(
-                                  event.target.value,
-                                ),
-                              } as MatchmakingConfiguration,
-                            }))
-                          }
-                        />
-                      </Form.Group>
-                    </Col>
-                  </>
-                ) : (
-                  <>
-                    <Col md={4}>
-                      <Form.Group controlId="minimum-matches-per-pair">
-                        <Form.Label>Minimum matches per pair</Form.Label>
-                        <Form.Control
-                          type="number"
-                          min={0}
-                          required
-                          value={draft.matchmaking.min_matches_per_pair}
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              matchmaking: {
-                                ...current.matchmaking,
-                                min_matches_per_pair: Number(
-                                  event.target.value,
-                                ),
-                              } as MatchmakingConfiguration,
-                            }))
-                          }
-                        />
-                      </Form.Group>
-                    </Col>
-                    <Col md={4}>
-                      <Form.Group controlId="maximum-matches">
-                        <Form.Label>Maximum matches</Form.Label>
-                        <Form.Control
-                          type="number"
-                          min={0}
-                          value={draft.matchmaking.max_matches ?? ""}
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              matchmaking: {
-                                ...current.matchmaking,
-                                max_matches: optionalNumber(event.target.value),
-                              } as MatchmakingConfiguration,
-                            }))
-                          }
-                        />
-                      </Form.Group>
-                    </Col>
-                    <Col md={4}>
-                      <Form.Group controlId="matches-against-best">
-                        <Form.Label>Matches against best</Form.Label>
-                        <Form.Control
-                          type="number"
-                          min={0}
-                          value={
-                            draft.matchmaking.min_matches_against_best ?? ""
-                          }
-                          onChange={(event) =>
-                            setDraft((current) => ({
-                              ...current,
-                              matchmaking: {
-                                ...current.matchmaking,
-                                min_matches_against_best: optionalNumber(
-                                  event.target.value,
-                                ),
-                              } as MatchmakingConfiguration,
-                            }))
-                          }
-                        />
-                      </Form.Group>
-                    </Col>
-                  </>
-                )}
-                <Col xs={12}>
-                  <Form.Check
-                    id="start-matchmaking"
-                    type="switch"
-                    label="Start matchmaking automatically"
-                    checked={draft.matchmaking.enabled_on_start ?? true}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        matchmaking: {
-                          ...current.matchmaking,
-                          enabled_on_start: event.target.checked,
-                        } as MatchmakingConfiguration,
-                      }))
-                    }
-                  />
-                </Col>
-              </Row>
+                            />
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-seed-source`}>
+                            <Form.Label>Seed source</Form.Label>
+                            <Form.Select
+                              value={stage.seed_source.type}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  seed_source:
+                                    event.target.value === "curated"
+                                      ? { type: "curated", seeds: [1] }
+                                      : event.target.value === "fresh_random"
+                                        ? { type: "fresh_random" }
+                                        : { type: "generated_static" },
+                                }))
+                              }
+                            >
+                              <option value="generated_static">
+                                Generated static suite
+                              </option>
+                              <option value="curated">Curated seeds</option>
+                              <option value="fresh_random">Fresh random</option>
+                            </Form.Select>
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-coverage`}>
+                            <Form.Label>Coverage</Form.Label>
+                            <Form.Select
+                              value={stage.coverage.type}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  coverage:
+                                    event.target.value === "total"
+                                      ? { type: "total", target: 100 }
+                                      : event.target.value === "weighted_total"
+                                        ? {
+                                            type: "weighted_total",
+                                            target: 100,
+                                            weights: {},
+                                          }
+                                        : {
+                                            type: "per_benchmark",
+                                            target: 100,
+                                          },
+                                }))
+                              }
+                            >
+                              <option value="per_benchmark">
+                                Per benchmark
+                              </option>
+                              <option value="total">Total matches</option>
+                              <option value="weighted_total">
+                                Weighted total
+                              </option>
+                            </Form.Select>
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-target`}>
+                            <Form.Label>Target</Form.Label>
+                            <Form.Control
+                              type="number"
+                              min={1}
+                              required
+                              value={stage.coverage.target}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  coverage: {
+                                    ...current.coverage,
+                                    target: Number(event.target.value),
+                                  },
+                                }))
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-min-players`}>
+                            <Form.Label>Stage minimum players</Form.Label>
+                            <Form.Control
+                              type="number"
+                              min={draft.game.min_players}
+                              max={draft.game.max_players}
+                              placeholder={`${draft.game.min_players} (game default)`}
+                              value={stage.min_players ?? ""}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  min_players: optionalNumber(
+                                    event.target.value,
+                                  ),
+                                }))
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+                        <Col md={4}>
+                          <Form.Group controlId={`stage-${index}-max-players`}>
+                            <Form.Label>Stage maximum players</Form.Label>
+                            <Form.Control
+                              type="number"
+                              min={draft.game.min_players}
+                              max={draft.game.max_players}
+                              placeholder={`${draft.game.max_players} (game default)`}
+                              value={stage.max_players ?? ""}
+                              onChange={(event) =>
+                                updateStage(index, (current) => ({
+                                  ...current,
+                                  max_players: optionalNumber(
+                                    event.target.value,
+                                  ),
+                                }))
+                              }
+                            />
+                          </Form.Group>
+                        </Col>
+                        {stage.seed_source.type === "curated" && (
+                          <Col xs={12}>
+                            <Form.Group
+                              controlId={`stage-${index}-curated-seeds`}
+                            >
+                              <Form.Label>Curated seeds</Form.Label>
+                              <Form.Control
+                                as="textarea"
+                                value={stage.seed_source.seeds.join(", ")}
+                                onChange={(event) =>
+                                  updateStage(index, (current) => ({
+                                    ...current,
+                                    seed_source: {
+                                      type: "curated",
+                                      seeds: parseNumbers(event.target.value),
+                                    },
+                                  }))
+                                }
+                              />
+                            </Form.Group>
+                          </Col>
+                        )}
+                        {stage.coverage.type === "weighted_total" && (
+                          <Col xs={12}>
+                            <Form.Group controlId={`stage-${index}-weights`}>
+                              <Form.Label>Benchmark weights</Form.Label>
+                              <Form.Control
+                                placeholder="bot-id:weight, for example 3:2, 7:0.5"
+                                value={Object.entries(stage.coverage.weights)
+                                  .map(([id, weight]) => `${id}:${weight}`)
+                                  .join(", ")}
+                                onChange={(event) =>
+                                  updateStage(index, (current) => ({
+                                    ...current,
+                                    coverage: {
+                                      type: "weighted_total",
+                                      target: current.coverage.target,
+                                      weights: parseWeights(event.target.value),
+                                    },
+                                  }))
+                                }
+                              />
+                            </Form.Group>
+                          </Col>
+                        )}
+                      </Row>
+                    </Card.Body>
+                  </Card>
+                ))}
+                <Button
+                  variant="outline-primary"
+                  onClick={() => {
+                    setDraft((current) => ({
+                      ...current,
+                      evaluation: {
+                        ...current.evaluation,
+                        stages: [
+                          ...current.evaluation.stages,
+                          defaultEvaluationStage(),
+                        ],
+                      },
+                    }));
+                    setSaved(false);
+                  }}
+                >
+                  Add stage
+                </Button>
+              </Stack>
             </Card.Body>
           </Card>
 

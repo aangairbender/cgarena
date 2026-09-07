@@ -17,8 +17,12 @@ function AppNavbar({ runtimeAvailable }: { runtimeAvailable: boolean }) {
   const { submitBotDialog } = useDialogs();
   const loading = useAppStore((state) => state.loading);
   const status = useAppStore((state) => state.status);
-  const matchmakingEnabled = useAppStore((state) => state.matchmakingEnabled);
-  const enableMatchmaking = useAppStore((state) => state.enableMatchmaking);
+  const evaluationSchedulingEnabled = useAppStore(
+    (state) => state.evaluationSchedulingEnabled,
+  );
+  const setEvaluationScheduling = useAppStore(
+    (state) => state.setEvaluationScheduling,
+  );
   const submitNewBot = useAppStore((state) => state.submitNewBot);
 
   const openSubmitDialog = () => {
@@ -72,9 +76,11 @@ function AppNavbar({ runtimeAvailable }: { runtimeAvailable: boolean }) {
           {runtimeAvailable && (
             <>
               <Form.Switch
-                checked={matchmakingEnabled}
-                onChange={(event) => enableMatchmaking(event.target.checked)}
-                label="Matchmaking"
+                checked={evaluationSchedulingEnabled}
+                onChange={(event) =>
+                  setEvaluationScheduling(event.target.checked)
+                }
+                label="Evaluation scheduling"
               />
               <Button variant="primary" onClick={openSubmitDialog}>
                 Submit a new bot

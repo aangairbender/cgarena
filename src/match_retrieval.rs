@@ -48,6 +48,8 @@ pub(crate) struct MatchOverview {
     pub id: MatchId,
     pub participants: Vec<ParticipantOverview>,
     pub seed: i64,
+    pub candidate_bot_id: Option<BotId>,
+    pub evaluation_stage_revision_id: Option<i64>,
     pub attributes: Vec<MatchAttribute>,
 }
 
@@ -265,7 +267,8 @@ impl MatchRetrieval {
         limit: usize,
     ) -> anyhow::Result<Vec<MatchesRow>> {
         let mut query = QueryBuilder::<Sqlite>::new(
-            "SELECT m.id, m.seed, m.participant_cnt, m.replay_path FROM matches m",
+            "SELECT m.id, m.seed, m.participant_cnt, m.replay_path, \
+             m.candidate_bot_id, m.evaluation_stage_revision_id FROM matches m",
         );
         let mut has_where = false;
 
@@ -530,6 +533,8 @@ fn match_overview(
         id: item.id,
         participants,
         seed: item.seed,
+        candidate_bot_id: item.candidate_bot_id,
+        evaluation_stage_revision_id: item.evaluation_stage_revision_id,
         attributes: item.attributes,
     })
 }
@@ -562,6 +567,8 @@ struct MatchesRow {
     seed: i64,
     participant_cnt: u8,
     replay_path: Option<String>,
+    candidate_bot_id: Option<i64>,
+    evaluation_stage_revision_id: Option<i64>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -641,6 +648,8 @@ impl
         Ok(Match {
             id: item.id.into(),
             seed: item.seed,
+            candidate_bot_id: item.candidate_bot_id.map(Into::into),
+            evaluation_stage_revision_id: item.evaluation_stage_revision_id,
             replay_path: item.replay_path.map(PathBuf::from),
             participants: participations.into_iter().map(Into::into).collect(),
             attributes: attributes

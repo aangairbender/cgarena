@@ -130,23 +130,7 @@ async fn load_or_migrate_arena_configuration(
     };
     legacy.validate().context("Invalid legacy configuration")?;
 
-    let Config {
-        game,
-        matchmaking,
-        ranking,
-        server,
-        log,
-        leaderboards,
-        workers,
-    } = legacy;
-    let arena_config = crate::config::ArenaConfig {
-        game,
-        matchmaking,
-        ranking,
-        leaderboards,
-        workers,
-    };
-    let bootstrap = BootstrapConfig { server, log };
+    let (arena_config, bootstrap) = legacy.split();
     let bootstrap_content =
         toml::to_string_pretty(&bootstrap).context("Cannot serialize bootstrap configuration")?;
 

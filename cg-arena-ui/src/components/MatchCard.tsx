@@ -75,6 +75,12 @@ export function MatchCard({ match }: MatchCardProps) {
                 {match.id}
               </span>
             </div>
+            {match.evaluation_stage_revision_id !== null && (
+              <Badge bg="primary">
+                Candidate {match.candidate_bot_id} · stage revision{" "}
+                {match.evaluation_stage_revision_id}
+              </Badge>
+            )}
             {matchAttributes.map((attr, idx) => (
               <div
                 key={idx}

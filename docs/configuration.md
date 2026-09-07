@@ -1,13 +1,13 @@
 # Configuration reference
 
-New arenas store game, matchmaking, ranking, leaderboard, worker, and referee settings in the
+New arenas store game, evaluation-plan, ranking, leaderboard, worker, and referee settings in the
 database. Edit them together on the web UI's **Config** page; **Apply configuration** validates
 and saves the complete candidate atomically. Invalid candidates do not replace the active
 configuration.
 
 `cgarena_config.toml` is the bootstrap file. It contains only `[server]` and `[log]`, because
-those settings are required before the HTTP application can start. The remaining sections below
-describe database-backed UI fields and their legacy TOML representation.
+those settings are required before the HTTP application can start. The remaining settings are
+database-backed UI fields.
 
 ## `[game]`
 
@@ -26,26 +26,34 @@ Whether the map is symmetric for all the players.
 - if `symmetric` is **true** CG Arena will play 1 match per seed.
 - if `symmetric` is **false** CG Arena will play n! matches per seed (all permutations), where n is the amount of players.
 
-## `[matchmaking]`
+## Candidate evaluation
 
 ### `enabled_on_start`
 
-Whether matchmaking is enabled when arena is started. Defaults to `true`.
+Whether evaluation scheduling starts with the arena. Defaults to `true`.
 
-### `algorithm`
+### Generated seed suite
 
-Currently 2 algorithms are supported: "v1" and "v2". Defaults to "v1".
+Each arena owns 100 unique generated seeds by default. The suite remains stable across restarts
+and plan edits until **Regenerate 100-seed suite** is used.
 
-If `algorithm` is `"v1"` (or omitted), the following fields are used:
+### Ordered stages
 
-- `min_matches`: matchmaking prioritizes bots which played less than `min_matches` matches with probability `min_matches_preference`. Otherwise matchmaking picks bots randomly.
-- `min_matches_preference`: check the explanation for `min_matches` above.
+Every evaluation plan contains one or more ordered stages. A Candidate pins the complete plan
+revision active when it is submitted. Later edits affect only later Candidates.
 
-If `algorithm` is `"v2"`, the following fields are used:
+Each stage configures:
 
-- `min_matches_against_best`: (optional) minimum amount of matches to be played between any bot and the current leaderboard leader. Usually used when you want to run certain amount of matches versus the leader for a newly submitted bot. The main goal is to check winrate and detect regressions early.
-- `min_matches_per_pair`: minimum amount of matches to be played between each pair of bots
-- `max_matches`: (optional) max matches per bot. If all bots have played more than `max_matches` than matchmaking would pause.
+- A name.
+- A seed source: the generated static suite, an explicit curated seed list, or fresh random seeds.
+- A coverage policy: a target per active Benchmark, a total match target, or a weighted total
+  target with positive per-Benchmark weight overrides.
+- Optional minimum and maximum player counts. Omitted values use the challenge's full configured
+  range.
+
+Stages run in order. For asymmetric challenges, every player-position permutation runs for a
+scheduled seed. Completing all stages records that the requested evidence exists; it never
+promotes or rejects a Candidate automatically.
 
 ## `[ranking]`
 
@@ -62,7 +70,7 @@ Supported algorithms are:
 
 **Bradley–Terry** → best for global, high-accuracy ranking
 
-**OpenSkill / TrueSkill** → best for uncertainty-driven matchmaking
+**OpenSkill / TrueSkill** → best for uncertainty-aware ratings
 
 **Elo** → best for simple, fast, lightweight ranking
 
@@ -112,14 +120,14 @@ Pros
 
 - Explicit uncertainty modeling
 - Handles teams/multiplayer
-- Good for matchmaking
+- Good for uncertainty-aware ratings
 
 Cons
 
 - More complex
 - Approximate inference
 
-👉 Use TrueSkill if you need live updates and uncertainty-aware matchmaking.
+👉 Use TrueSkill if you need live updates and uncertainty-aware ratings.
 
 Config:
 

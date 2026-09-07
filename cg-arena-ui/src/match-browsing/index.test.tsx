@@ -37,6 +37,8 @@ function results(id: number, hasMore: boolean): MatchResults {
         id,
         participants: [],
         seed: String(id),
+        candidate_bot_id: null,
+        evaluation_stage_revision_id: null,
         attributes: [],
       },
     ],

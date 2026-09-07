@@ -18,7 +18,8 @@ pub enum ArenaCommand {
     PatchLeaderboard(PatchLeaderboardCommand),
     Chart(ChartCommand),
     FetchBotSourceCode(FetchBotSourceCodeCommand),
-    EnableMatchmaking(EnableMatchmakingCommand),
+    SetEvaluationScheduling(SetEvaluationSchedulingCommand),
+    ChangeBotRole(ChangeBotRoleCommand),
     FetchMatches(FetchMatchesCommand),
 }
 
@@ -27,9 +28,27 @@ pub struct FetchMatchesCommand {
     pub response: oneshot::Sender<anyhow::Result<MatchPage>>,
 }
 
-pub struct EnableMatchmakingCommand {
+pub struct SetEvaluationSchedulingCommand {
     pub enabled: bool,
     pub response: oneshot::Sender<()>,
+}
+
+pub struct ChangeBotRoleCommand {
+    pub id: BotId,
+    pub transition: BotRoleTransition,
+    pub response: oneshot::Sender<BotRoleTransitionResult>,
+}
+
+#[derive(Clone, Copy)]
+pub enum BotRoleTransition {
+    Promote,
+    Archive,
+}
+
+pub enum BotRoleTransitionResult {
+    Changed,
+    NotFound,
+    InvalidState,
 }
 
 pub struct FetchBotSourceCodeCommand {
@@ -104,6 +123,7 @@ pub struct CreateBotCommand {
     pub name: BotName,
     pub source_code: SourceCode,
     pub language: Language,
+    pub role: BotRole,
     pub response: oneshot::Sender<CreateBotResult>,
 }
 
@@ -114,7 +134,7 @@ pub enum CreateBotResult {
 
 pub struct DeleteBotCommand {
     pub id: BotId,
-    pub response: oneshot::Sender<()>,
+    pub response: oneshot::Sender<BotRoleTransitionResult>,
 }
 
 pub struct FetchStatusCommand {
@@ -124,17 +144,36 @@ pub struct FetchStatusCommand {
 pub struct FetchStatusResult {
     pub bots: Vec<BotOverview>,
     pub leaderboards: Vec<LeaderboardOverview>,
-    pub matchmaking_enabled: bool,
+    pub evaluation_scheduling_enabled: bool,
 }
 
 pub struct BotOverview {
     pub id: BotId,
     pub name: BotName,
     pub language: Language,
+    pub role: BotRole,
+    pub evaluation_plan_revision_id: Option<i64>,
+    pub evaluation: Option<CandidateEvaluationOverview>,
     pub matches_played: u64,
     pub matches_with_error: u64,
     pub builds: Vec<Build>,
     pub created_at: DateTime<Utc>,
+}
+
+pub struct CandidateEvaluationOverview {
+    pub complete: bool,
+    pub stages: Vec<EvaluationStageOverview>,
+}
+
+pub struct EvaluationStageOverview {
+    pub id: i64,
+    pub name: String,
+    pub coverage: &'static str,
+    pub target: u64,
+    pub matches: u64,
+    pub candidate_errors: u64,
+    pub complete: bool,
+    pub benchmark_encounters: HashMap<BotId, u64>,
 }
 
 pub struct LeaderboardOverview {

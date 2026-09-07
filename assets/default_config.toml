@@ -7,10 +7,18 @@ max_players = 2
 # if 'symmetric' = false CG Arena will play n! matches per seed, where n is the amount of players.
 symmetric = true
 
-[matchmaking]
-algorithm = "v2"
-min_matches_per_pair = 100
-max_matches = 1000
+[evaluation]
+enabled_on_start = true
+
+[[evaluation.stages]]
+name = "Generated suite"
+
+[evaluation.stages.seed_source]
+type = "generated_static"
+
+[evaluation.stages.coverage]
+type = "per_benchmark"
+target = 100
 
 # supported algorithms: ["OpenSkill", "TrueSkill", "Elo", "BradleyTerry"]
 [ranking]

@@ -1,6 +1,7 @@
 mod bot;
 mod bot_id;
 mod bot_name;
+mod bot_role;
 mod build;
 mod build_status;
 mod computed_stats;
@@ -19,6 +20,7 @@ mod worker_name;
 pub use bot::*;
 pub use bot_id::*;
 pub use bot_name::*;
+pub use bot_role::*;
 pub use build::*;
 pub use build_status::*;
 pub use computed_stats::*;

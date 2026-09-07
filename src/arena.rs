@@ -1,9 +1,11 @@
 use crate::arena_commands::*;
 use crate::async_leaderboard::AsyncLeaderboard;
-use crate::config::{GameConfig, LeaderboardsConfig, MatchmakingConfig, RankingConfig};
+use crate::config::{GameConfig, LeaderboardsConfig, RankingConfig};
 use crate::domain::*;
+use crate::evaluation::{
+    self, CoveragePolicyConfig, EvaluationConfig, EvaluationPlanRevision, ScheduledEvaluationCounts,
+};
 use crate::match_retrieval::MatchRetrieval;
-use crate::matchmaking;
 use crate::ranking::Ranker;
 use crate::replay_artifact::ReplayArtifacts;
 use crate::worker::{
@@ -26,7 +28,7 @@ use tracing::{error, instrument, warn};
 
 pub async fn run(
     game_config: GameConfig,
-    matchmaking_config: MatchmakingConfig,
+    evaluation_config: EvaluationConfig,
     leaderboards_config: LeaderboardsConfig,
     ranking_config: RankingConfig,
     pool: SqlitePool,
@@ -44,10 +46,12 @@ pub async fn run(
     if game_config.max_players > 2 && !ranker.support_multi_team() {
         bail!("Configured ranking algorithm only supports 2 player games");
     }
+    let current_plan = db::ensure_evaluation_plan(&pool, &evaluation_config).await?;
 
     let mut arena = Arena::new(
         game_config,
-        matchmaking_config,
+        evaluation_config,
+        current_plan,
         leaderboards_config,
         ranker,
         arena_path,
@@ -117,10 +121,18 @@ async fn run_loop(
                 };
                 if matches!(
                     &command,
-                    ArenaCommand::EnableMatchmaking(command) if !command.enabled
+                    ArenaCommand::SetEvaluationScheduling(command) if !command.enabled
                 ) {
                     submission = None;
                     scheduled_work = Vec::new().into_iter();
+                }
+                if matches!(
+                    &command,
+                    ArenaCommand::DeleteBot(_) | ArenaCommand::ChangeBotRole(_)
+                ) {
+                    submission = None;
+                    scheduled_work = Vec::new().into_iter();
+                    arena.scheduled_evaluations = Default::default();
                 }
                 arena.handle_command(command).await;
             }
@@ -136,7 +148,8 @@ async fn run_loop(
 
 struct Arena {
     game_config: GameConfig,
-    matchmaking_config: MatchmakingConfig,
+    current_plan: EvaluationPlanRevision,
+    plans: HashMap<i64, EvaluationPlanRevision>,
     uncertainty_coefficient: f64,
     pool: SqlitePool,
     match_retrieval: MatchRetrieval,
@@ -146,15 +159,15 @@ struct Arena {
     ranker: Arc<Ranker>,
     global_leaderboard: AsyncLeaderboard,
     custom_leaderboards: Vec<AsyncLeaderboard>,
-    scheduled_matches_total: HashMap<BotId, u64>,
-    scheduled_matches_vs: HashMap<(BotId, BotId), u64>,
-    matchmaking_enabled: bool,
+    scheduled_evaluations: ScheduledEvaluationCounts,
+    evaluation_scheduling_enabled: bool,
 }
 
 impl Arena {
     fn new(
         game_config: GameConfig,
-        matchmaking_config: MatchmakingConfig,
+        evaluation_config: EvaluationConfig,
+        current_plan: EvaluationPlanRevision,
         leaderboards_config: LeaderboardsConfig,
         ranker: Ranker,
         arena_path: PathBuf,
@@ -165,9 +178,10 @@ impl Arena {
         let replay_artifacts = ReplayArtifacts::new(pool.clone(), arena_path);
         Self {
             game_config,
+            current_plan,
+            plans: Default::default(),
             uncertainty_coefficient: leaderboards_config.uncertainty_coefficient.unwrap_or(3.0),
-            matchmaking_enabled: matchmaking_config.enabled_on_start.unwrap_or(true),
-            matchmaking_config,
+            evaluation_scheduling_enabled: evaluation_config.enabled_on_start.unwrap_or(true),
             replay_artifacts,
             pool,
             match_retrieval: match_retrieval.clone(),
@@ -180,8 +194,7 @@ impl Arena {
                 match_retrieval,
             ),
             custom_leaderboards: Default::default(),
-            scheduled_matches_total: Default::default(),
-            scheduled_matches_vs: Default::default(),
+            scheduled_evaluations: Default::default(),
         }
     }
 
@@ -190,6 +203,26 @@ impl Arena {
         self.bots = db::fetch_bots(&self.pool)
             .await
             .context("Cannot fetch bots")?;
+        self.plans
+            .insert(self.current_plan.id, self.current_plan.clone());
+        let plan_ids = self
+            .bots
+            .iter()
+            .filter_map(|bot| bot.evaluation_plan_revision_id)
+            .unique()
+            .collect_vec();
+        for plan_id in plan_ids {
+            if !self.plans.contains_key(&plan_id) {
+                self.plans.insert(
+                    plan_id,
+                    db::fetch_evaluation_plan(&self.pool, plan_id)
+                        .await
+                        .with_context(|| {
+                            format!("Cannot load evaluation plan revision {plan_id}")
+                        })?,
+                );
+            }
+        }
         self.builds = db::fetch_builds(&self.pool)
             .await
             .context("Cannot fetch builds")?;
@@ -224,11 +257,12 @@ impl Arena {
             return builds.into_iter().map(Work::Build).collect();
         }
 
-        if self.builds.iter().any(Build::is_running) || !self.matchmaking_enabled {
+        if self.builds.iter().any(Build::is_running) || !self.evaluation_scheduling_enabled {
             return Vec::new();
         }
 
-        self.perform_matchmaking()
+        self.perform_evaluation()
+            .await
             .into_iter()
             .map(Work::Match)
             .collect()
@@ -238,6 +272,9 @@ impl Arena {
     async fn prepare_build_work(&mut self) -> Vec<BuildBotInput> {
         let mut inputs = Vec::new();
         for bot in &mut self.bots {
+            if !bot.role.is_active() {
+                continue;
+            }
             let worker_name = WorkerName::embedded();
             let existing_build = self
                 .builds
@@ -309,8 +346,8 @@ impl Arena {
         })
     }
 
-    fn cmd_enable_matchmaking(&mut self, enabled: bool) {
-        self.matchmaking_enabled = enabled;
+    fn cmd_set_evaluation_scheduling(&mut self, enabled: bool) {
+        self.evaluation_scheduling_enabled = enabled;
     }
 
     async fn cmd_create_bot(
@@ -318,15 +355,17 @@ impl Arena {
         name: BotName,
         source_code: SourceCode,
         language: Language,
+        role: BotRole,
     ) -> CreateBotResult {
         if self.bots.iter().any(|b| b.name == name) {
             return CreateBotResult::DuplicateName;
         }
-        let mut bot = Bot::new(name, source_code, language);
+        let plan_revision_id = (role == BotRole::Candidate).then_some(self.current_plan.id);
+        let mut bot = Bot::new(name, source_code, language, role, plan_revision_id);
         db::persist_bot(&self.pool, &mut bot)
             .await
             .expect("Cannot persist bot to DB");
-        let bot_overview = self.render_bot_overview(&bot);
+        let bot_overview = self.render_bot_overview(&bot, None);
         self.bots.push(bot);
         CreateBotResult::Created(bot_overview)
     }
@@ -347,65 +386,153 @@ impl Arena {
         RenameBotResult::Renamed
     }
 
-    async fn cmd_delete_bot(&mut self, id: BotId) {
-        // builds and participations are deleted by foreign keys; matches by the DB trigger
+    async fn cmd_reject_candidate(&mut self, id: BotId) -> BotRoleTransitionResult {
+        let Some(bot) = self.bots.iter().find(|bot| bot.id == id) else {
+            return BotRoleTransitionResult::NotFound;
+        };
+        if bot.role != BotRole::Candidate {
+            return BotRoleTransitionResult::InvalidState;
+        }
         self.replay_artifacts
             .delete_bot(id)
             .await
-            .expect("Cannot delete bot and its replay artifacts");
+            .expect("Cannot delete candidate and its replay artifacts");
         self.bots.retain(|bot| bot.id != id);
-        self.builds.retain(|b| b.bot_id != id);
+        self.builds.retain(|build| build.bot_id != id);
         self.recalculate_computed_full();
+        BotRoleTransitionResult::Changed
+    }
+
+    async fn cmd_change_bot_role(
+        &mut self,
+        id: BotId,
+        transition: BotRoleTransition,
+    ) -> BotRoleTransitionResult {
+        let Some(bot) = self.bots.iter_mut().find(|bot| bot.id == id) else {
+            return BotRoleTransitionResult::NotFound;
+        };
+        bot.role = match (bot.role, transition) {
+            (BotRole::Candidate, BotRoleTransition::Promote) => BotRole::Benchmark,
+            (BotRole::Benchmark, BotRoleTransition::Archive) => BotRole::ArchivedBenchmark,
+            _ => return BotRoleTransitionResult::InvalidState,
+        };
+        db::persist_bot(&self.pool, bot)
+            .await
+            .expect("Cannot persist bot lifecycle state");
+        BotRoleTransitionResult::Changed
     }
 
     async fn cmd_fetch_status(&mut self) -> FetchStatusResult {
-        let bots = self
-            .bots
-            .iter()
-            .map(|bot| self.render_bot_overview(bot))
-            .collect_vec();
+        let stored_bots = self.bots.clone();
+        let mut bots = Vec::with_capacity(stored_bots.len());
+        for bot in &stored_bots {
+            let evaluation = self.render_candidate_evaluation(bot).await;
+            bots.push(self.render_bot_overview(bot, evaluation));
+        }
 
         let leaderboards =
             std::iter::once(self.render_leaderboard_overview(&self.global_leaderboard))
                 .chain(
                     self.custom_leaderboards
                         .iter()
-                        .map(|lb| self.render_leaderboard_overview(lb)),
+                        .map(|leaderboard| self.render_leaderboard_overview(leaderboard)),
                 )
                 .collect_vec();
-
-        let matchmaking_enabled = self.matchmaking_enabled;
 
         FetchStatusResult {
             bots,
             leaderboards,
-            matchmaking_enabled,
+            evaluation_scheduling_enabled: self.evaluation_scheduling_enabled,
         }
     }
 
-    fn render_bot_overview(&self, bot: &Bot) -> BotOverview {
+    fn render_bot_overview(
+        &self,
+        bot: &Bot,
+        evaluation: Option<CandidateEvaluationOverview>,
+    ) -> BotOverview {
         BotOverview {
             id: bot.id,
             name: bot.name.clone(),
             language: bot.language.clone(),
+            role: bot.role,
+            evaluation_plan_revision_id: bot.evaluation_plan_revision_id,
+            evaluation,
             matches_played: self
                 .global_leaderboard
                 .stats()
-                .map(|s| s.matches_played(bot.id))
+                .map(|stats| stats.matches_played(bot.id))
                 .unwrap_or_default(),
             matches_with_error: self
                 .global_leaderboard
                 .stats()
-                .map(|s| s.matches_with_error(bot.id))
+                .map(|stats| stats.matches_with_error(bot.id))
                 .unwrap_or_default(),
             builds: self
                 .builds
                 .iter()
-                .filter(|b| b.bot_id == bot.id)
+                .filter(|build| build.bot_id == bot.id)
                 .cloned()
                 .collect(),
             created_at: bot.created_at,
         }
+    }
+
+    async fn render_candidate_evaluation(
+        &mut self,
+        bot: &Bot,
+    ) -> Option<CandidateEvaluationOverview> {
+        let plan_id = bot.evaluation_plan_revision_id?;
+        let plan = self.plans.get(&plan_id)?;
+        let benchmarks = self
+            .bots
+            .iter()
+            .filter(|bot| bot.role == BotRole::Benchmark)
+            .map(|bot| bot.id)
+            .collect_vec();
+        let mut stages = Vec::with_capacity(plan.stages.len());
+        for stage in &plan.stages {
+            let progress = db::fetch_stage_progress(&self.pool, bot.id, stage.id)
+                .await
+                .expect("Cannot fetch evaluation progress");
+            let complete = match &stage.config.coverage {
+                CoveragePolicyConfig::PerBenchmark { target } => {
+                    !benchmarks.is_empty()
+                        && benchmarks.iter().all(|id| {
+                            progress.encounters.get(id).copied().unwrap_or_default() >= *target
+                        })
+                }
+                CoveragePolicyConfig::Total { target }
+                | CoveragePolicyConfig::WeightedTotal { target, .. } => progress.matches >= *target,
+            };
+            let coverage = match stage.config.coverage {
+                CoveragePolicyConfig::PerBenchmark { .. } => "per_benchmark",
+                CoveragePolicyConfig::Total { .. } => "total",
+                CoveragePolicyConfig::WeightedTotal { .. } => "weighted_total",
+            };
+            stages.push(EvaluationStageOverview {
+                id: stage.id,
+                name: stage.config.name.clone(),
+                coverage,
+                target: stage.config.coverage.target(),
+                matches: progress.matches,
+                candidate_errors: progress.candidate_errors,
+                complete,
+                benchmark_encounters: benchmarks
+                    .iter()
+                    .map(|id| {
+                        (
+                            *id,
+                            progress.encounters.get(id).copied().unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+            });
+        }
+        Some(CandidateEvaluationOverview {
+            complete: stages.iter().all(|stage| stage.complete),
+            stages,
+        })
     }
 
     fn render_leaderboard_overview(&self, async_lb: &AsyncLeaderboard) -> LeaderboardOverview {
@@ -430,6 +557,7 @@ impl Arena {
         let items = self
             .bots
             .iter()
+            .filter(|bot| bot.role.is_active())
             .map(|bot| {
                 let rating = self.rating(&stats, bot.id);
                 LeaderboardItem {
@@ -561,14 +689,19 @@ impl Arena {
         match command {
             ArenaCommand::CreateBot(command) => {
                 let res = self
-                    .cmd_create_bot(command.name, command.source_code, command.language)
+                    .cmd_create_bot(
+                        command.name,
+                        command.source_code,
+                        command.language,
+                        command.role,
+                    )
                     .await;
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }
             }
             ArenaCommand::DeleteBot(command) => {
-                let res = self.cmd_delete_bot(command.id).await;
+                let res = self.cmd_reject_candidate(command.id).await;
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }
@@ -617,9 +750,17 @@ impl Arena {
                     warn!("Failed to send response to client");
                 }
             }
-            ArenaCommand::EnableMatchmaking(command) => {
-                self.cmd_enable_matchmaking(command.enabled);
+            ArenaCommand::SetEvaluationScheduling(command) => {
+                self.cmd_set_evaluation_scheduling(command.enabled);
                 if command.response.send(()).is_err() {
+                    warn!("Failed to send response to client");
+                }
+            }
+            ArenaCommand::ChangeBotRole(command) => {
+                let result = self
+                    .cmd_change_bot_role(command.id, command.transition)
+                    .await;
+                if command.response.send(result).is_err() {
                     warn!("Failed to send response to client");
                 }
             }
@@ -633,13 +774,11 @@ impl Arena {
     }
 
     #[instrument(skip(self), level = "debug")]
-    fn perform_matchmaking(&mut self) -> Vec<PlayMatchInput> {
-        // hardcoded for now
-        let match_batch_size: usize = 20;
+    async fn perform_evaluation(&mut self) -> Vec<PlayMatchInput> {
+        const MATCH_BATCH_SIZE: usize = 20;
         let mut scheduled = Vec::new();
-
-        while scheduled.len() < match_batch_size {
-            let new_matches = self.schedule_match();
+        while scheduled.len() < MATCH_BATCH_SIZE {
+            let new_matches = self.schedule_evaluation_match().await;
             if new_matches.is_empty() {
                 break;
             }
@@ -648,7 +787,6 @@ impl Arena {
             }
             scheduled.extend(new_matches);
         }
-
         scheduled
     }
 
@@ -684,6 +822,8 @@ impl Arena {
             .collect();
 
         let mut new_match = Match::new(seed, participants, attributes, None);
+        new_match.candidate_bot_id = input.candidate_bot_id;
+        new_match.evaluation_stage_revision_id = input.evaluation_stage_revision_id;
 
         new_match
             .attributes
@@ -774,114 +914,113 @@ impl Arena {
         true
     }
 
-    fn schedule_match(&self) -> Vec<PlayMatchInput> {
-        let Some(stats) = self.global_leaderboard.stats() else {
-            return vec![];
-        };
-
-        let ready_bot_ids = self
+    async fn schedule_evaluation_match(&self) -> Vec<PlayMatchInput> {
+        let benchmarks = self
             .bots
             .iter()
-            .map(|b| b.id)
-            .filter(|id| self.is_bot_ready_for_playing(*id))
+            .filter(|bot| bot.role == BotRole::Benchmark && self.is_bot_ready_for_playing(bot.id))
+            .map(|bot| bot.id)
             .collect_vec();
-
-        let candidates = ready_bot_ids
+        for candidate in self
+            .bots
             .iter()
-            .map(|&id| matchmaking::Candidate {
-                id,
-                rating: self.rating(&stats, id).score(self.uncertainty_coefficient),
-                matches_total: {
-                    let played = stats.matches_played(id);
-                    let queued = self.scheduled_matches_total.get(&id).copied().unwrap_or(0);
-                    played + queued
-                },
-                matches_vs: ready_bot_ids
-                    .iter()
-                    .filter(|&opp_id| id != *opp_id)
-                    .map(|opp_id| {
-                        let played = stats.matches_played_vs(id, *opp_id);
-                        let queued = self
-                            .scheduled_matches_vs
-                            .get(&(id, *opp_id))
-                            .copied()
-                            .unwrap_or(0);
-                        (*opp_id, played + queued)
-                    })
-                    .collect(),
-            })
-            .collect_vec();
-
-        let matches =
-            matchmaking::create_match(&self.game_config, &self.matchmaking_config, &candidates);
-
-        matches
-            .into_iter()
-            .map(|m| PlayMatchInput {
-                bots: m
-                    .bot_ids
+            .filter(|bot| bot.role == BotRole::Candidate && self.is_bot_ready_for_playing(bot.id))
+        {
+            let Some(plan_id) = candidate.evaluation_plan_revision_id else {
+                continue;
+            };
+            let Some(plan) = self.plans.get(&plan_id) else {
+                continue;
+            };
+            let mut progress = HashMap::with_capacity(plan.stages.len());
+            for stage in &plan.stages {
+                progress.insert(
+                    stage.id,
+                    db::fetch_stage_progress(&self.pool, candidate.id, stage.id)
+                        .await
+                        .expect("Cannot fetch evaluation progress"),
+                );
+            }
+            let matches = evaluation::schedule_candidate(
+                &self.game_config,
+                plan,
+                candidate.id,
+                &benchmarks,
+                &progress,
+                &self.scheduled_evaluations,
+            );
+            if !matches.is_empty() {
+                return matches
                     .into_iter()
-                    .map(|id| PlayMatchBot {
-                        bot_id: id,
-                        language: self
-                            .bots
-                            .iter()
-                            .find(|b| b.id == id)
-                            .unwrap()
-                            .language
-                            .clone(),
+                    .map(|scheduled| PlayMatchInput {
+                        bots: scheduled
+                            .bot_ids
+                            .into_iter()
+                            .map(|id| PlayMatchBot {
+                                bot_id: id,
+                                language: self
+                                    .bots
+                                    .iter()
+                                    .find(|bot| bot.id == id)
+                                    .expect("scheduled bot must exist")
+                                    .language
+                                    .clone(),
+                            })
+                            .collect(),
+                        seed: scheduled.seed,
+                        candidate_bot_id: Some(scheduled.candidate_id),
+                        evaluation_stage_revision_id: Some(scheduled.stage_revision_id),
                     })
-                    .collect_vec(),
-                seed: m.seed,
-            })
-            .collect_vec()
+                    .collect();
+            }
+        }
+        Vec::new()
     }
 
     fn record_scheduled_match(&mut self, input: &PlayMatchInput) {
-        for bot in &input.bots {
-            *self.scheduled_matches_total.entry(bot.bot_id).or_default() += 1;
-        }
-
-        for bot in &input.bots {
-            for opp in &input.bots {
-                if bot.bot_id != opp.bot_id {
-                    *self
-                        .scheduled_matches_vs
-                        .entry((bot.bot_id, opp.bot_id))
-                        .or_default() += 1;
-                }
-            }
+        let (Some(candidate_id), Some(stage_id)) =
+            (input.candidate_bot_id, input.evaluation_stage_revision_id)
+        else {
+            return;
+        };
+        *self
+            .scheduled_evaluations
+            .matches_by_stage_candidate
+            .entry((stage_id, candidate_id))
+            .or_default() += 1;
+        *self
+            .scheduled_evaluations
+            .matches_by_player_count
+            .entry((stage_id, candidate_id, input.bots.len() as u32))
+            .or_default() += 1;
+        for opponent in input.bots.iter().filter(|bot| bot.bot_id != candidate_id) {
+            *self
+                .scheduled_evaluations
+                .encounters
+                .entry((stage_id, candidate_id, opponent.bot_id))
+                .or_default() += 1;
         }
     }
 
     fn forget_scheduled_match(&mut self, input: &PlayMatchInput) {
-        for bot in &input.bots {
-            let entry = self
-                .scheduled_matches_total
-                .get_mut(&bot.bot_id)
-                .expect("finished match must have been scheduled");
-            *entry -= 1;
-            if *entry == 0 {
-                self.scheduled_matches_total.remove(&bot.bot_id);
-            }
-        }
-
-        for bot in &input.bots {
-            for opponent in &input.bots {
-                if bot.bot_id == opponent.bot_id {
-                    continue;
-                }
-
-                let entry = self
-                    .scheduled_matches_vs
-                    .get_mut(&(bot.bot_id, opponent.bot_id))
-                    .expect("finished match pair must have been scheduled");
-                *entry -= 1;
-                if *entry == 0 {
-                    self.scheduled_matches_vs
-                        .remove(&(bot.bot_id, opponent.bot_id));
-                }
-            }
+        let (Some(candidate_id), Some(stage_id)) =
+            (input.candidate_bot_id, input.evaluation_stage_revision_id)
+        else {
+            return;
+        };
+        decrement_count(
+            &mut self.scheduled_evaluations.matches_by_stage_candidate,
+            &(stage_id, candidate_id),
+        );
+        decrement_count(
+            &mut self.scheduled_evaluations.matches_by_player_count,
+            &(stage_id, candidate_id, input.bots.len() as u32),
+        );
+        for opponent in input.bots.iter().filter(|bot| bot.bot_id != candidate_id) {
+            decrement_count(
+                &mut self.scheduled_evaluations.encounters,
+                &(stage_id, candidate_id, opponent.bot_id),
+            );
         }
     }
 
@@ -890,5 +1029,16 @@ impl Arena {
         for lb in &self.custom_leaderboards {
             lb.recalculate();
         }
+    }
+}
+
+fn decrement_count<K: Eq + std::hash::Hash>(counts: &mut HashMap<K, u64>, key: &K) {
+    let Some(count) = counts.get_mut(key) else {
+        return;
+    };
+    *count -= 1;
+    let remove = *count == 0;
+    if remove {
+        counts.remove(key);
     }
 }
