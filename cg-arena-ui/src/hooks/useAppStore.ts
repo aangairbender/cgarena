@@ -29,7 +29,7 @@ type AppState = {
   fetchStatus: () => Promise<void>;
   refreshLeaderboard: () => void;
 
-  submitNewBot: (req: CreateBotRequest) => Promise<void>;
+  submitNewBot: (req: CreateBotRequest) => Promise<BotOverviewResponse>;
   renameBot: (id: BotId, req: RenameBotRequest) => Promise<void>;
   rejectCandidate: (id: BotId) => Promise<void>;
   promoteCandidate: (id: BotId) => Promise<void>;
@@ -54,7 +54,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialFetchCompleted: false,
 
   bots: [],
-  selectedBotId: undefined,
 
   leaderboards: [],
 
@@ -93,12 +92,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set((state) => ({
       bots: [bot, ...state.bots],
-      selectedBotId: bot.id,
       loading: false,
     }));
 
     // fire and forget
-    get().fetchStatus();
+    void get().fetchStatus();
+    return bot;
   },
 
   renameBot: async (id, req) => {

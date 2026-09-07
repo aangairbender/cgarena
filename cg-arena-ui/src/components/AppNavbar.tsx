@@ -11,10 +11,11 @@ import {
 import ThemeSwitcher from "./ThemeSwitcher";
 import { useDialogs } from "@/hooks/useDialogs";
 import { useAppStore } from "@/hooks/useAppStore";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 function AppNavbar({ runtimeAvailable }: { runtimeAvailable: boolean }) {
   const { submitBotDialog } = useDialogs();
+  const navigate = useNavigate();
   const loading = useAppStore((state) => state.loading);
   const status = useAppStore((state) => state.status);
   const evaluationSchedulingEnabled = useAppStore(
@@ -26,7 +27,14 @@ function AppNavbar({ runtimeAvailable }: { runtimeAvailable: boolean }) {
   const submitNewBot = useAppStore((state) => state.submitNewBot);
 
   const openSubmitDialog = () => {
-    submitBotDialog.show({ onSubmit: submitNewBot });
+    submitBotDialog.show({
+      onSubmit: async (request) => {
+        const bot = await submitNewBot(request);
+        if (request.role === "candidate") {
+          await navigate({ to: "/", search: { selectedBotId: bot.id } });
+        }
+      },
+    });
   };
   const connected = runtimeAvailable && status === "connected";
   const statusText = runtimeAvailable ? status : "setup";
