@@ -199,8 +199,14 @@ impl ArenaRuntime {
             .await?
             .context("configure a managed CodinGame referee first")?;
         let selected = managed_configuration(&config)
-            .context("the active configuration does not select a managed CodinGame referee")?;
-        match self.inner.managed_referee.execute(action, selected).await? {
+            .context("the active configuration does not select a managed CodinGame referee")?
+            .clone();
+        match self
+            .inner
+            .managed_referee
+            .execute(action, &selected)
+            .await?
+        {
             ActionOutcome::Status(diagnostic) => Ok(diagnostic),
             ActionOutcome::Candidate(candidate) => {
                 let diagnostic = candidate.diagnostic.clone();
@@ -222,16 +228,16 @@ impl ArenaRuntime {
         let previous_config = db::fetch_arena_config(&self.inner.pool).await?;
         let previous_metadata = self.inner.managed_referee.metadata_snapshot().await?;
         let previous_runtime = self.inner.state.write().await.active.take();
-        let matchmaking_intent = if let Some(previous) = previous_runtime {
+        let evaluation_scheduling_intent = if let Some(previous) = previous_runtime {
             let intent = previous
                 .arena_handle
                 .fetch_status()
                 .await
-                .context("Cannot read matchmaking intent")?
-                .matchmaking_enabled;
+                .context("Cannot read evaluation scheduling intent")?
+                .evaluation_scheduling_enabled;
             if let Err(error) = previous.drain_and_shutdown().await {
                 if let Some(mut previous_config) = previous_config {
-                    set_matchmaking_intent(&mut previous_config, intent);
+                    set_evaluation_scheduling_intent(&mut previous_config, intent);
                     self.restore(previous_config).await;
                 }
                 return Err(error).context("Cannot drain the active arena runtime");
@@ -298,8 +304,8 @@ impl ArenaRuntime {
         }
 
         let mut activation_config = config.clone();
-        if let Some(intent) = matchmaking_intent {
-            set_matchmaking_intent(&mut activation_config, intent);
+        if let Some(intent) = evaluation_scheduling_intent {
+            set_evaluation_scheduling_intent(&mut activation_config, intent);
         }
         self.inner.managed_referee.phase("activating referee").await;
         match self.build_inner(activation_config, false).await {
@@ -330,8 +336,8 @@ impl ArenaRuntime {
                         .restore_metadata(previous_metadata)
                         .await;
                     if let Some(mut previous_config) = previous_config {
-                        if let Some(intent) = matchmaking_intent {
-                            set_matchmaking_intent(&mut previous_config, intent);
+                        if let Some(intent) = evaluation_scheduling_intent {
+                            set_evaluation_scheduling_intent(&mut previous_config, intent);
                         }
                         self.restore(previous_config).await;
                     }
@@ -367,8 +373,8 @@ impl ArenaRuntime {
                     let _ = fs::rename(backup, &checkout);
                 }
                 if let Some(mut previous_config) = previous_config {
-                    if let Some(intent) = matchmaking_intent {
-                        set_matchmaking_intent(&mut previous_config, intent);
+                    if let Some(intent) = evaluation_scheduling_intent {
+                        set_evaluation_scheduling_intent(&mut previous_config, intent);
                     }
                     self.restore(previous_config).await;
                 }
@@ -462,7 +468,7 @@ impl ArenaRuntime {
         let (arena_tx, arena_rx) = tokio::sync::mpsc::channel(16);
         let arena_task = match arena::run(
             config.game.clone(),
-            config.matchmaking.clone(),
+            config.evaluation.clone(),
             config.leaderboards.clone(),
             config.ranking.clone(),
             self.inner.pool.clone(),
@@ -492,10 +498,9 @@ impl ArenaRuntime {
     }
 }
 
-fn set_matchmaking_intent(config: &mut ArenaConfig, enabled: bool) {
-    config.matchmaking.enabled_on_start = Some(enabled);
+fn set_evaluation_scheduling_intent(config: &mut ArenaConfig, enabled: bool) {
+    config.evaluation.enabled_on_start = Some(enabled);
 }
-
 fn managed_configuration(
     config: &ArenaConfig,
 ) -> Option<&crate::config::ManagedCodingameRefereeConfig> {
@@ -517,9 +522,9 @@ fn restore_path(backup: Option<&Path>, destination: &Path) {
 impl ActiveRuntime {
     async fn drain_and_shutdown(self) -> anyhow::Result<()> {
         self.arena_handle
-            .enable_matchmaking(false)
+            .set_evaluation_scheduling(false)
             .await
-            .context("Cannot pause matchmaking")?;
+            .context("Cannot pause evaluation scheduling")?;
         self.worker_supervisor
             .wait_until_idle()
             .await

@@ -1,7 +1,7 @@
 pub mod bots;
 pub mod charts;
 pub mod configuration;
-pub mod enable_matchmaking;
+pub mod evaluation_scheduling;
 pub mod fetch_status;
 pub mod leaderboards;
 pub mod managed_referee;

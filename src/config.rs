@@ -3,14 +3,17 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::{
-    matchmaking::MatchmakingAlgorithmConfig,
+    evaluation::{CoveragePolicyConfig, EvaluationConfig, EvaluationStageConfig, SeedSourceConfig},
     ranking::algorithms::{bradley_terry, elo, openskill, trueskill},
 };
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub game: GameConfig,
-    pub matchmaking: MatchmakingConfig,
+    #[serde(default)]
+    pub evaluation: EvaluationConfig,
+    #[serde(default, rename = "matchmaking", skip_serializing)]
+    legacy_matchmaking: Option<LegacyMatchmakingConfig>,
     pub ranking: RankingConfig,
     #[serde(default)]
     pub server: ServerConfig,
@@ -24,7 +27,10 @@ pub struct Config {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ArenaConfig {
     pub game: GameConfig,
-    pub matchmaking: MatchmakingConfig,
+    #[serde(default)]
+    pub evaluation: EvaluationConfig,
+    #[serde(default, rename = "matchmaking", skip_serializing)]
+    pub(crate) legacy_matchmaking: Option<LegacyMatchmakingConfig>,
     pub ranking: RankingConfig,
     #[serde(default)]
     pub leaderboards: LeaderboardsConfig,
@@ -47,12 +53,66 @@ pub struct GameConfig {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct MatchmakingConfig {
+pub(crate) struct LegacyMatchmakingConfig {
     #[serde(flatten)]
-    pub algorithm: MatchmakingAlgorithmConfig,
-    pub enabled_on_start: Option<bool>,
+    algorithm: LegacyMatchmakingAlgorithm,
+    enabled_on_start: Option<bool>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "algorithm", rename_all = "snake_case")]
+enum LegacyMatchmakingAlgorithm {
+    V1(LegacyMatchmakingV1),
+    V2(LegacyMatchmakingV2),
+    #[serde(untagged)]
+    Legacy(LegacyMatchmakingV1),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct LegacyMatchmakingV1 {
+    min_matches: u64,
+    min_matches_preference: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct LegacyMatchmakingV2 {
+    min_matches_against_best: Option<u64>,
+    min_matches_per_pair: u64,
+    max_matches: Option<u64>,
+}
+
+impl EvaluationConfig {
+    fn from_legacy_matchmaking(config: &LegacyMatchmakingConfig) -> Self {
+        let (coverage, diagnostic) = match &config.algorithm {
+            LegacyMatchmakingAlgorithm::V1(v1) | LegacyMatchmakingAlgorithm::Legacy(v1) => (
+                CoveragePolicyConfig::Total {
+                    target: v1.min_matches.max(1),
+                },
+                "min_matches_preference",
+            ),
+            LegacyMatchmakingAlgorithm::V2(v2) => (
+                CoveragePolicyConfig::PerBenchmark {
+                    target: v2.min_matches_per_pair.max(1),
+                },
+                "min_matches_against_best and max_matches",
+            ),
+        };
+        tracing::warn!(
+            "Migrated legacy matchmaking configuration; discarded {diagnostic} because candidate evaluation has no equivalent"
+        );
+        Self {
+            enabled_on_start: config.enabled_on_start,
+            generated_seeds: crate::evaluation::generate_seed_suite(),
+            stages: vec![EvaluationStageConfig {
+                name: "Migrated matchmaking coverage".to_string(),
+                seed_source: SeedSourceConfig::FreshRandom,
+                coverage,
+                min_players: None,
+                max_players: None,
+            }],
+        }
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "algorithm")]
 pub enum RankingConfig {
@@ -169,9 +229,15 @@ impl Default for Config {
 }
 impl From<Config> for ArenaConfig {
     fn from(config: Config) -> Self {
+        let evaluation = config
+            .legacy_matchmaking
+            .as_ref()
+            .map(EvaluationConfig::from_legacy_matchmaking)
+            .unwrap_or(config.evaluation);
         Self {
             game: config.game,
-            matchmaking: config.matchmaking,
+            evaluation,
+            legacy_matchmaking: None,
             ranking: config.ranking,
             leaderboards: config.leaderboards,
             workers: config.workers,
@@ -200,21 +266,66 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), anyhow::Error> {
+        let evaluation = self
+            .legacy_matchmaking
+            .as_ref()
+            .map(EvaluationConfig::from_legacy_matchmaking)
+            .unwrap_or_else(|| self.evaluation.clone());
         validate_arena_config(
             &self.game,
-            &self.matchmaking,
+            &evaluation,
             &self.ranking,
             &self.leaderboards,
             &self.workers,
         )
     }
+
+    pub fn split(self) -> (ArenaConfig, BootstrapConfig) {
+        let Config {
+            game,
+            evaluation,
+            legacy_matchmaking,
+            ranking,
+            server,
+            log,
+            leaderboards,
+            workers,
+        } = self;
+        let evaluation = legacy_matchmaking
+            .as_ref()
+            .map(EvaluationConfig::from_legacy_matchmaking)
+            .unwrap_or(evaluation);
+        (
+            ArenaConfig {
+                game,
+                evaluation,
+                legacy_matchmaking: None,
+                ranking,
+                leaderboards,
+                workers,
+            },
+            BootstrapConfig { server, log },
+        )
+    }
 }
 
 impl ArenaConfig {
+    pub fn migrate_legacy(mut self) -> Self {
+        if let Some(legacy) = self.legacy_matchmaking.take() {
+            self.evaluation = EvaluationConfig::from_legacy_matchmaking(&legacy);
+        }
+        self
+    }
+
     pub fn validate(&self) -> Result<(), anyhow::Error> {
+        let evaluation = self
+            .legacy_matchmaking
+            .as_ref()
+            .map(EvaluationConfig::from_legacy_matchmaking)
+            .unwrap_or_else(|| self.evaluation.clone());
         validate_arena_config(
             &self.game,
-            &self.matchmaking,
+            &evaluation,
             &self.ranking,
             &self.leaderboards,
             &self.workers,
@@ -236,7 +347,7 @@ fn read_config_file(arena_path: &Path) -> anyhow::Result<String> {
 
 fn validate_arena_config(
     game: &GameConfig,
-    _matchmaking: &MatchmakingConfig,
+    evaluation: &EvaluationConfig,
     _ranking: &RankingConfig,
     _leaderboards: &LeaderboardsConfig,
     workers: &[WorkerConfig],
@@ -250,6 +361,7 @@ fn validate_arena_config(
     if game.min_players > game.max_players {
         bail!("game.max_players must be not less than game.min_players");
     }
+    evaluation.validate(game)?;
     if workers.len() != 1 {
         bail!("exactly one embedded worker must be configured");
     }
@@ -428,12 +540,12 @@ cmd_run = "run""#,
             min_matches_preference = 0.5
         "#;
 
-        let config: MatchmakingConfig = toml::from_str(toml_str)
+        let config: LegacyMatchmakingConfig = toml::from_str(toml_str)
             .expect("Should parse legacy config by falling back to Legacy variant");
 
         // Verify it mapped to the Legacy variant containing V1 data
         match config.algorithm {
-            MatchmakingAlgorithmConfig::Legacy(v1) => {
+            LegacyMatchmakingAlgorithm::Legacy(v1) => {
                 assert_eq!(v1.min_matches, 10);
                 assert_eq!(v1.min_matches_preference, 0.5);
             }
@@ -450,11 +562,11 @@ cmd_run = "run""#,
             min_matches_per_pair = 20
         "#;
 
-        let config: MatchmakingConfig =
+        let config: LegacyMatchmakingConfig =
             toml::from_str(toml_str).expect("Should parse V2 algorithm accurately");
 
         match config.algorithm {
-            MatchmakingAlgorithmConfig::V2(v2) => {
+            LegacyMatchmakingAlgorithm::V2(v2) => {
                 assert_eq!(v2.min_matches_per_pair, 20);
                 assert!(v2.max_matches.is_none());
             }
@@ -471,11 +583,11 @@ cmd_run = "run""#,
             min_matches_preference = 0.1
         "#;
 
-        let config: MatchmakingConfig =
+        let config: LegacyMatchmakingConfig =
             toml::from_str(toml_str).expect("Should parse explicit V1 tag");
 
         match config.algorithm {
-            MatchmakingAlgorithmConfig::V1(v1) => {
+            LegacyMatchmakingAlgorithm::V1(v1) => {
                 assert_eq!(v1.min_matches, 5);
             }
             _ => panic!("Expected V1 variant"),
@@ -491,7 +603,7 @@ cmd_run = "run""#,
             enabled_on_start = true
         "#;
 
-        let result: Result<MatchmakingConfig, _> = toml::from_str(toml_str);
+        let result: Result<LegacyMatchmakingConfig, _> = toml::from_str(toml_str);
         assert!(
             result.is_err(),
             "Should fail because V2 is missing 'min_matches_per_pair'"

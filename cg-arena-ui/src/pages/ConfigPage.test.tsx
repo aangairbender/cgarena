@@ -92,7 +92,7 @@ describe("first-run configuration page", () => {
     ).toBeTruthy();
     for (const section of [
       "Game",
-      "Matchmaking",
+      "Candidate evaluation plan",
       "Ranking and leaderboard",
       "Embedded worker",
       "Referee",
@@ -148,7 +148,7 @@ describe("first-run configuration page", () => {
     await waitFor(() => expect(adapter.applied).toHaveLength(1));
     expect(adapter.applied[0]).toMatchObject({
       game: { min_players: 3, max_players: 4, symmetric: true },
-      matchmaking: { algorithm: "v2", enabled_on_start: true },
+      evaluation: { enabled_on_start: true },
       ranking: { algorithm: "Elo", k: 24 },
       workers: [
         {

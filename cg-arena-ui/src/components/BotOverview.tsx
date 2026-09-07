@@ -1,7 +1,7 @@
 import { BuildResponse, BotOverviewResponse } from "@/models";
 import React from "react";
 import { Badge, Button, Stack, Table } from "react-bootstrap";
-import { FaCode, FaPencil, FaTrash } from "react-icons/fa6";
+import { FaCode, FaPencil } from "react-icons/fa6";
 import { ViewCodeDialogData } from "./ViewCodeDialog";
 import { fetchBotSourceCode } from "@/api";
 import { Link } from "@tanstack/react-router";
@@ -9,14 +9,18 @@ import { Link } from "@tanstack/react-router";
 interface BotOverviewProps {
   bot: BotOverviewResponse;
   showCodeDialog: (data: ViewCodeDialogData) => void;
-  deleteBot: () => void;
+  lifecycleAction?: {
+    label: string;
+    variant: "outline-danger" | "outline-warning" | "outline-success";
+    onClick: () => void;
+  };
   renameBot: () => void;
 }
 
 const BotOverview: React.FC<BotOverviewProps> = ({
   bot,
   showCodeDialog,
-  deleteBot,
+  lifecycleAction,
   renameBot,
 }) => {
   const showSourceCode = async () => {
@@ -34,6 +38,7 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <th>ID</th>
           <th>Name</th>
           <th>Language</th>
+          <th>Role</th>
           <th>Matches</th>
           <th>Errors</th>
           <th>Build</th>
@@ -46,6 +51,11 @@ const BotOverview: React.FC<BotOverviewProps> = ({
           <td>{bot.id}</td>
           <td>{bot.name}</td>
           <td>{bot.language}</td>
+          <td>
+            <Badge bg={bot.role === "candidate" ? "primary" : "secondary"}>
+              {bot.role.replace(/_/g, " ")}
+            </Badge>
+          </td>
           <td>
             <Link to="/matches" search={{ withBots: [bot.id] }}>
               {bot.matches_played}
@@ -74,9 +84,15 @@ const BotOverview: React.FC<BotOverviewProps> = ({
               <Button variant="outline-warning" size="sm" onClick={renameBot}>
                 <FaPencil className="bi" />
               </Button>
-              <Button variant="outline-danger" size="sm" onClick={deleteBot}>
-                <FaTrash className="bi" />
-              </Button>
+              {lifecycleAction && (
+                <Button
+                  variant={lifecycleAction.variant}
+                  size="sm"
+                  onClick={lifecycleAction.onClick}
+                >
+                  {lifecycleAction.label}
+                </Button>
+              )}
             </Stack>
           </td>
         </tr>

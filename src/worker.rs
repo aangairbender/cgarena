@@ -866,6 +866,8 @@ pub struct BuildBotOutput {
 pub struct PlayMatchInput {
     pub bots: Vec<PlayMatchBot>,
     pub seed: i64,
+    pub candidate_bot_id: Option<BotId>,
+    pub evaluation_stage_revision_id: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -951,6 +953,8 @@ mod tests {
                 },
             ],
             seed,
+            candidate_bot_id: None,
+            evaluation_stage_revision_id: None,
         }
     }
 

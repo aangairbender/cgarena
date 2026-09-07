@@ -1,12 +1,12 @@
 use crate::arena_commands::{
-    ArenaCommand, BotSourceCode, ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult,
-    CreateLeaderboardCommand, DeleteBotCommand, DeleteLeaderboardCommand, EnableMatchmakingCommand,
-    FetchBotSourceCodeCommand, FetchMatchesCommand, FetchStatusCommand, FetchStatusResult,
-    LeaderboardOverview, PatchLeaderboardCommand, PatchLeaderboardResult, RenameBotCommand,
-    RenameBotResult,
+    ArenaCommand, BotRoleTransition, BotRoleTransitionResult, BotSourceCode, ChangeBotRoleCommand,
+    ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand,
+    DeleteBotCommand, DeleteLeaderboardCommand, FetchBotSourceCodeCommand, FetchMatchesCommand,
+    FetchStatusCommand, FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand,
+    PatchLeaderboardResult, RenameBotCommand, RenameBotResult, SetEvaluationSchedulingCommand,
 };
 use crate::domain::{
-    BotId, BotName, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
+    BotId, BotName, BotRole, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
 };
 use crate::match_retrieval::{MatchPage, MatchPageRequest};
 use tokio::sync::{mpsc, oneshot};
@@ -28,17 +28,30 @@ impl ArenaHandle {
         .await
     }
 
+    #[cfg(test)]
     pub async fn create_bot(
         &self,
         name: BotName,
         source_code: SourceCode,
         language: Language,
     ) -> anyhow::Result<CreateBotResult> {
+        self.create_bot_with_role(name, source_code, language, BotRole::Candidate)
+            .await
+    }
+
+    pub async fn create_bot_with_role(
+        &self,
+        name: BotName,
+        source_code: SourceCode,
+        language: Language,
+        role: BotRole,
+    ) -> anyhow::Result<CreateBotResult> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::CreateBot(CreateBotCommand {
                 name,
                 source_code,
                 language,
+                role,
                 response: tx,
             })
         })
@@ -60,9 +73,24 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn delete_bot(&self, id: BotId) -> anyhow::Result<()> {
+    pub async fn reject_candidate(&self, id: BotId) -> anyhow::Result<BotRoleTransitionResult> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::DeleteBot(DeleteBotCommand { id, response: tx })
+        })
+        .await
+    }
+
+    pub async fn change_bot_role(
+        &self,
+        id: BotId,
+        transition: BotRoleTransition,
+    ) -> anyhow::Result<BotRoleTransitionResult> {
+        self.send_command_and_await_for_result(move |tx| {
+            ArenaCommand::ChangeBotRole(ChangeBotRoleCommand {
+                id,
+                transition,
+                response: tx,
+            })
         })
         .await
     }
@@ -128,9 +156,9 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn enable_matchmaking(&self, enabled: bool) -> anyhow::Result<()> {
+    pub async fn set_evaluation_scheduling(&self, enabled: bool) -> anyhow::Result<()> {
         self.send_command_and_await_for_result(move |tx| {
-            ArenaCommand::EnableMatchmaking(EnableMatchmakingCommand {
+            ArenaCommand::SetEvaluationScheduling(SetEvaluationSchedulingCommand {
                 enabled,
                 response: tx,
             })

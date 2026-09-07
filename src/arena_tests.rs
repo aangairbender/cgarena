@@ -59,7 +59,7 @@ async fn create_test_arena(mut config: Config, play_output: Option<&str>) -> Tes
     let handle = ArenaHandle::new(commands_tx);
     let arena_task = run(
         config.game,
-        config.matchmaking,
+        config.evaluation,
         config.leaderboards,
         config.ranking,
         pool.clone(),
@@ -106,6 +106,8 @@ async fn cmd_create_bot_should_create_record_in_db() {
 
     assert_ne!(bot.id, BotId::UNINITIALIZED);
     assert_eq!(bot.name, bot_name);
+    assert_eq!(bot.role, BotRole::Candidate);
+    assert!(bot.evaluation_plan_revision_id.is_some());
 
     let row = sqlx::query("SELECT * FROM bots WHERE id = $1")
         .bind::<i64>(bot.id.into())
@@ -125,6 +127,10 @@ async fn cmd_create_bot_should_create_record_in_db() {
 
     let db_language: String = row.get("language");
     assert_eq!(db_language, bot_language.to_string());
+    let db_role: String = row.get("role");
+    assert_eq!(db_role, "candidate");
+    let db_plan_revision: Option<i64> = row.get("evaluation_plan_revision_id");
+    assert_eq!(db_plan_revision, bot.evaluation_plan_revision_id);
 
     let db_created_at: DateTime<Utc> = row.get("created_at");
     assert!(db_created_at > now);
@@ -320,7 +326,7 @@ async fn cmd_delete_bot_works() {
         panic!("Bot creation should succeed");
     };
 
-    arena.handle.delete_bot(bot.id).await.unwrap();
+    arena.handle.reject_candidate(bot.id).await.unwrap();
 
     let row = sqlx::query("SELECT * FROM bots WHERE id = $1")
         .bind::<i64>(bot.id.into())
@@ -329,6 +335,61 @@ async fn cmd_delete_bot_works() {
         .unwrap();
 
     assert!(row.is_none());
+}
+
+#[tokio::test]
+async fn candidate_can_be_promoted_and_benchmark_can_be_archived() {
+    let arena = create_test_arena(Config::default(), None).await;
+    let CreateBotResult::Created(bot) = arena
+        .handle
+        .create_bot(
+            String::from("Candidate").try_into().unwrap(),
+            String::from("source").try_into().unwrap(),
+            String::from("rust").try_into().unwrap(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("Bot creation should succeed");
+    };
+
+    assert!(matches!(
+        arena
+            .handle
+            .change_bot_role(bot.id, BotRoleTransition::Promote)
+            .await
+            .unwrap(),
+        BotRoleTransitionResult::Changed
+    ));
+    assert!(matches!(
+        arena
+            .handle
+            .change_bot_role(bot.id, BotRoleTransition::Archive)
+            .await
+            .unwrap(),
+        BotRoleTransitionResult::Changed
+    ));
+    assert!(matches!(
+        arena
+            .handle
+            .change_bot_role(bot.id, BotRoleTransition::Promote)
+            .await
+            .unwrap(),
+        BotRoleTransitionResult::InvalidState
+    ));
+
+    let status = arena.handle.fetch_status().await.unwrap();
+    assert_eq!(status.bots[0].role, BotRole::ArchivedBenchmark);
+    assert!(status.leaderboards[0]
+        .items
+        .iter()
+        .all(|item| item.id != bot.id));
+    let role: String = sqlx::query_scalar("SELECT role FROM bots WHERE id = $1")
+        .bind::<i64>(bot.id.into())
+        .fetch_one(&arena.pool)
+        .await
+        .unwrap();
+    assert_eq!(role, "archived_benchmark");
 }
 
 #[tokio::test]
@@ -384,7 +445,7 @@ async fn cmd_fetch_leaderboard_works() {
     .await
     .expect("real build completions should reach Arena");
 
-    assert!(res3.matchmaking_enabled);
+    assert!(res3.evaluation_scheduling_enabled);
     assert_eq!(res3.bots.len(), 2);
 
     assert_eq!(res3.bots[0].id, bot1.id);
@@ -454,10 +515,11 @@ async fn cmd_fetch_leaderboard_e2e() {
 
     let res2 = arena
         .handle
-        .create_bot(
+        .create_bot_with_role(
             bot_name_2.clone(),
             bot_source_code.clone(),
             bot_language.clone(),
+            BotRole::Benchmark,
         )
         .await;
 
@@ -512,4 +574,29 @@ async fn cmd_fetch_leaderboard_e2e() {
     assert_eq!(leaderboard.winrate_stats[&(loser_id, winner_id)].loses, 1);
 
     assert_eq!(leaderboard.total_matches, 1);
+
+    let provenance: (Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT candidate_bot_id, evaluation_stage_revision_id FROM matches LIMIT 1",
+    )
+    .fetch_one(&arena.pool)
+    .await
+    .unwrap();
+    assert_eq!(provenance.0, Some(b1.into()));
+    assert!(provenance.1.is_some());
+    let evaluation = res3.bots[0]
+        .evaluation
+        .as_ref()
+        .expect("candidate should expose evaluation progress");
+    assert_eq!(evaluation.stages[0].matches, 1);
+    assert_eq!(evaluation.stages[0].benchmark_encounters[&b2], 1);
+
+    assert!(matches!(
+        arena.handle.reject_candidate(b1).await.unwrap(),
+        BotRoleTransitionResult::Changed
+    ));
+    let matches_after_rejection: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM matches")
+        .fetch_one(&arena.pool)
+        .await
+        .unwrap();
+    assert_eq!(matches_after_rejection, 0);
 }

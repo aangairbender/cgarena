@@ -4,8 +4,8 @@ mod routes;
 mod web_router;
 
 use crate::api::routes::{
-    bots, charts, configuration, enable_matchmaking, fetch_status, leaderboards, managed_referee,
-    matches, replays,
+    bots, charts, configuration, evaluation_scheduling, fetch_status, leaderboards,
+    managed_referee, matches, replays,
 };
 use crate::api::web_router::create_web_router;
 use crate::runtime::ArenaRuntime;
@@ -37,8 +37,11 @@ pub async fn start(
 pub(crate) async fn create_router(app_state: AppState) -> Router {
     let api_router = Router::new()
         .route("/bots", post(bots::create_bot))
-        .route("/bots/{id}", delete(bots::delete_bot))
+        .route("/bots/archived", get(bots::fetch_archived_bots))
+        .route("/bots/{id}", delete(bots::reject_candidate))
         .route("/bots/{id}", patch(bots::rename_bot))
+        .route("/bots/{id}/promote", post(bots::promote_candidate))
+        .route("/bots/{id}/archive", post(bots::archive_benchmark))
         .route(
             "/configuration",
             get(configuration::fetch_configuration).put(configuration::apply_configuration),
@@ -56,7 +59,10 @@ pub(crate) async fn create_router(app_state: AppState) -> Router {
         )
         .route("/status", get(fetch_status::fetch_status))
         .route("/chart", post(charts::chart))
-        .route("/matchmaking", put(enable_matchmaking::enable_matchmaking))
+        .route(
+            "/evaluation-scheduling",
+            put(evaluation_scheduling::set_evaluation_scheduling),
+        )
         .route("/matches", get(matches::fetch_matches))
         .route("/matches/{id}/replay", get(replays::watch_replay))
         .route("/replays/{session_id}", delete(replays::close_replay))
@@ -241,7 +247,8 @@ mod tests {
                             serde_json::json!({
                                 "name": name,
                                 "source_code": "fixture",
-                                "language": "test"
+                                "language": "test",
+                                "role": if name.ends_with('2') { "benchmark" } else { "candidate" }
                             })
                             .to_string(),
                         ))
@@ -281,7 +288,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri("/api/matchmaking")
+                    .uri("/api/evaluation-scheduling")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"enabled":false}"#))
                     .unwrap(),
@@ -293,7 +300,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        candidate.matchmaking.enabled_on_start = Some(false);
+        candidate.evaluation.enabled_on_start = Some(false);
         let WorkerConfig::Embedded(worker) = &mut candidate.workers[0];
         worker.threads = 2;
         worker.cmd_build = "sh -c 'exit 99'".to_string();
@@ -329,7 +336,7 @@ mod tests {
             .await
             .unwrap();
         let status = response_json(response).await;
-        assert_eq!(status["matchmaking_enabled"], false);
+        assert_eq!(status["evaluation_scheduling_enabled"], false);
         assert_eq!(status["bots"][0]["builds"][0]["status"], "finished");
         assert_eq!(status["bots"][1]["builds"][0]["status"], "finished");
 
@@ -664,7 +671,8 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null],"1":[null]},"agents"
                             serde_json::json!({
                                 "name": name,
                                 "source_code": "fixture",
-                                "language": "test"
+                                "language": "test",
+                                "role": if name.ends_with('2') { "benchmark" } else { "candidate" }
                             })
                             .to_string(),
                         ))
@@ -693,7 +701,7 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null],"1":[null]},"agents"
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri("/api/matchmaking")
+                    .uri("/api/evaluation-scheduling")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"enabled":false}"#))
                     .unwrap(),
@@ -806,7 +814,7 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null],"1":[null]},"agents"
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri("/api/matchmaking")
+                    .uri("/api/evaluation-scheduling")
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"enabled":false}"#))
                     .unwrap(),
@@ -834,7 +842,10 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null],"1":[null]},"agents"
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response_json(response).await["matchmaking_enabled"], false);
+        assert_eq!(
+            response_json(response).await["evaluation_scheduling_enabled"],
+            false
+        );
 
         post_referee_action(&app, "update").await;
         let updated = wait_for_referee_action(&app).await;
@@ -969,9 +980,9 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null],"1":[null]},"agents"
         assert!(runtime.is_available().await);
 
         let command_configuration = crate::config::ArenaConfig {
-            matchmaking: crate::config::MatchmakingConfig {
+            evaluation: crate::evaluation::EvaluationConfig {
                 enabled_on_start: Some(false),
-                ..configuration.matchmaking.clone()
+                ..configuration.evaluation.clone()
             },
             workers: vec![crate::config::WorkerConfig::Embedded(
                 crate::config::EmbeddedWorkerConfig {
@@ -1008,7 +1019,7 @@ printf '%s\n' '{"scores":{"0":9,"1":4},"errors":{"0":[null],"1":[null]},"agents"
         assert!(runtime.is_available().await);
         assert!(checkout.is_dir());
         let mut switch_back = replacement_configuration;
-        switch_back.matchmaking.enabled_on_start = Some(false);
+        switch_back.evaluation.enabled_on_start = Some(false);
         let response = app
             .clone()
             .oneshot(

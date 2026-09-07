@@ -7,6 +7,8 @@ pub struct Match {
     pub seed: i64,
     pub participants: Vec<Participant>,
     pub attributes: Vec<MatchAttribute>,
+    pub candidate_bot_id: Option<BotId>,
+    pub evaluation_stage_revision_id: Option<i64>,
     pub replay_path: Option<PathBuf>,
 }
 
@@ -29,6 +31,8 @@ impl Match {
             seed,
             participants,
             attributes,
+            candidate_bot_id: None,
+            evaluation_stage_revision_id: None,
             replay_path,
         }
     }

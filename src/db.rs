@@ -2,6 +2,9 @@ use crate::config::ArenaConfig;
 use crate::domain::{
     Bot, BotId, Build, BuildResult, BuildStatus, Leaderboard, LeaderboardId, Match, MatchId,
 };
+use crate::evaluation::{
+    EvaluationConfig, EvaluationPlanRevision, EvaluationStageConfig, EvaluationStageRevision,
+};
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use indoc::indoc;
@@ -17,6 +20,8 @@ struct BotsRow {
     pub source_code: String,
     pub language: String,
     pub created_at: DateTime<Utc>,
+    pub role: String,
+    pub evaluation_plan_revision_id: Option<i64>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -75,6 +80,8 @@ impl TryFrom<BotsRow> for Bot {
             name: bot.name.try_into()?,
             source_code: bot.source_code.try_into()?,
             language: bot.language.try_into()?,
+            role: bot.role.parse()?,
+            evaluation_plan_revision_id: bot.evaluation_plan_revision_id,
             created_at: bot.created_at,
         })
     }
@@ -117,11 +124,17 @@ pub async fn fetch_arena_config(pool: &SqlitePool) -> anyhow::Result<Option<Aren
         sqlx::query_scalar("SELECT config_json FROM arena_configuration WHERE id = 1")
             .fetch_optional(pool)
             .await?;
-    config_json
-        .map(|json| {
-            serde_json::from_str(&json).context("Stored arena configuration is not valid JSON")
-        })
-        .transpose()
+    let Some(config_json) = config_json else {
+        return Ok(None);
+    };
+    let config: ArenaConfig = serde_json::from_str(&config_json)
+        .context("Stored arena configuration is not valid JSON")?;
+    let migrated = config.legacy_matchmaking.is_some();
+    let config = config.migrate_legacy();
+    if migrated {
+        persist_arena_config(pool, &config).await?;
+    }
+    Ok(Some(config))
 }
 
 pub async fn persist_arena_config(pool: &SqlitePool, config: &ArenaConfig) -> anyhow::Result<()> {
@@ -147,6 +160,145 @@ pub async fn persist_arena_config_transaction(
     .await?;
     Ok(())
 }
+pub async fn ensure_evaluation_plan(
+    pool: &SqlitePool,
+    evaluation: &EvaluationConfig,
+) -> anyhow::Result<EvaluationPlanRevision> {
+    let plan_json = serde_json::to_string(&(&evaluation.generated_seeds, &evaluation.stages))
+        .context("Cannot serialize evaluation plan")?;
+    let mut transaction = pool.begin().await?;
+    let plan_id: i64 = if let Some(id) =
+        sqlx::query_scalar("SELECT id FROM evaluation_plan_revisions WHERE config_json = $1")
+            .bind(&plan_json)
+            .fetch_optional(&mut *transaction)
+            .await?
+    {
+        id
+    } else {
+        let id = sqlx::query("INSERT INTO evaluation_plan_revisions (config_json) VALUES ($1)")
+            .bind(&plan_json)
+            .execute(&mut *transaction)
+            .await?
+            .last_insert_rowid();
+        for (index, stage) in evaluation.stages.iter().enumerate() {
+            let stage_json =
+                serde_json::to_string(stage).context("Cannot serialize evaluation stage")?;
+            sqlx::query(
+                "INSERT INTO evaluation_stage_revisions \
+                 (plan_revision_id, stage_index, config_json) VALUES ($1, $2, $3)",
+            )
+            .bind(id)
+            .bind(index as i64)
+            .bind(stage_json)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        id
+    };
+    transaction.commit().await?;
+    fetch_evaluation_plan(pool, plan_id).await
+}
+
+pub async fn fetch_evaluation_plan(
+    pool: &SqlitePool,
+    plan_id: i64,
+) -> anyhow::Result<EvaluationPlanRevision> {
+    let plan_json: String =
+        sqlx::query_scalar("SELECT config_json FROM evaluation_plan_revisions WHERE id = $1")
+            .bind(plan_id)
+            .fetch_optional(pool)
+            .await?
+            .with_context(|| format!("evaluation plan revision {plan_id} does not exist"))?;
+    let (generated_seeds, _): (Vec<i64>, Vec<EvaluationStageConfig>) =
+        serde_json::from_str(&plan_json).context("Stored evaluation plan is not valid JSON")?;
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, config_json FROM evaluation_stage_revisions \
+         WHERE plan_revision_id = $1 ORDER BY stage_index",
+    )
+    .bind(plan_id)
+    .fetch_all(pool)
+    .await?;
+    if rows.is_empty() {
+        bail!("evaluation plan revision {plan_id} has no stages");
+    }
+    let stages = rows
+        .into_iter()
+        .map(|(id, json)| {
+            serde_json::from_str::<EvaluationStageConfig>(&json)
+                .map(|config| EvaluationStageRevision { id, config })
+                .context("Stored evaluation stage is not valid JSON")
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(EvaluationPlanRevision {
+        id: plan_id,
+        generated_seeds,
+        stages,
+    })
+}
+#[derive(Default)]
+pub struct StageProgress {
+    pub matches: u64,
+    pub encounters: std::collections::HashMap<BotId, u64>,
+    pub matches_by_player_count: std::collections::HashMap<u32, u64>,
+    pub candidate_errors: u64,
+}
+
+pub async fn fetch_stage_progress(
+    pool: &SqlitePool,
+    candidate_id: BotId,
+    stage_revision_id: i64,
+) -> anyhow::Result<StageProgress> {
+    let candidate_id: i64 = candidate_id.into();
+    let matches: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM matches \
+         WHERE candidate_bot_id = $1 AND evaluation_stage_revision_id = $2",
+    )
+    .bind(candidate_id)
+    .bind(stage_revision_id)
+    .fetch_one(pool)
+    .await?;
+    let encounter_rows: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT p.bot_id, COUNT(*) FROM matches m \
+         JOIN participations p ON p.match_id = m.id \
+         WHERE m.candidate_bot_id = $1 AND m.evaluation_stage_revision_id = $2 \
+           AND p.bot_id != $1 GROUP BY p.bot_id",
+    )
+    .bind(candidate_id)
+    .bind(stage_revision_id)
+    .fetch_all(pool)
+    .await?;
+    let player_count_rows: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT participant_cnt, COUNT(*) FROM matches \
+         WHERE candidate_bot_id = $1 AND evaluation_stage_revision_id = $2 \
+         GROUP BY participant_cnt",
+    )
+    .bind(candidate_id)
+    .bind(stage_revision_id)
+    .fetch_all(pool)
+    .await?;
+    let candidate_errors: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM matches m \
+         JOIN participations p ON p.match_id = m.id AND p.bot_id = $1 \
+         WHERE m.candidate_bot_id = $1 AND m.evaluation_stage_revision_id = $2 \
+           AND p.error = 1",
+    )
+    .bind(candidate_id)
+    .bind(stage_revision_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(StageProgress {
+        matches: matches as u64,
+        encounters: encounter_rows
+            .into_iter()
+            .map(|(id, count)| (id.into(), count as u64))
+            .collect(),
+        matches_by_player_count: player_count_rows
+            .into_iter()
+            .map(|(count, matches)| (count as u32, matches as u64))
+            .collect(),
+        candidate_errors: candidate_errors as u64,
+    })
+}
 
 pub async fn persist_bot(pool: &SqlitePool, bot: &mut Bot) -> anyhow::Result<()> {
     if bot.id == BotId::UNINITIALIZED {
@@ -160,14 +312,15 @@ pub async fn persist_bot(pool: &SqlitePool, bot: &mut Bot) -> anyhow::Result<()>
 async fn insert_bot(pool: &SqlitePool, bot: &Bot) -> anyhow::Result<BotId> {
     assert_eq!(bot.id, BotId::UNINITIALIZED);
     const SQL: &str = indoc! {"
-        INSERT INTO bots (name, source_code, language, created_at) \
-        VALUES ($1, $2, $3, $4) \
+        INSERT INTO bots (name, source_code, language, role, evaluation_plan_revision_id, created_at) \
+        VALUES ($1, $2, $3, $4, $5, $6) \
     "};
-
     let res = sqlx::query(SQL)
         .bind::<&str>(&bot.name)
         .bind::<&str>(&bot.source_code)
         .bind::<&str>(&bot.language)
+        .bind(bot.role.to_string())
+        .bind(bot.evaluation_plan_revision_id)
         .bind::<DateTime<Utc>>(bot.created_at)
         .execute(pool)
         .await?;
@@ -179,12 +332,14 @@ async fn insert_bot(pool: &SqlitePool, bot: &Bot) -> anyhow::Result<BotId> {
 async fn update_bot(pool: &SqlitePool, bot: &Bot) -> anyhow::Result<()> {
     assert_ne!(bot.id, BotId::UNINITIALIZED);
     const SQL: &str = indoc! {"
-        UPDATE bots SET name = $1 \
-        WHERE id = $2"
+        UPDATE bots SET name = $1, role = $2, evaluation_plan_revision_id = $3 \
+        WHERE id = $4"
     };
 
     let res = sqlx::query(SQL)
         .bind::<&str>(&bot.name)
+        .bind(bot.role.to_string())
+        .bind(bot.evaluation_plan_revision_id)
         .bind::<i64>(bot.id.into())
         .execute(pool)
         .await?;
@@ -266,15 +421,20 @@ pub async fn persist_match(pool: &SqlitePool, m: &mut Match) -> anyhow::Result<(
 pub async fn create_match(pool: &SqlitePool, m: &Match) -> anyhow::Result<MatchId> {
     let mut tx = pool.begin().await?;
 
-    let match_id: MatchId =
-        sqlx::query("INSERT INTO matches (seed, participant_cnt, replay_path) VALUES ($1, $2, $3)")
-            .bind::<i64>(m.seed)
-            .bind::<u8>(m.participants.len() as _)
-            .bind(m.replay_path.as_ref().and_then(|path| path.to_str()))
-            .execute(&mut *tx)
-            .await?
-            .last_insert_rowid()
-            .into();
+    let match_id: MatchId = sqlx::query(
+        "INSERT INTO matches \
+         (seed, participant_cnt, replay_path, candidate_bot_id, evaluation_stage_revision_id) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind::<i64>(m.seed)
+    .bind::<u8>(m.participants.len() as _)
+    .bind(m.replay_path.as_ref().and_then(|path| path.to_str()))
+    .bind::<Option<i64>>(m.candidate_bot_id.map(Into::into))
+    .bind(m.evaluation_stage_revision_id)
+    .execute(&mut *tx)
+    .await?
+    .last_insert_rowid()
+    .into();
 
     for (index, p) in m.participants.iter().enumerate() {
         const SQL: &str = indoc! {
@@ -443,6 +603,13 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO bots (name, source_code, language, created_at) \
+             VALUES ('legacy', 'source', 'rust', CURRENT_TIMESTAMP)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         current.run(&pool).await.unwrap();
 
@@ -456,7 +623,71 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
+        let migrated_role: String =
+            sqlx::query_scalar("SELECT role FROM bots WHERE name = 'legacy'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(replay_columns, 1);
         assert_eq!(old_matches, 1);
+        assert_eq!(migrated_role, "benchmark");
+    }
+
+    #[tokio::test]
+    async fn evaluation_plan_edits_create_immutable_revisions() {
+        let pool = in_memory().await.unwrap();
+        migrate(&pool).await.unwrap();
+        let first = EvaluationConfig::default();
+        let first_revision = ensure_evaluation_plan(&pool, &first).await.unwrap();
+        let same_revision = ensure_evaluation_plan(&pool, &first).await.unwrap();
+        assert_eq!(first_revision.id, same_revision.id);
+
+        let mut edited = first.clone();
+        edited.stages[0].name = "Edited stage".to_string();
+        let edited_revision = ensure_evaluation_plan(&pool, &edited).await.unwrap();
+        assert_ne!(first_revision.id, edited_revision.id);
+
+        let original = fetch_evaluation_plan(&pool, first_revision.id)
+            .await
+            .unwrap();
+        assert_eq!(original.stages[0].config.name, "Generated suite");
+    }
+
+    #[tokio::test]
+    async fn stored_matchmaking_configuration_migrates_once() {
+        let pool = in_memory().await.unwrap();
+        migrate(&pool).await.unwrap();
+        let mut value = serde_json::to_value(ArenaConfig::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("evaluation");
+        object.insert(
+            "matchmaking".to_string(),
+            serde_json::json!({
+                "algorithm": "v2",
+                "min_matches_against_best": 5,
+                "min_matches_per_pair": 7,
+                "max_matches": 50,
+                "enabled_on_start": false
+            }),
+        );
+        sqlx::query("INSERT INTO arena_configuration (id, config_json) VALUES (1, $1)")
+            .bind(value.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let migrated = fetch_arena_config(&pool).await.unwrap().unwrap();
+        assert_eq!(migrated.evaluation.enabled_on_start, Some(false));
+        assert_eq!(
+            migrated.evaluation.stages[0].coverage,
+            crate::evaluation::CoveragePolicyConfig::PerBenchmark { target: 7 }
+        );
+        let stored: String =
+            sqlx::query_scalar("SELECT config_json FROM arena_configuration WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!stored.contains("\"matchmaking\""));
+        assert!(stored.contains("\"evaluation\""));
     }
 }

@@ -6,7 +6,7 @@ export interface ConfigurationState {
 
 export interface ArenaConfiguration {
   game: GameConfiguration;
-  matchmaking: MatchmakingConfiguration;
+  evaluation: EvaluationConfiguration;
   ranking: RankingConfiguration;
   leaderboards: LeaderboardsConfiguration;
   workers: EmbeddedWorkerConfiguration[];
@@ -18,19 +18,32 @@ export interface GameConfiguration {
   symmetric: boolean;
 }
 
-export type MatchmakingConfiguration =
+export interface EvaluationConfiguration {
+  enabled_on_start: boolean | null;
+  generated_seeds: number[];
+  stages: EvaluationStageConfiguration[];
+}
+
+export interface EvaluationStageConfiguration {
+  name: string;
+  seed_source: EvaluationSeedSource;
+  coverage: EvaluationCoveragePolicy;
+  min_players: number | null;
+  max_players: number | null;
+}
+
+export type EvaluationSeedSource =
+  | { type: "generated_static" }
+  | { type: "curated"; seeds: number[] }
+  | { type: "fresh_random" };
+
+export type EvaluationCoveragePolicy =
+  | { type: "per_benchmark"; target: number }
+  | { type: "total"; target: number }
   | {
-      algorithm: "v1";
-      min_matches: number;
-      min_matches_preference: number;
-      enabled_on_start: boolean | null;
-    }
-  | {
-      algorithm: "v2";
-      min_matches_against_best: number | null;
-      min_matches_per_pair: number;
-      max_matches: number | null;
-      enabled_on_start: boolean | null;
+      type: "weighted_total";
+      target: number;
+      weights: Record<string, number>;
     };
 
 export type RankingConfiguration =
@@ -106,6 +119,7 @@ export interface CreateBotRequest {
   name: string;
   source_code: string;
   language: string;
+  role: BotRole;
 }
 
 export interface RenameBotRequest {
@@ -125,7 +139,7 @@ export interface PatchLeaderboardRequest {
 export interface FetchStatusResponse {
   bots: BotOverviewResponse[];
   leaderboards: LeaderboardOverviewResponse[];
-  matchmaking_enabled: boolean;
+  evaluation_scheduling_enabled: boolean;
 }
 
 export interface LeaderboardOverviewResponse {
@@ -151,10 +165,31 @@ export interface BotOverviewResponse {
   id: BotId;
   name: string;
   language: string;
+  role: BotRole;
+  evaluation_plan_revision_id: number | null;
+  evaluation: CandidateEvaluationResponse | null;
   matches_played: number;
   matches_with_error: number;
   builds: BuildResponse[];
   created_at: string;
+}
+
+export type BotRole = "candidate" | "benchmark" | "archived_benchmark";
+
+export interface CandidateEvaluationResponse {
+  complete: boolean;
+  stages: EvaluationStageResponse[];
+}
+
+export interface EvaluationStageResponse {
+  id: number;
+  name: string;
+  coverage: "per_benchmark" | "total" | "weighted_total";
+  target: number;
+  matches: number;
+  candidate_errors: number;
+  complete: boolean;
+  benchmark_encounters: Record<string, number>;
 }
 
 export interface LeaderboardItemResponse {
@@ -198,7 +233,7 @@ export interface BotSourceCode {
   source_code: string;
 }
 
-export interface EnableMatchmakingRequest {
+export interface EvaluationSchedulingRequest {
   enabled: boolean;
 }
 

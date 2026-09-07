@@ -3,25 +3,33 @@
 [![Crates.io](https://img.shields.io/crates/v/cgarena.svg)](https://crates.io/crates/cgarena)
 [![Crates.io](https://img.shields.io/crates/d/cgarena.svg)](https://crates.io/crates/cgarena)
 
-Local bot arena similar to CodinGame.
+CG Arena is a personal, trusted local workbench for CodinGame bot authors. Each arena belongs to
+one challenge and helps an author evaluate bot improvements with substantially more local match
+evidence than CodinGame provides.
+
+See [CONTEXT.md](CONTEXT.md) for the canonical domain language.
 
 ![screenshot](/docs/img/readme_screenshot.png)
 
 ## Features
 
-- Web UI
-- Add/Delete/Rename bots
-- Matchmaking
-- Rating calculation
-    - OpenSkill
-    - TrueSkill
-    - Elo
-    - Bradley-Terry
-- Realtime leaderboard
-- Analytics
-  - Custom leaderboards based on some match criteria (e.g. small maps)
-  - Visualize bot data, x-axis for turn, y-axis for your param (e.g. average/min/max money on each turn)
-- Fully local, but you can expose web server to check leaderboard from your phone
+- Local web UI with guided arena configuration
+- Managed CodinGame referee installation and updates
+- Custom-command referee integration
+- Submit immutable bot code as a Candidate or Benchmark, then promote, reject, rename, or archive it
+- Bounded, staged Candidate evaluation against a live Benchmark pool
+- Rating calculation using OpenSkill, TrueSkill, Elo, or Bradley–Terry
+- Realtime global and filtered custom leaderboards
+- Match browsing with attribute filters
+- Per-turn bot analytics with average, minimum, and maximum aggregation
+- Match replays and seed inspection
+- Local SQLite storage and optional trusted-LAN access
+
+## Evaluation workflow
+
+New submissions default to Candidate and pin the active evaluation-plan revision. The scheduler
+collects the configured evidence against active Benchmarks; promotion and rejection always remain
+manual. See [the candidate-evaluation decision](docs/adr/0002-replace-continuous-matchmaking-with-candidate-evaluation.md).
 
 ## Installation
 

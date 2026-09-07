@@ -38,6 +38,8 @@ const matchResultsSchema = z.object({
         }),
       ),
       seed: z.string(),
+      candidate_bot_id: z.int().nullable(),
+      evaluation_stage_revision_id: z.int().nullable(),
       attributes: z.array(
         z.object({
           name: z.string(),

@@ -5,10 +5,38 @@ import { useDialogs } from "@/hooks/useDialogs";
 import useEnsureValidSelectedBot from "@/hooks/useEnsureValidSelectedBot";
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { Container, Card, Button } from "react-bootstrap";
+import {
+  Badge,
+  Button,
+  Card,
+  Container,
+  ProgressBar,
+  Stack,
+} from "react-bootstrap";
 import { FaPlus } from "react-icons/fa6";
+import { Link } from "@tanstack/react-router";
 
 const routeApi = getRouteApi("/");
+
+function stageProgressPercent(
+  target: number,
+  matches: number,
+  coverage: string,
+  encounters: Record<string, number>,
+): number {
+  const completed =
+    coverage === "per_benchmark"
+      ? Object.values(encounters).reduce(
+          (sum, count) => sum + Math.min(count, target),
+          0,
+        )
+      : Math.min(matches, target);
+  const required =
+    coverage === "per_benchmark"
+      ? target * Math.max(Object.keys(encounters).length, 1)
+      : target;
+  return Math.min(100, Math.round((completed / required) * 100));
+}
 
 export default function HomePage() {
   useEnsureValidSelectedBot();
@@ -23,13 +51,17 @@ export default function HomePage() {
 
   const bots = useAppStore((state) => state.bots);
   const leaderboards = useAppStore((state) => state.leaderboards);
-  const deleteBot = useAppStore((state) => state.deleteBot);
+  const rejectCandidate = useAppStore((state) => state.rejectCandidate);
+  const promoteCandidate = useAppStore((state) => state.promoteCandidate);
+  const archiveBenchmark = useAppStore((state) => state.archiveBenchmark);
   const renameBot = useAppStore((state) => state.renameBot);
   const patchLeaderboard = useAppStore((state) => state.patchLeaderboard);
   const deleteLeaderboard = useAppStore((state) => state.deleteLeaderboard);
   const createLeaderboard = useAppStore((state) => state.createLeaderboard);
 
   const selectedBot = bots.find((b) => b.id == selectedBotId);
+  const candidates = bots.filter((bot) => bot.role === "candidate");
+  const activeBots = bots.filter((bot) => bot.role !== "archived_benchmark");
 
   useEffect(() => {
     const fetch = useAppStore.getState().fetchStatus;
@@ -46,19 +78,138 @@ export default function HomePage() {
   return (
     <div className="d-flex flex-column gap-4">
       <Card>
+        <Card.Header className="d-flex justify-content-between align-items-center">
+          <span>Candidate evaluations</span>
+          <Badge
+            bg={
+              candidates.every((bot) => bot.evaluation?.complete)
+                ? "success"
+                : "primary"
+            }
+          >
+            {candidates.length} active
+          </Badge>
+        </Card.Header>
+        <Card.Body>
+          {candidates.length === 0 ? (
+            <p className="text-body-secondary mb-0">
+              Submit a Candidate to start an evaluation.
+            </p>
+          ) : (
+            <Stack gap={4}>
+              {candidates.map((candidate) => (
+                <div key={candidate.id}>
+                  <div className="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                      <h5 className="mb-1">{candidate.name}</h5>
+                      <span className="text-body-secondary">
+                        Plan revision {candidate.evaluation_plan_revision_id}
+                      </span>
+                    </div>
+                    <Stack direction="horizontal" gap={2}>
+                      <Link
+                        to="/matches"
+                        search={{ withBots: [candidate.id] }}
+                        className="btn btn-outline-secondary btn-sm"
+                      >
+                        Matches and replays
+                      </Link>
+                      <Button
+                        size="sm"
+                        variant="success"
+                        onClick={() => promoteCandidate(candidate.id)}
+                      >
+                        Promote
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline-danger"
+                        onClick={() =>
+                          confirmDialog.show({
+                            prompt: `Reject '${candidate.name}' and permanently delete its evaluation evidence?`,
+                            action: () => rejectCandidate(candidate.id),
+                          })
+                        }
+                      >
+                        Reject
+                      </Button>
+                    </Stack>
+                  </div>
+                  {candidate.evaluation?.stages.map((stage) => {
+                    const percent = stageProgressPercent(
+                      stage.target,
+                      stage.matches,
+                      stage.coverage,
+                      stage.benchmark_encounters,
+                    );
+                    return (
+                      <div key={stage.id} className="mb-3">
+                        <div className="d-flex justify-content-between">
+                          <span>
+                            {stage.name}{" "}
+                            {stage.complete && (
+                              <Badge bg="success">Complete</Badge>
+                            )}
+                          </span>
+                          <span>
+                            {stage.matches} matches · {stage.candidate_errors}{" "}
+                            errors
+                          </span>
+                        </div>
+                        <ProgressBar
+                          now={percent}
+                          label={`${percent}%`}
+                          className="my-2"
+                        />
+                        <small className="text-body-secondary">
+                          {Object.entries(stage.benchmark_encounters)
+                            .map(([id, count]) => {
+                              const benchmark = bots.find(
+                                (bot) => bot.id === Number(id),
+                              );
+                              return `${benchmark?.name ?? `Bot ${id}`}: ${count}`;
+                            })
+                            .join(" · ")}
+                        </small>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </Stack>
+          )}
+        </Card.Body>
+      </Card>
+
+      <Card>
         <Card.Header>Selected bot</Card.Header>
         <Card.Body>
           {selectedBot && (
             <BotOverview
               bot={selectedBot}
               showCodeDialog={viewCodeDialog.show}
-              deleteBot={() =>
-                confirmDialog.show({
-                  prompt: `Are you sure you want to delete bot '${selectedBot.name}'?`,
-                  action: () => {
-                    deleteBot(selectedBot.id);
-                  },
-                })
+              lifecycleAction={
+                selectedBot.role === "candidate"
+                  ? {
+                      label: "Reject",
+                      variant: "outline-danger",
+                      onClick: () =>
+                        confirmDialog.show({
+                          prompt: `Reject '${selectedBot.name}' and permanently delete its evaluation evidence?`,
+                          action: () => rejectCandidate(selectedBot.id),
+                        }),
+                    }
+                  : selectedBot.role === "benchmark"
+                    ? {
+                        label: "Archive",
+                        variant: "outline-warning",
+                        onClick: () =>
+                          confirmDialog.show({
+                            prompt: `Archive benchmark '${selectedBot.name}'? Its history and rating evidence will be retained.`,
+                            action: () => archiveBenchmark(selectedBot.id),
+                          }),
+                      }
+                    : undefined
               }
               renameBot={() =>
                 renameBotDialog.show({
@@ -76,7 +227,7 @@ export default function HomePage() {
         <Leaderboard
           key={lb.id}
           lb={lb}
-          bots={bots}
+          bots={activeBots}
           selectedBotId={selectedBotId}
           patchLeaderboard={patchLeaderboard}
           deleteLeaderboard={deleteLeaderboard}

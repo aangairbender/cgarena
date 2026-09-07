@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CreateBotRequest } from "@/models";
+import { BotRole, CreateBotRequest } from "@/models";
 import { Alert, Button, Form, Modal } from "react-bootstrap";
 import { DialogProps } from "@/hooks/useDialog";
 
@@ -11,6 +11,7 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("");
   const [sourceCode, setSourceCode] = useState("");
+  const [role, setRole] = useState<BotRole>("candidate");
   const [error, setError] = useState("");
 
   const data = dialog.data;
@@ -23,6 +24,7 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
     setName("");
     setLanguage("");
     setSourceCode("");
+    setRole("candidate");
     setError("");
     dialog.hide();
   };
@@ -32,6 +34,7 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
       name,
       language,
       source_code: sourceCode,
+      role,
     };
     try {
       await data.onSubmit(req);
@@ -75,7 +78,7 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
         </Form.Group>
 
         <Form.Group controlId="formFile" className="mb-3">
-          <Form.Label>Default file input example</Form.Label>
+          <Form.Label>Source file</Form.Label>
           <Form.Control type="file" onChange={handleSourceFileChanged} />
           <Form.Text className="text-muted">
             Up to 100k characters, same as CG.
@@ -92,6 +95,21 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
           <Form.Text className="text-muted">
             e.g. "c++", "rust", "python", etc. This value would be passed to
             worker "cmd_*" commands as-is.
+          </Form.Text>
+        </Form.Group>
+
+        <Form.Group controlId="formRole" className="mb-3">
+          <Form.Label>Role</Form.Label>
+          <Form.Select
+            value={role}
+            onChange={(event) => setRole(event.target.value as BotRole)}
+          >
+            <option value="candidate">Candidate</option>
+            <option value="benchmark">Benchmark</option>
+          </Form.Select>
+          <Form.Text className="text-muted">
+            Candidates run the active evaluation plan. Benchmarks join the live
+            opponent pool immediately.
           </Form.Text>
         </Form.Group>
 

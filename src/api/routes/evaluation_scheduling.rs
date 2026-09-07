@@ -4,20 +4,20 @@ use serde::Deserialize;
 use crate::api::{errors::ApiError, AppState};
 
 #[derive(Deserialize)]
-pub struct EnableMatchmakingRequest {
+pub struct EvaluationSchedulingRequest {
     pub enabled: bool,
 }
 
-pub async fn enable_matchmaking(
+pub async fn set_evaluation_scheduling(
     State(app_state): State<AppState>,
-    Json(payload): Json<EnableMatchmakingRequest>,
+    Json(payload): Json<EvaluationSchedulingRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let enabled = payload.enabled;
 
     app_state
         .arena_handle()
         .await?
-        .enable_matchmaking(enabled)
+        .set_evaluation_scheduling(enabled)
         .await?;
 
     Ok(())
