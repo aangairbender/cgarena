@@ -16,7 +16,7 @@ See [CONTEXT.md](CONTEXT.md) for the canonical domain language.
 - Local web UI with guided arena configuration
 - Managed CodinGame referee installation and updates
 - Custom-command referee integration
-- Submit immutable bot code as a Candidate or Benchmark, then promote, reject, rename, or archive it
+- Submit immutable bot code as a Candidate or Benchmark, then promote or reject Candidates and archive or delete Benchmarks
 - Bounded, staged Candidate evaluation against a live Benchmark pool
 - Rating calculation using OpenSkill, TrueSkill, Elo, or Bradley–Terry
 - Realtime global and filtered custom leaderboards

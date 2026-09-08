@@ -14,7 +14,8 @@ use crate::{
         AppState,
     },
     arena_commands::{
-        BotRoleTransition, BotRoleTransitionResult, BotSourceCode, CreateBotResult, RenameBotResult,
+        BotRoleTransition, BotRoleTransitionResult, BotSourceCode, CreateBotResult,
+        DeleteBotResult, RenameBotResult,
     },
     domain::{BotId, BotName, BotRole, Language, SourceCode},
 };
@@ -50,16 +51,19 @@ pub async fn create_bot(
     }
 }
 
-pub async fn reject_candidate(
+pub async fn delete_bot(
     State(app_state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = app_state
         .arena_handle()
         .await?
-        .reject_candidate(id.into())
+        .delete_bot(id.into())
         .await?;
-    lifecycle_response(result)
+    match result {
+        DeleteBotResult::Deleted => Ok(StatusCode::OK),
+        DeleteBotResult::NotFound => Err(ApiError::NotFound),
+    }
 }
 
 pub async fn promote_candidate(

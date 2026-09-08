@@ -123,6 +123,8 @@ Candidate and its match evidence.
 
 An active Benchmark can be archived. Archived Benchmarks are hidden from active scheduling and
 leaderboards, while their historical matches continue to contribute to ratings for active bots.
+Active and archived Benchmarks can also be permanently deleted together with their source, builds,
+matches, analytics, and replays. Deletion cannot be undone and removes that evidence from ratings.
 
 ### Checking the bot source code
 

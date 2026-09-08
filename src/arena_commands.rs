@@ -132,9 +132,14 @@ pub enum CreateBotResult {
     DuplicateName,
 }
 
+pub enum DeleteBotResult {
+    Deleted,
+    NotFound,
+}
+
 pub struct DeleteBotCommand {
     pub id: BotId,
-    pub response: oneshot::Sender<BotRoleTransitionResult>,
+    pub response: oneshot::Sender<DeleteBotResult>,
 }
 
 pub struct FetchStatusCommand {

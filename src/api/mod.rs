@@ -38,7 +38,7 @@ pub(crate) async fn create_router(app_state: AppState) -> Router {
     let api_router = Router::new()
         .route("/bots", post(bots::create_bot))
         .route("/bots/archived", get(bots::fetch_archived_bots))
-        .route("/bots/{id}", delete(bots::reject_candidate))
+        .route("/bots/{id}", delete(bots::delete_bot))
         .route("/bots/{id}", patch(bots::rename_bot))
         .route("/bots/{id}/promote", post(bots::promote_candidate))
         .route("/bots/{id}/archive", post(bots::archive_benchmark))

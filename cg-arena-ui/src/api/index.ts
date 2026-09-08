@@ -90,7 +90,7 @@ export const renameBot = async (id: BotId, payload: RenameBotRequest) => {
   await checkForErrors(response);
 };
 
-export const rejectCandidate = async (id: BotId) => {
+export const deleteBot = async (id: BotId) => {
   const response = await fetch(
     new Request(`${host}/api/bots/${id}`, { method: "DELETE" }),
   );

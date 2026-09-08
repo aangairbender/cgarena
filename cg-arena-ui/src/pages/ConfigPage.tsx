@@ -67,8 +67,7 @@ function defaultConfiguration(): ArenaConfiguration {
         cmd_run: "./{DIR}/a",
         referee: {
           type: "managed_codingame",
-          repository_url:
-            "https://github.com/CodinGame/SpringChallenge2023.git",
+          repository_url: "",
           branch: null,
           java: null,
           maven: null,
@@ -316,8 +315,7 @@ function ConfigurationForm({
                           event.target.value === "managed_codingame"
                             ? {
                                 type: "managed_codingame",
-                                repository_url:
-                                  "https://github.com/CodinGame/SpringChallenge2023.git",
+                                repository_url: "",
                                 branch: null,
                                 java: null,
                                 maven: null,

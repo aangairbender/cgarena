@@ -30,9 +30,7 @@ function AppNavbar({ runtimeAvailable }: { runtimeAvailable: boolean }) {
     submitBotDialog.show({
       onSubmit: async (request) => {
         const bot = await submitNewBot(request);
-        if (request.role === "candidate") {
-          await navigate({ to: "/", search: { selectedBotId: bot.id } });
-        }
+        await navigate({ to: "/", search: { selectedBotId: bot.id } });
       },
     });
   };

@@ -51,7 +51,7 @@ export default function HomePage() {
 
   const bots = useAppStore((state) => state.bots);
   const leaderboards = useAppStore((state) => state.leaderboards);
-  const rejectCandidate = useAppStore((state) => state.rejectCandidate);
+  const deleteBot = useAppStore((state) => state.deleteBot);
   const promoteCandidate = useAppStore((state) => state.promoteCandidate);
   const archiveBenchmark = useAppStore((state) => state.archiveBenchmark);
   const renameBot = useAppStore((state) => state.renameBot);
@@ -141,7 +141,7 @@ export default function HomePage() {
                         onClick={() =>
                           confirmDialog.show({
                             prompt: `Reject '${candidate.name}' and permanently delete its evaluation evidence?`,
-                            action: () => rejectCandidate(candidate.id),
+                            action: () => deleteBot(candidate.id),
                           })
                         }
                       >
@@ -207,28 +207,51 @@ export default function HomePage() {
             <BotOverview
               bot={selectedBot}
               showCodeDialog={viewCodeDialog.show}
-              lifecycleAction={
+              lifecycleActions={
                 selectedBot.role === "candidate"
-                  ? {
-                      label: "Reject",
-                      variant: "outline-danger",
-                      onClick: () =>
-                        confirmDialog.show({
-                          prompt: `Reject '${selectedBot.name}' and permanently delete its evaluation evidence?`,
-                          action: () => rejectCandidate(selectedBot.id),
-                        }),
-                    }
-                  : selectedBot.role === "benchmark"
-                    ? {
-                        label: "Archive",
-                        variant: "outline-warning",
+                  ? [
+                      {
+                        label: "Reject",
+                        variant: "outline-danger",
                         onClick: () =>
                           confirmDialog.show({
-                            prompt: `Archive benchmark '${selectedBot.name}'? Its history and rating evidence will be retained.`,
-                            action: () => archiveBenchmark(selectedBot.id),
+                            prompt: `Reject '${selectedBot.name}' and permanently delete its evaluation evidence?`,
+                            action: () => deleteBot(selectedBot.id),
                           }),
-                      }
-                    : undefined
+                      },
+                    ]
+                  : selectedBot.role === "benchmark"
+                    ? [
+                        {
+                          label: "Archive",
+                          variant: "outline-warning",
+                          onClick: () =>
+                            confirmDialog.show({
+                              prompt: `Archive benchmark '${selectedBot.name}'? Its history and rating evidence will be retained.`,
+                              action: () => archiveBenchmark(selectedBot.id),
+                            }),
+                        },
+                        {
+                          label: "Delete",
+                          variant: "outline-danger",
+                          onClick: () =>
+                            confirmDialog.show({
+                              prompt: `Permanently delete benchmark '${selectedBot.name}', including its source, builds, matches, and replays? This cannot be undone.`,
+                              action: () => deleteBot(selectedBot.id),
+                            }),
+                        },
+                      ]
+                    : [
+                        {
+                          label: "Delete",
+                          variant: "outline-danger",
+                          onClick: () =>
+                            confirmDialog.show({
+                              prompt: `Permanently delete archived benchmark '${selectedBot.name}', including its source, builds, matches, and replays? This cannot be undone.`,
+                              action: () => deleteBot(selectedBot.id),
+                            }),
+                        },
+                      ]
               }
               renameBot={() =>
                 renameBotDialog.show({

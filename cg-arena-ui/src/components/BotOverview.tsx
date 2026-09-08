@@ -6,21 +6,23 @@ import { ViewCodeDialogData } from "./ViewCodeDialog";
 import { fetchBotSourceCode } from "@/api";
 import { Link } from "@tanstack/react-router";
 
+interface LifecycleAction {
+  label: string;
+  variant: "outline-danger" | "outline-warning" | "outline-success";
+  onClick: () => void;
+}
+
 interface BotOverviewProps {
   bot: BotOverviewResponse;
   showCodeDialog: (data: ViewCodeDialogData) => void;
-  lifecycleAction?: {
-    label: string;
-    variant: "outline-danger" | "outline-warning" | "outline-success";
-    onClick: () => void;
-  };
+  lifecycleActions?: LifecycleAction[];
   renameBot: () => void;
 }
 
 const BotOverview: React.FC<BotOverviewProps> = ({
   bot,
   showCodeDialog,
-  lifecycleAction,
+  lifecycleActions,
   renameBot,
 }) => {
   const showSourceCode = async () => {
@@ -84,15 +86,16 @@ const BotOverview: React.FC<BotOverviewProps> = ({
               <Button variant="outline-warning" size="sm" onClick={renameBot}>
                 <FaPencil className="bi" />
               </Button>
-              {lifecycleAction && (
+              {lifecycleActions?.map((action) => (
                 <Button
-                  variant={lifecycleAction.variant}
+                  key={action.label}
+                  variant={action.variant}
                   size="sm"
-                  onClick={lifecycleAction.onClick}
+                  onClick={action.onClick}
                 >
-                  {lifecycleAction.label}
+                  {action.label}
                 </Button>
-              )}
+              ))}
             </Stack>
           </td>
         </tr>

@@ -57,7 +57,7 @@ A retained bot submission used as a comparison opponent for candidate bots. A bo
 _Avoid_: Baseline bot, control bot
 
 **Benchmark pool**:
-The live set of benchmark bots used to evaluate candidates. Active candidates must adapt to promotions and archival that change this set.
+The live set of benchmark bots used to evaluate candidates. Active candidates must adapt to promotions, archival, and deletion that change this set.
 _Avoid_: Benchmark group, fixed benchmark snapshot, experiment cohort
 
 **Leaderboard leader**:
@@ -75,6 +75,10 @@ _Avoid_: Candidate archival
 **Benchmark archival**:
 The retirement of a weak benchmark bot from future evaluation and active views while retaining its source and historical match evidence. That evidence continues to inform active bots' ratings.
 _Avoid_: Benchmark deletion
+
+**Benchmark deletion**:
+The permanent removal of a benchmark bot together with its source, builds, Match evidence, analytics, and replay artifacts.
+_Avoid_: Benchmark archival, Candidate rejection
 
 **Coverage policy**:
 The rule that determines when a candidate has accumulated enough match evidence. Policies may require coverage per benchmark or across the whole benchmark pool.

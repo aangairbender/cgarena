@@ -386,21 +386,18 @@ impl Arena {
         RenameBotResult::Renamed
     }
 
-    async fn cmd_reject_candidate(&mut self, id: BotId) -> BotRoleTransitionResult {
-        let Some(bot) = self.bots.iter().find(|bot| bot.id == id) else {
-            return BotRoleTransitionResult::NotFound;
-        };
-        if bot.role != BotRole::Candidate {
-            return BotRoleTransitionResult::InvalidState;
+    async fn cmd_delete_bot(&mut self, id: BotId) -> DeleteBotResult {
+        if !self.bots.iter().any(|bot| bot.id == id) {
+            return DeleteBotResult::NotFound;
         }
         self.replay_artifacts
             .delete_bot(id)
             .await
-            .expect("Cannot delete candidate and its replay artifacts");
+            .expect("Cannot delete bot and its replay artifacts");
         self.bots.retain(|bot| bot.id != id);
         self.builds.retain(|build| build.bot_id != id);
         self.recalculate_computed_full();
-        BotRoleTransitionResult::Changed
+        DeleteBotResult::Deleted
     }
 
     async fn cmd_change_bot_role(
@@ -701,7 +698,7 @@ impl Arena {
                 }
             }
             ArenaCommand::DeleteBot(command) => {
-                let res = self.cmd_reject_candidate(command.id).await;
+                let res = self.cmd_delete_bot(command.id).await;
                 if command.response.send(res).is_err() {
                     warn!("Failed to send response to client");
                 }

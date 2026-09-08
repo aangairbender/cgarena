@@ -1,9 +1,10 @@
 use crate::arena_commands::{
     ArenaCommand, BotRoleTransition, BotRoleTransitionResult, BotSourceCode, ChangeBotRoleCommand,
     ChartCommand, ChartOverview, CreateBotCommand, CreateBotResult, CreateLeaderboardCommand,
-    DeleteBotCommand, DeleteLeaderboardCommand, FetchBotSourceCodeCommand, FetchMatchesCommand,
-    FetchStatusCommand, FetchStatusResult, LeaderboardOverview, PatchLeaderboardCommand,
-    PatchLeaderboardResult, RenameBotCommand, RenameBotResult, SetEvaluationSchedulingCommand,
+    DeleteBotCommand, DeleteBotResult, DeleteLeaderboardCommand, FetchBotSourceCodeCommand,
+    FetchMatchesCommand, FetchStatusCommand, FetchStatusResult, LeaderboardOverview,
+    PatchLeaderboardCommand, PatchLeaderboardResult, RenameBotCommand, RenameBotResult,
+    SetEvaluationSchedulingCommand,
 };
 use crate::domain::{
     BotId, BotName, BotRole, Language, LeaderboardId, LeaderboardName, MatchFilter, SourceCode,
@@ -73,7 +74,7 @@ impl ArenaHandle {
         .await
     }
 
-    pub async fn reject_candidate(&self, id: BotId) -> anyhow::Result<BotRoleTransitionResult> {
+    pub async fn delete_bot(&self, id: BotId) -> anyhow::Result<DeleteBotResult> {
         self.send_command_and_await_for_result(move |tx| {
             ArenaCommand::DeleteBot(DeleteBotCommand { id, response: tx })
         })

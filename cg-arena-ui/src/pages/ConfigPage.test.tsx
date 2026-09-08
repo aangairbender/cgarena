@@ -146,7 +146,7 @@ describe("configuration page", () => {
     fireEvent.blur(maximumIterationsHelp);
     expect(
       (screen.getByLabelText("Repository URL") as HTMLInputElement).value,
-    ).toBe("https://github.com/CodinGame/SpringChallenge2023.git");
+    ).toBe("");
     expect(
       await screen.findByRole("button", { name: "Install referee" }),
     ).toBeTruthy();
@@ -157,6 +157,15 @@ describe("configuration page", () => {
         })) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+    fireEvent.change(screen.getByLabelText("Adapter"), {
+      target: { value: "command" },
+    });
+    fireEvent.change(screen.getByLabelText("Adapter"), {
+      target: { value: "managed_codingame" },
+    });
+    expect(
+      (screen.getByLabelText("Repository URL") as HTMLInputElement).value,
+    ).toBe("");
     fireEvent.change(screen.getByLabelText("Adapter"), {
       target: { value: "command" },
     });

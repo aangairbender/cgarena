@@ -31,7 +31,7 @@ type AppState = {
 
   submitNewBot: (req: CreateBotRequest) => Promise<BotOverviewResponse>;
   renameBot: (id: BotId, req: RenameBotRequest) => Promise<void>;
-  rejectCandidate: (id: BotId) => Promise<void>;
+  deleteBot: (id: BotId) => Promise<void>;
   promoteCandidate: (id: BotId) => Promise<void>;
   archiveBenchmark: (id: BotId) => Promise<void>;
 
@@ -111,9 +111,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  rejectCandidate: async (id) => {
+  deleteBot: async (id) => {
     set({ loading: true });
-    await api.rejectCandidate(id);
+    await api.deleteBot(id);
     set((state) => ({
       bots: state.bots.filter((bot) => bot.id !== id),
       leaderboards: state.leaderboards.map((leaderboard) => ({

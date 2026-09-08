@@ -326,7 +326,7 @@ async fn cmd_delete_bot_works() {
         panic!("Bot creation should succeed");
     };
 
-    arena.handle.reject_candidate(bot.id).await.unwrap();
+    arena.handle.delete_bot(bot.id).await.unwrap();
 
     let row = sqlx::query("SELECT * FROM bots WHERE id = $1")
         .bind::<i64>(bot.id.into())
@@ -338,7 +338,7 @@ async fn cmd_delete_bot_works() {
 }
 
 #[tokio::test]
-async fn candidate_can_be_promoted_and_benchmark_can_be_archived() {
+async fn candidate_can_be_promoted_and_benchmark_can_be_archived_then_deleted() {
     let arena = create_test_arena(ArenaConfig::default(), None).await;
     let CreateBotResult::Created(bot) = arena
         .handle
@@ -390,6 +390,17 @@ async fn candidate_can_be_promoted_and_benchmark_can_be_archived() {
         .await
         .unwrap();
     assert_eq!(role, "archived_benchmark");
+    assert!(matches!(
+        arena.handle.delete_bot(bot.id).await.unwrap(),
+        DeleteBotResult::Deleted
+    ));
+    assert!(arena.handle.fetch_status().await.unwrap().bots.is_empty());
+    let stored_role: Option<String> = sqlx::query_scalar("SELECT role FROM bots WHERE id = $1")
+        .bind::<i64>(bot.id.into())
+        .fetch_optional(&arena.pool)
+        .await
+        .unwrap();
+    assert!(stored_role.is_none());
 }
 
 #[tokio::test]
@@ -591,12 +602,12 @@ async fn cmd_fetch_leaderboard_e2e() {
     assert_eq!(evaluation.stages[0].benchmark_encounters[&b2], 1);
 
     assert!(matches!(
-        arena.handle.reject_candidate(b1).await.unwrap(),
-        BotRoleTransitionResult::Changed
+        arena.handle.delete_bot(b2).await.unwrap(),
+        DeleteBotResult::Deleted
     ));
-    let matches_after_rejection: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM matches")
+    let matches_after_deletion: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM matches")
         .fetch_one(&arena.pool)
         .await
         .unwrap();
-    assert_eq!(matches_after_rejection, 0);
+    assert_eq!(matches_after_deletion, 0);
 }
