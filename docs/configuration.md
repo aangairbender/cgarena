@@ -246,14 +246,16 @@ Select exactly one referee adapter.
 Selects a public CodinGame referee repository. Saving configuration does not contact the
 repository. Use **Install referee** in the configuration UI to clone its default branch (or the
 configured `branch`), add CG Arena's maintained command-line/Maven adaptation on the reserved
-local `cgarena` branch, build and probe a candidate, and activate it. The Maven Wrapper is used
-when present; otherwise `mvn` is used. Every match uses league 19.
+local `cgarena` branch, build and probe a candidate, and activate it. The platform Maven Wrapper
+(`mvnw.cmd` on Windows, `mvnw` elsewhere) is used when present; otherwise the platform Maven
+executable (`mvn.cmd` on Windows, `mvn` elsewhere) is used. Every match uses league 19.
 
 Configure the managed adapter on the **Config** page with:
 
 - `type`: `managed_codingame`
 - `repository_url`: for example, `https://github.com/CodinGame/SpringChallenge2023.git`
-- Optional `branch`, `java`, and `maven` values.
+- Optional `branch`, `java`, and `maven` values. Explicit `java` and `maven` executable values
+  override the platform defaults and are used verbatim.
 
 The visible checkout is `<arena>/referee`; the active JAR is an internal stable artifact. Install,
 Check for updates, Rebuild, Update, and Replace are explicit asynchronous UI actions. Startup,

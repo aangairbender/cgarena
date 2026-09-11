@@ -86,14 +86,17 @@ impl RefereeAdapter {
     ) -> anyhow::Result<PreparedMatchCommand> {
         match self {
             Self::CodingameJar(config) => {
-                let replay_path =
-                    replay_path.context("codingame referee requires a replay path")?;
+                let replay_path = external_process_path(
+                    replay_path.context("codingame referee requires a replay path")?,
+                );
                 let mut argv = vec![
                     config.java.clone(),
                     "--add-opens".to_string(),
                     "java.base/java.lang=ALL-UNNAMED".to_string(),
                     "-jar".to_string(),
-                    config.path.to_string_lossy().to_string(),
+                    external_process_path(&config.path)
+                        .to_string_lossy()
+                        .into_owned(),
                 ];
                 for (index, player_command) in player_commands.iter().enumerate() {
                     argv.push(format!("-p{}", index + 1));
@@ -105,7 +108,7 @@ impl RefereeAdapter {
                     "-league".to_string(),
                     "19".to_string(),
                     "-l".to_string(),
-                    replay_path.to_string_lossy().to_string(),
+                    replay_path.to_string_lossy().into_owned(),
                 ]);
                 Ok(PreparedMatchCommand {
                     argv,
@@ -121,10 +124,11 @@ impl RefereeAdapter {
                         "{SEED}" => argv.push(seed.to_string()),
                         "{PLAYERS}" => argv.extend(player_commands.iter().cloned()),
                         "{REPLAY_PATH}" => argv.push(
-                            replay_path
-                                .context("command referee requires a replay path")?
-                                .to_string_lossy()
-                                .to_string(),
+                            external_process_path(
+                                replay_path.context("command referee requires a replay path")?,
+                            )
+                            .to_string_lossy()
+                            .into_owned(),
                         ),
                         _ => {
                             let player = part
@@ -169,13 +173,20 @@ impl RefereeAdapter {
             Self::CodingameJar(config) => Ok(PreparedReplayCommand {
                 program: config.java.clone(),
                 args: vec![
-                    format!("-Djava.io.tmpdir={}", temporary_directory.display()),
+                    format!(
+                        "-Djava.io.tmpdir={}",
+                        external_process_path(temporary_directory).display()
+                    ),
                     "--add-opens".to_string(),
                     "java.base/java.lang=ALL-UNNAMED".to_string(),
                     "-jar".to_string(),
-                    config.path.to_string_lossy().to_string(),
+                    external_process_path(&config.path)
+                        .to_string_lossy()
+                        .into_owned(),
                     "-r".to_string(),
-                    artifact_path.to_string_lossy().to_string(),
+                    external_process_path(artifact_path)
+                        .to_string_lossy()
+                        .into_owned(),
                     "-port".to_string(),
                     port.to_string(),
                 ],
@@ -189,8 +200,14 @@ impl RefereeAdapter {
                 let port = port.to_string();
                 let participant_count = participant_count.to_string();
                 let replacements = [
-                    ("{REPLAY_PATH}", artifact_path.to_str()),
-                    ("{REPLAY_DIR}", session_directory.to_str()),
+                    (
+                        "{REPLAY_PATH}",
+                        external_process_path(artifact_path).to_str(),
+                    ),
+                    (
+                        "{REPLAY_DIR}",
+                        external_process_path(session_directory).to_str(),
+                    ),
                     ("{PORT}", Some(port.as_str())),
                     ("{PLAYER_COUNT}", Some(participant_count.as_str())),
                 ];
@@ -246,7 +263,7 @@ impl RefereeAdapter {
         let mut command = Command::new(&config.java);
         command
             .args(["--add-opens", "java.base/java.lang=ALL-UNNAMED", "-jar"])
-            .arg(&jar_path)
+            .arg(external_process_path(&jar_path))
             .arg(COMPATIBILITY_ARGUMENT)
             .current_dir(arena_path)
             .kill_on_drop(true);
@@ -280,6 +297,11 @@ impl RefereeAdapter {
         }
         Ok(())
     }
+}
+
+fn external_process_path(path: &Path) -> &Path {
+    // Windows canonicalization produces `\\?\` paths that many child processes reject.
+    dunce::simplified(path)
 }
 
 fn resolve_path(arena_path: &Path, configured_path: &Path) -> PathBuf {
@@ -507,4 +529,91 @@ fn normalize_replay_bundle(directory: &Path) -> std::io::Result<()> {
         std::fs::write(app, content)?;
     }
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn startup_validation_passes_a_legacy_path_to_java() {
+        let directory = tempfile::tempdir().unwrap();
+        let jar = directory.path().join("referee.jar");
+        std::fs::write(&jar, "fixture").unwrap();
+        let arguments = directory.path().join("java-arguments.txt");
+        let java = directory.path().join("java.cmd");
+        std::fs::write(
+            &java,
+            format!(
+                "@echo off\r\n>\"{}\" echo %*\r\necho {COMPATIBILITY_VERSION}\r\n",
+                arguments.display()
+            ),
+        )
+        .unwrap();
+
+        RefereeAdapter::codingame(jar.clone(), java.to_string_lossy())
+            .validate_startup(directory.path())
+            .await
+            .unwrap();
+
+        let arguments = std::fs::read_to_string(arguments).unwrap();
+        assert!(
+            !arguments.contains(r"\\?\"),
+            "Java received an extended-length path: {arguments}"
+        );
+        assert!(arguments.contains(&jar.display().to_string()));
+    }
+
+    #[test]
+    fn prepared_commands_pass_legacy_paths_to_external_processes() {
+        let jar = PathBuf::from(r"\\?\C:\arena\referee.jar");
+        let replay = PathBuf::from(r"\\?\C:\arena\replay.json");
+        let session = PathBuf::from(r"\\?\C:\arena\session");
+        let referee = RefereeAdapter::codingame(jar, "java");
+
+        let play = referee
+            .prepare_match_command(7, &["bot".to_string()], Some(&replay))
+            .unwrap();
+        assert!(play
+            .argv
+            .iter()
+            .any(|argument| argument == r"C:\arena\referee.jar"));
+        assert!(play
+            .argv
+            .iter()
+            .any(|argument| argument == r"C:\arena\replay.json"));
+
+        let render = referee
+            .prepare_replay_command(&replay, &session, &session, 8888, 2)
+            .unwrap();
+        assert!(render
+            .args
+            .iter()
+            .any(|argument| argument == r"C:\arena\referee.jar"));
+        assert!(render
+            .args
+            .iter()
+            .any(|argument| argument == r"C:\arena\replay.json"));
+        assert!(render
+            .args
+            .iter()
+            .any(|argument| argument == r"-Djava.io.tmpdir=C:\arena\session"));
+
+        let command = RefereeAdapter::Command(CommandRefereeConfig {
+            play_match: "referee {SEED} {REPLAY_PATH} {PLAYERS}".to_string(),
+            watch_replay: "renderer {REPLAY_PATH} {REPLAY_DIR} {PORT} {PLAYER_COUNT}".to_string(),
+            legacy: false,
+        });
+        let render = command
+            .prepare_replay_command(&replay, &session, &session, 8888, 2)
+            .unwrap();
+        assert!(render
+            .args
+            .iter()
+            .any(|argument| argument == r"C:\arena\replay.json"));
+        assert!(render
+            .args
+            .iter()
+            .any(|argument| argument == r"C:\arena\session"));
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "cgarena"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 authors = ["Yevhen Kazmin <gvoin16@gmail.com>"]
 repository = "https://github.com/aangairbender/cgarena"
@@ -39,6 +39,7 @@ shell-words = "1.1"
 uuid = { version = "1.18", features = ["v4"] }
 libc = "0.2"
 xmltree = "0.11"
+dunce = "1.0"
 
 [dev-dependencies]
 tempfile = "3.20"

@@ -25,6 +25,15 @@ const BUILD_FRAGMENT: &str = include_str!(concat!(
     "/assets/pom_build_section.xml"
 ));
 
+#[cfg(windows)]
+const MAVEN_WRAPPER: &str = "mvnw.cmd";
+#[cfg(not(windows))]
+const MAVEN_WRAPPER: &str = "mvnw";
+#[cfg(windows)]
+const DEFAULT_MAVEN: &str = "mvn.cmd";
+#[cfg(not(windows))]
+const DEFAULT_MAVEN: &str = "mvn";
+
 #[derive(Clone)]
 pub struct ManagedReferee {
     arena_path: PathBuf,
@@ -737,21 +746,22 @@ async fn commit_adaptation(checkout: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn maven_program(checkout: &Path, configured: Option<&str>) -> PathBuf {
+    let wrapper = checkout.join(MAVEN_WRAPPER);
+    if wrapper.is_file() {
+        wrapper
+    } else {
+        PathBuf::from(configured.unwrap_or(DEFAULT_MAVEN))
+    }
+}
+
 async fn build_and_validate(
     arena_path: &Path,
     checkout: &Path,
     selected: &ManagedCodingameRefereeConfig,
 ) -> anyhow::Result<PathBuf> {
-    let wrapper = checkout.join("mvnw");
-    let mut command = if wrapper.is_file() {
-        let mut command = Command::new(&wrapper);
-        command.current_dir(checkout);
-        command
-    } else {
-        let mut command = Command::new(selected.maven.as_deref().unwrap_or("mvn"));
-        command.current_dir(checkout);
-        command
-    };
+    let mut command = Command::new(maven_program(checkout, selected.maven.as_deref()));
+    command.current_dir(checkout);
     command.args(["--batch-mode", "-DskipTests", "package"]);
     run(&mut command, "Maven referee build").await?;
     let artifact = find_jar(&checkout.join("target")).await?;
@@ -838,6 +848,7 @@ async fn run(command: &mut Command, description: &str) -> anyhow::Result<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     fn git(path: &Path, arguments: &[&str]) -> String {
@@ -870,6 +881,39 @@ mod tests {
                 "-m",
                 message,
             ],
+        );
+    }
+    #[test]
+    fn maven_program_uses_platform_default_without_wrapper() {
+        let checkout = tempfile::tempdir().unwrap();
+
+        let program = maven_program(checkout.path(), None);
+
+        #[cfg(windows)]
+        assert_eq!(program, PathBuf::from("mvn.cmd"));
+        #[cfg(not(windows))]
+        assert_eq!(program, PathBuf::from("mvn"));
+    }
+
+    #[test]
+    fn maven_program_prefers_platform_wrapper() {
+        let checkout = tempfile::tempdir().unwrap();
+        let wrapper = checkout.path().join(MAVEN_WRAPPER);
+        std::fs::write(&wrapper, "").unwrap();
+
+        assert_eq!(
+            maven_program(checkout.path(), Some("configured-maven")),
+            wrapper
+        );
+    }
+
+    #[test]
+    fn maven_program_uses_configured_executable_without_wrapper() {
+        let checkout = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            maven_program(checkout.path(), Some("configured-maven")),
+            PathBuf::from("configured-maven")
         );
     }
 
