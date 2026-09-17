@@ -80,9 +80,6 @@ const SubmitBotDialog = (dialog: DialogProps<SubmitBotDialogData>) => {
         <Form.Group controlId="formFile" className="mb-3">
           <Form.Label>Source file</Form.Label>
           <Form.Control type="file" onChange={handleSourceFileChanged} />
-          <Form.Text className="text-muted">
-            Up to 100k characters, same as CG.
-          </Form.Text>
         </Form.Group>
 
         <Form.Group controlId="formLanguage" className="mb-3">

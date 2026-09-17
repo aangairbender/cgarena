@@ -1,17 +1,11 @@
-use anyhow::bail;
 use std::ops::Deref;
 
 #[derive(Clone)]
 pub struct SourceCode(String);
 
-impl TryFrom<String> for SourceCode {
-    type Error = anyhow::Error;
-
-    fn try_from(src: String) -> Result<Self, Self::Error> {
-        if src.len() >= LEN_LIMIT {
-            bail!("Source code should be less than {} characters", LEN_LIMIT);
-        }
-        Ok(SourceCode(src))
+impl From<String> for SourceCode {
+    fn from(src: String) -> Self {
+        SourceCode(src)
     }
 }
 
@@ -29,4 +23,16 @@ impl Deref for SourceCode {
     }
 }
 
-const LEN_LIMIT: usize = 100_000;
+#[cfg(test)]
+mod tests {
+    use super::SourceCode;
+
+    #[test]
+    fn accepts_source_code_over_previous_limit() {
+        let source = "a".repeat(100_001);
+
+        let source_code = SourceCode::from(source.clone());
+
+        assert_eq!(&*source_code, source);
+    }
+}

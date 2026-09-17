@@ -79,7 +79,7 @@ impl TryFrom<BotsRow> for Bot {
         Ok(Bot {
             id: bot.id.into(),
             name: bot.name.try_into()?,
-            source_code: bot.source_code.try_into()?,
+            source_code: bot.source_code.into(),
             language: bot.language.try_into()?,
             role: bot.role.parse()?,
             evaluation_plan_revision_id: bot.evaluation_plan_revision_id,

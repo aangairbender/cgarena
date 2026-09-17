@@ -935,7 +935,7 @@ mod tests {
         BuildBotInput {
             bot_id: BotId::from(bot_id),
             worker_name: WorkerName::embedded(),
-            source_code: "source".to_string().try_into().unwrap(),
+            source_code: "source".to_string().into(),
             language: "rust".to_string().try_into().unwrap(),
         }
     }

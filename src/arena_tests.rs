@@ -87,7 +87,7 @@ async fn cmd_create_bot_should_create_record_in_db() {
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
     let now = Utc::now();
 
@@ -145,7 +145,7 @@ async fn cmd_create_bot_should_fail_on_duplicate_name() {
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
 
     let res = arena
@@ -182,7 +182,7 @@ async fn cmd_rename_bot_works() {
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
 
     let res = arena
@@ -220,7 +220,7 @@ async fn cmd_fetch_bot_source_code_works() {
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
 
     let res = arena
@@ -253,7 +253,7 @@ async fn cmd_rename_bot_fails_on_duplicate_name() {
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
 
     let res = arena
@@ -310,7 +310,7 @@ async fn cmd_delete_bot_works() {
     let arena = create_test_arena(config, None).await;
 
     let bot_name: BotName = String::from("Bot1").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
 
     let res = arena
@@ -410,7 +410,7 @@ async fn cmd_fetch_leaderboard_works() {
 
     let bot_name_1: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
 
     let res = arena
@@ -508,7 +508,7 @@ async fn cmd_fetch_leaderboard_e2e() {
 
     let bot_name_1: BotName = String::from("Bot1").try_into().unwrap();
     let bot_name_2: BotName = String::from("Bot2").try_into().unwrap();
-    let bot_source_code: SourceCode = String::from("some code").try_into().unwrap();
+    let bot_source_code: SourceCode = String::from("some code").into();
     let bot_language: Language = String::from("rust").try_into().unwrap();
 
     let res = arena

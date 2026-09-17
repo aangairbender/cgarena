@@ -28,10 +28,7 @@ pub async fn create_bot(
         .name
         .try_into()
         .map_err(ApiError::ValidationFailed)?;
-    let source_code: SourceCode = payload
-        .source_code
-        .try_into()
-        .map_err(ApiError::ValidationFailed)?;
+    let source_code: SourceCode = payload.source_code.into();
     let language: Language = payload
         .language
         .try_into()
